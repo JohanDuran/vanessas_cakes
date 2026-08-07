@@ -1,0 +1,57 @@
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
+import Donut from "./Donut";
+import "./Navbar.css";
+
+export default function Navbar() {
+  const [scrolled, setScrolled] = useState(false);
+  const [open, setOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => setOpen(false), [location.pathname]);
+
+  const isHome = location.pathname === "/";
+
+  return (
+    <header className={`navbar ${scrolled ? "navbar--scrolled" : ""}`}>
+      <div className="container navbar__inner">
+        <Link to="/" className="navbar__brand">
+          <Donut size={38} />
+          <span>Vanessa's cake</span>
+        </Link>
+
+        <nav className={`navbar__links ${open ? "navbar__links--open" : ""}`}>
+          {isHome ? (
+            <>
+              <a href="#story" onClick={() => setOpen(false)}>Our Story</a>
+              <a href="#gallery" onClick={() => setOpen(false)}>Gallery</a>
+              <a href="#reviews" onClick={() => setOpen(false)}>Reviews</a>
+            </>
+          ) : (
+            <Link to="/">Home</Link>
+          )}
+          <Link to="/customize" className="btn btn-primary navbar__cta">
+            Design Your Cake
+          </Link>
+        </nav>
+
+        <button
+          className="navbar__burger"
+          aria-label="Toggle menu"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+      </div>
+    </header>
+  );
+}
