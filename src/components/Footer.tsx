@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import Link from "next/link";
 import Donut from "./Donut";
 import "./Footer.css";
 
@@ -15,7 +15,7 @@ export default function Footer() {
           <a href="/#story">Our Story</a>
           <a href="/#gallery">Gallery</a>
           <a href="/#reviews">Reviews</a>
-          <Link to="/customize">Design a Cake</Link>
+          <Link href="/order">Design a Cake</Link>
         </nav>
         <p className="footer__copy">© {new Date().getFullYear()} Vanessa's cake. All sweetness reserved.</p>
       </div>

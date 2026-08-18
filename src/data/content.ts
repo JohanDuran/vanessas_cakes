@@ -64,24 +64,6 @@ export const slideshowCakes: SlideCake[] = [
   },
 ];
 
-export const galleryCakes: SlideCake[] = [
-  slideshowCakes[1],
-  slideshowCakes[3],
-  slideshowCakes[0],
-  slideshowCakes[4],
-  slideshowCakes[2],
-  {
-    id: "strawberry-dream",
-    name: "Strawberry Dream",
-    description: "Strawberry crumb with berry compote and pastel swirls.",
-    flavor: "strawberry",
-    icing: "#ffe0ea",
-    icingSoft: "#fff5f8",
-    topping: "berries",
-    tiers: 1,
-  },
-];
-
 export type Review = {
   id: string;
   name: string;

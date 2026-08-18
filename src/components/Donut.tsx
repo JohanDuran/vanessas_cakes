@@ -11,7 +11,7 @@ type DonutProps = {
 export default function Donut({ size = 90, rotate = 0, className, style }: DonutProps) {
   return (
     <img
-      src={logo}
+      src={logo.src}
       alt=""
       width={size}
       height={size}

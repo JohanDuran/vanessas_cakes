@@ -1,59 +1,48 @@
-import { Link } from "react-router-dom";
-import { useScrollReveal } from "../hooks/useScrollReveal";
-import CakeIllustration from "./CakeIllustration";
-import { galleryCakes } from "../data/content";
+import Link from "next/link";
+import { loadOrderData } from "../db/queries";
+import { AXES, type Axis } from "../lib/axes";
+import Reveal from "./Reveal";
+import GalleryCard from "./order/GalleryCard";
 import "./GallerySection.css";
 
-export default function GallerySection() {
-  const headRef = useScrollReveal<HTMLDivElement>();
+export default async function GallerySection() {
+  const { items, designSummaries } = await loadOrderData();
+  const sizes = items.filter((i) => i.axis === "size");
+  const itemById = new Map(items.map((i) => [i.id, i]));
+
+  const nonSizeAxes = AXES.filter((a) => a !== "size") as Axis[];
 
   return (
     <section id="gallery" className="gallery">
       <div className="container">
-        <div ref={headRef} className="gallery__head reveal">
+        <Reveal className="gallery__head">
           <span className="section-eyebrow">Fan Favorites</span>
           <h2>A little taste of what we bake</h2>
-          <p>Every cake below started as a custom order — yours could be next.</p>
-        </div>
+          <p>Pick a size to see the price update, then tap through to make it yours.</p>
+        </Reveal>
 
         <div className="gallery__grid">
-          {galleryCakes.map((cake, i) => (
-            <GalleryCard key={cake.id} cake={cake} delay={i % 3} />
-          ))}
+          {designSummaries.map((design) => {
+            const basePriceCents = nonSizeAxes.reduce((sum, axis) => {
+              const itemId = design.recipe[axis];
+              const item = itemId != null ? itemById.get(itemId) : undefined;
+              return sum + (item?.priceCents ?? 0);
+            }, 0);
+            return (
+              <GalleryCard key={design.id} design={design} sizes={sizes} basePriceCents={basePriceCents} />
+            );
+          })}
+          {designSummaries.length === 0 && (
+            <p style={{ color: "var(--text-soft)" }}>New designs are on their way — check back soon!</p>
+          )}
         </div>
 
         <div className="gallery__cta">
-          <Link to="/customize" className="btn btn-primary">
+          <Link href="/order" className="btn btn-primary">
             Start Designing Yours
           </Link>
         </div>
       </div>
     </section>
-  );
-}
-
-function GalleryCard({
-  cake,
-  delay,
-}: {
-  cake: (typeof galleryCakes)[number];
-  delay: number;
-}) {
-  const ref = useScrollReveal<HTMLDivElement>();
-  return (
-    <div ref={ref} className={`gallery__card reveal reveal-delay-${delay}`}>
-      <div className="gallery__card-art">
-        <CakeIllustration
-          flavor={cake.flavor}
-          icing={cake.icing}
-          icingSoft={cake.icingSoft}
-          topping={cake.topping}
-          tiers={cake.tiers}
-          size={190}
-        />
-      </div>
-      <h3>{cake.name}</h3>
-      <p>{cake.description}</p>
-    </div>
   );
 }

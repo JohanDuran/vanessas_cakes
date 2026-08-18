@@ -1,3 +1,5 @@
+"use client";
+
 import { useScrollReveal } from "../hooks/useScrollReveal";
 import { reviews } from "../data/content";
 import "./ReviewsSection.css";

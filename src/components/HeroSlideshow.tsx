@@ -1,5 +1,7 @@
+"use client";
+
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import Link from "next/link";
 import CakeIllustration from "./CakeIllustration";
 import Donut from "./Donut";
 import { slideshowCakes } from "../data/content";
@@ -53,7 +55,7 @@ export default function HeroSlideshow() {
             Explore our favorites, or design your own from scratch.
           </p>
           <div className="hero__actions">
-            <Link to="/customize" className="btn btn-primary">
+            <Link href="/order" className="btn btn-primary">
               🎂 Design Your Cake
             </Link>
             <a href="#gallery" className="btn btn-outline">

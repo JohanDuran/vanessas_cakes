@@ -12,6 +12,21 @@ dist
 dist-ssr
 *.local
 
+# Next.js
+.next
+next-env.d.ts
+
+# local sqlite data & uploads (dev)
+data/
+*.db
+*.db-journal
+
+# secrets
+.env
+.env.docker
+.env.local
+.env*.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

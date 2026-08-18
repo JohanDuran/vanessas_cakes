@@ -1,12 +1,15 @@
+"use client";
+
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import Donut from "./Donut";
 import "./Navbar.css";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
-  const location = useLocation();
+  const pathname = usePathname();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -15,14 +18,14 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => setOpen(false), [pathname]);
 
-  const isHome = location.pathname === "/";
+  const isHome = pathname === "/";
 
   return (
     <header className={`navbar ${scrolled ? "navbar--scrolled" : ""}`}>
       <div className="container navbar__inner">
-        <Link to="/" className="navbar__brand">
+        <Link href="/" className="navbar__brand">
           <Donut size={38} />
           <span>Vanessa's cake</span>
         </Link>
@@ -35,9 +38,9 @@ export default function Navbar() {
               <a href="#reviews" onClick={() => setOpen(false)}>Reviews</a>
             </>
           ) : (
-            <Link to="/">Home</Link>
+            <Link href="/">Home</Link>
           )}
-          <Link to="/customize" className="btn btn-primary navbar__cta">
+          <Link href="/order" className="btn btn-primary navbar__cta">
             Design Your Cake
           </Link>
         </nav>
