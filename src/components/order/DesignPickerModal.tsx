@@ -29,8 +29,8 @@ export default function DesignPickerModal({ designs, onSelect, onClose, closable
           {designs.map((design) => (
             <button key={design.id} type="button" className="design-card" onClick={() => onSelect(design)}>
               <div className="design-card__art">
-                {design.photoPath ? (
-                  <img src={`/uploads/${design.photoPath}`} alt={design.name} />
+                {design.photos[0] ? (
+                  <img src={`/uploads/${design.photos[0]}`} alt={design.name} />
                 ) : (
                   <div className="design-card__placeholder">🎂</div>
                 )}

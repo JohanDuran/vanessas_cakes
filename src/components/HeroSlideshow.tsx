@@ -58,9 +58,9 @@ export default function HeroSlideshow() {
             <Link href="/order" className="btn btn-primary">
               🎂 Design Your Cake
             </Link>
-            <a href="#gallery" className="btn btn-outline">
+            <Link href="/gallery" className="btn btn-outline">
               View Gallery
-            </a>
+            </Link>
           </div>
         </div>
 

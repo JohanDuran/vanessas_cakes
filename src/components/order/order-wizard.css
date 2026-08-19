@@ -4,6 +4,39 @@
   padding-bottom: 80px;
 }
 
+/* sticky running subtotal, shown while picking options (not on the review step,
+   which already has its own total line) */
+.order-subtotal-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  margin-top: 32px;
+  padding: 14px 0;
+  background: var(--white);
+  border-top: 2px solid var(--pink-100);
+  box-shadow: 0 -8px 24px rgba(107, 66, 38, 0.1);
+}
+
+.order-subtotal-bar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.order-subtotal-bar__label {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-soft);
+}
+
+.order-subtotal-bar__value {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.4rem;
+  color: var(--pink-600);
+}
+
 .order-hero {
   background: linear-gradient(160deg, var(--pink-100), var(--cream) 70%);
   padding: 64px 0 40px;
@@ -54,6 +87,17 @@
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--text-soft);
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.order-stepper__item:hover {
+  background: var(--pink-100);
+  color: var(--pink-600);
 }
 
 .order-stepper__item.is-active {
@@ -61,8 +105,96 @@
   color: var(--white);
 }
 
+.order-stepper__item.is-active:hover {
+  background: var(--pink-500);
+  color: var(--white);
+}
+
 .order-stepper__item.is-done {
   color: var(--pink-600);
+}
+
+/* photo carousel */
+.photo-carousel {
+  margin: 8px 0 28px;
+}
+
+.photo-carousel__stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 480px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--pink-100);
+  box-shadow: 0 14px 30px rgba(107, 66, 38, 0.1);
+}
+
+.photo-carousel__stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-carousel--empty {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 480px;
+  border-radius: var(--radius-lg);
+  background: var(--pink-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3.4rem;
+}
+
+.photo-carousel__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--pink-600);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(107, 66, 38, 0.18);
+}
+
+.photo-carousel__nav:hover {
+  background: var(--white);
+}
+
+.photo-carousel__nav--prev {
+  left: 16px;
+}
+
+.photo-carousel__nav--next {
+  right: 16px;
+}
+
+.photo-carousel__dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.photo-carousel__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: none;
+  background: var(--pink-200);
+  cursor: pointer;
+  padding: 0;
+}
+
+.photo-carousel__dot.is-active {
+  background: var(--pink-500);
 }
 
 /* stage */

@@ -1,40 +1,51 @@
-import type { Axis } from "./axes";
+export type PriceableOption = { id: number; fieldId: number; priceCents: number };
 
-export type PriceableItem = { id: number; axis: string; priceCents: number };
+/** A design's (or the wizard's current) answer for one field, keyed by fieldId. */
+export type FieldAnswer =
+  | { type: "options"; optionIds: number[] } // single_select (length 1) or multi_select (0..N)
+  | { type: "text"; value: string }
+  | { type: "number"; value: number };
 
-/** axis -> selected catalogItem id */
-export type Selections = Partial<Record<Axis, number>>;
+/** fieldId -> answer */
+export type Answers = Record<number, FieldAnswer>;
 
-export function computeStandardPriceCents(selections: Selections, items: PriceableItem[]): number {
-  const byId = new Map(items.map((i) => [i.id, i]));
+function selectedOptionIds(answers: Answers): number[] {
+  const ids: number[] = [];
+  for (const answer of Object.values(answers)) {
+    if (answer.type === "options") ids.push(...answer.optionIds);
+  }
+  return ids;
+}
+
+export function computeStandardPriceCents(answers: Answers, options: PriceableOption[]): number {
+  const byId = new Map(options.map((o) => [o.id, o]));
   let total = 0;
-  for (const itemId of Object.values(selections)) {
-    if (itemId == null) continue;
-    const item = byId.get(itemId);
-    if (item) total += item.priceCents;
+  for (const id of selectedOptionIds(answers)) {
+    const opt = byId.get(id);
+    if (opt) total += opt.priceCents;
   }
   return total;
 }
 
 export function computeTotalCents(
-  selections: Selections,
+  answers: Answers,
   premiumCents: number,
-  items: PriceableItem[]
+  options: PriceableOption[]
 ): number {
-  return computeStandardPriceCents(selections, items) + premiumCents;
+  return computeStandardPriceCents(answers, options) + premiumCents;
 }
 
-/** Price difference of switching this axis's selection to `candidateItemId`,
- *  relative to whatever is currently selected in that axis (or $0 if nothing is). */
-export function computeAxisDeltaCents(
-  candidateItemId: number,
-  currentItemId: number | null | undefined,
-  items: PriceableItem[]
+/** Price difference of switching to `candidateOptionId` within a single_select
+ *  field, relative to whatever's currently selected there (or $0 if nothing is). */
+export function computeOptionDeltaCents(
+  candidateOptionId: number,
+  currentOptionId: number | null | undefined,
+  options: PriceableOption[]
 ): number {
-  const byId = new Map(items.map((i) => [i.id, i]));
-  const candidate = byId.get(candidateItemId);
+  const byId = new Map(options.map((o) => [o.id, o]));
+  const candidate = byId.get(candidateOptionId);
   if (!candidate) return 0;
-  const current = currentItemId != null ? byId.get(currentItemId) : undefined;
+  const current = currentOptionId != null ? byId.get(currentOptionId) : undefined;
   return candidate.priceCents - (current?.priceCents ?? 0);
 }
 

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a8718d1c-bb33-42e6-8e3e-5110eed84603",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "e4a22df9-fb79-4017-a17c-6df32adf7364",
+  "prevId": "a8718d1c-bb33-42e6-8e3e-5110eed84603",
   "tables": {
     "constraint_pairs": {
       "name": "constraint_pairs",
@@ -454,6 +454,103 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "field_option_dimensions": {
+      "name": "field_option_dimensions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "field_option_id": {
+          "name": "field_option_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "diameter_in": {
+          "name": "diameter_in",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "shape": {
+          "name": "shape",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tiers": {
+          "name": "tiers",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "serves_min": {
+          "name": "serves_min",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "serves_max": {
+          "name": "serves_max",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch('now','subsec') * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch('now','subsec') * 1000)"
+        }
+      },
+      "indexes": {
+        "field_option_dimensions_field_option_id_unique": {
+          "name": "field_option_dimensions_field_option_id_unique",
+          "columns": [
+            "field_option_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "field_option_dimensions_field_option_id_field_options_id_fk": {
+          "name": "field_option_dimensions_field_option_id_field_options_id_fk",
+          "tableFrom": "field_option_dimensions",
+          "tableTo": "field_options",
+          "columnsFrom": [
+            "field_option_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "field_options": {
       "name": "field_options",
       "columns": {
@@ -501,41 +598,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
-        },
-        "diameter_in": {
-          "name": "diameter_in",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "shape": {
-          "name": "shape",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "tiers": {
-          "name": "tiers",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "serves_min": {
-          "name": "serves_min",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "serves_max": {
-          "name": "serves_max",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -620,6 +682,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": true
+        },
+        "has_shape_diagram": {
+          "name": "has_shape_diagram",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "sort_order": {
           "name": "sort_order",

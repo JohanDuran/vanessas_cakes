@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { db } from "../../../../../db";
-import { designs, orderSelections, orders } from "../../../../../db/schema";
-import { AXIS_LABELS, type Axis } from "../../../../../lib/axes";
+import { designs, fields as fieldsTable, orderSelections, orders } from "../../../../../db/schema";
+import { baseFieldRank } from "../../../../../lib/fields";
 import { formatCents } from "../../../../../lib/pricing";
 import { setOrderStatus } from "../actions";
 
@@ -21,10 +21,24 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     order.status = "viewed";
   }
 
-  const [design, selections] = await Promise.all([
+  const [design, selections, allFields] = await Promise.all([
     order.designId ? db.select().from(designs).where(eq(designs.id, order.designId)).get() : undefined,
     db.select().from(orderSelections).where(eq(orderSelections.orderId, orderId)).then((r) => r),
+    db.select().from(fieldsTable).then((r) => r),
   ]);
+
+  const fieldById = new Map(allFields.map((f) => [f.id, f]));
+
+  // group selections by field so a multi-select field's several rows show as one line
+  const rowsByField = new Map<number, typeof selections>();
+  for (const s of selections) {
+    const list = rowsByField.get(s.fieldId) ?? [];
+    list.push(s);
+    rowsByField.set(s.fieldId, list);
+  }
+  const orderedFieldIds = Array.from(rowsByField.keys()).sort(
+    (a, b) => baseFieldRank(fieldById.get(a)?.slug ?? "") - baseFieldRank(fieldById.get(b)?.slug ?? "")
+  );
 
   return (
     <>
@@ -45,19 +59,25 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Item</th>
+              <th>Field</th>
               <th>Selection</th>
               <th>Price</th>
             </tr>
           </thead>
           <tbody>
-            {selections.map((s) => (
-              <tr key={s.id}>
-                <td>{AXIS_LABELS[s.axis as Axis] ?? s.axis}</td>
-                <td>{s.itemNameSnapshot}</td>
-                <td>{formatCents(s.priceCentsSnapshot)}</td>
-              </tr>
-            ))}
+            {orderedFieldIds.map((fieldId) => {
+              const rows = rowsByField.get(fieldId)!;
+              const field = fieldById.get(fieldId);
+              const label = rows.map((r) => r.labelSnapshot).join(", ");
+              const price = rows.reduce((sum, r) => sum + r.priceCentsSnapshot, 0);
+              return (
+                <tr key={fieldId}>
+                  <td>{field?.name ?? "Unknown field"}</td>
+                  <td>{label}</td>
+                  <td>{formatCents(price)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         <div style={{ marginTop: 14, fontWeight: 700, fontFamily: "var(--font-heading)" }}>

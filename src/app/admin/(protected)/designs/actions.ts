@@ -5,17 +5,21 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
-import { catalogItems, constraintPairs, designPhotos, designRecipeItems, designs } from "../../../../db/schema";
-import { AXES, type Axis } from "../../../../lib/axes";
+import {
+  designExcludedOptions,
+  designFieldValues,
+  designLockedFields,
+  designPhotos,
+  designs,
+  fieldOptions,
+  fields,
+  constraintPairs,
+} from "../../../../db/schema";
 import { selectionsViolateConstraints } from "../../../../lib/constraints";
-import { computeStandardPriceCents } from "../../../../lib/pricing";
+import { computeStandardPriceCents, type Answers } from "../../../../lib/pricing";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
-
-const recipeFields = Object.fromEntries(
-  AXES.map((axis) => [`recipe_${axis}`, z.coerce.number().int()])
-) as Record<`recipe_${Axis}`, z.ZodNumber>;
 
 const saveSchema = z.object({
   id: z.coerce.number().int().optional(),
@@ -23,27 +27,92 @@ const saveSchema = z.object({
   description: z.string().trim().optional(),
   chargedPriceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
   published: z.coerce.number().optional(),
-  ...recipeFields,
 });
 
 export async function saveDesign(formData: FormData) {
   const parsed = saveSchema.parse(Object.fromEntries(formData));
 
-  const recipeSelections = Object.fromEntries(
-    AXES.map((axis) => [axis, parsed[`recipe_${axis}`]])
-  ) as Record<Axis, number>;
+  const allFields = db.select().from(fields).all();
+  const allOptions = db.select().from(fieldOptions).all();
 
-  const allItems = db.select().from(catalogItems).all();
-  const pairs = db.select().from(constraintPairs).all();
+  const includedCustomFieldIds = new Set(
+    formData
+      .getAll("includedFieldIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n))
+  );
 
-  if (selectionsViolateConstraints(recipeSelections, pairs)) {
+  const answers: Answers = {};
+  for (const field of allFields) {
+    const isIncluded = field.isBase || includedCustomFieldIds.has(field.id);
+    if (!isIncluded) continue;
+
+    if (field.type === "single_select") {
+      const raw = formData.get(`option_${field.id}`);
+      const optionId = raw != null ? Number(raw) : NaN;
+      if (!Number.isInteger(optionId)) {
+        if (field.isBase) throw new Error(`${field.name} is required.`);
+        continue;
+      }
+      answers[field.id] = { type: "options", optionIds: [optionId] };
+    } else if (field.type === "multi_select") {
+      const ids = formData
+        .getAll(`options_${field.id}`)
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n));
+      if (ids.length > 0) answers[field.id] = { type: "options", optionIds: ids };
+    } else if (field.type === "text") {
+      const value = String(formData.get(`text_${field.id}`) ?? "").trim();
+      if (value) answers[field.id] = { type: "text", value };
+    } else if (field.type === "number") {
+      const raw = formData.get(`number_${field.id}`);
+      if (raw != null && raw !== "") answers[field.id] = { type: "number", value: Number(raw) };
+    }
+  }
+
+  for (const field of allFields) {
+    if (field.isBase && !answers[field.id]) {
+      throw new Error(`${field.name} is required.`);
+    }
+  }
+
+  const pairs = db
+    .select()
+    .from(constraintPairs)
+    .all()
+    .map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
+
+  if (selectionsViolateConstraints(answers, pairs)) {
     const backPath = parsed.id ? `/admin/designs/${parsed.id}/edit` : "/admin/designs/new";
     redirect(`${backPath}?error=constraint`);
   }
 
-  const standardPriceCents = computeStandardPriceCents(recipeSelections, allItems);
+  const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
+  const standardPriceCents = computeStandardPriceCents(answers, flatOptions);
   const chargedPriceCents = dollarsToCents(parsed.chargedPriceDollars);
   const premiumCents = chargedPriceCents - standardPriceCents;
+
+  const lockedFieldIds = formData
+    .getAll("lockedFieldIds")
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n));
+  const lockedFieldIdSet = new Set(lockedFieldIds);
+
+  const excludedOptionIdsRaw = formData
+    .getAll("excludedOptionIds")
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n));
+
+  // an option can't be excluded from its own field if it's also that
+  // field's current default, or if the whole field is locked (moot)
+  const defaultOptionIds = new Set(
+    Object.values(answers).flatMap((a) => (a.type === "options" ? a.optionIds : []))
+  );
+  const excludedOptionIds = excludedOptionIdsRaw.filter((id) => {
+    if (defaultOptionIds.has(id)) return false;
+    const opt = allOptions.find((o) => o.id === id);
+    return opt ? !lockedFieldIdSet.has(opt.fieldId) : true;
+  });
 
   let designId = parsed.id;
 
@@ -61,7 +130,7 @@ export async function saveDesign(formData: FormData) {
         .where(eq(designs.id, designId!))
         .run();
 
-      tx.delete(designRecipeItems).where(eq(designRecipeItems.designId, designId!)).run();
+      tx.delete(designFieldValues).where(eq(designFieldValues.designId, designId!)).run();
     } else {
       const inserted = tx
         .insert(designs)
@@ -78,11 +147,28 @@ export async function saveDesign(formData: FormData) {
       designId = inserted.id;
     }
 
-    for (const axis of AXES) {
-      tx.insert(designRecipeItems)
-        .values({ designId: designId!, axis, catalogItemId: recipeSelections[axis] })
-        .run();
+    for (const [fieldIdStr, answer] of Object.entries(answers)) {
+      const fieldId = Number(fieldIdStr);
+      if (answer.type === "options") {
+        for (const optionId of answer.optionIds) {
+          tx.insert(designFieldValues).values({ designId: designId!, fieldId, fieldOptionId: optionId }).run();
+        }
+      } else if (answer.type === "text") {
+        tx.insert(designFieldValues).values({ designId: designId!, fieldId, textValue: answer.value }).run();
+      } else if (answer.type === "number") {
+        tx.insert(designFieldValues).values({ designId: designId!, fieldId, numberValue: answer.value }).run();
+      }
     }
+
+    tx.delete(designLockedFields).where(eq(designLockedFields.designId, designId!)).run();
+    lockedFieldIds.forEach((fieldId) => {
+      tx.insert(designLockedFields).values({ designId: designId!, fieldId }).run();
+    });
+
+    tx.delete(designExcludedOptions).where(eq(designExcludedOptions.designId, designId!)).run();
+    excludedOptionIds.forEach((fieldOptionId) => {
+      tx.insert(designExcludedOptions).values({ designId: designId!, fieldOptionId }).run();
+    });
   });
 
   const photoFiles = formData

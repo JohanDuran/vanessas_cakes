@@ -34,12 +34,12 @@ export default function Navbar() {
           {isHome ? (
             <>
               <a href="#story" onClick={() => setOpen(false)}>Our Story</a>
-              <a href="#gallery" onClick={() => setOpen(false)}>Gallery</a>
               <a href="#reviews" onClick={() => setOpen(false)}>Reviews</a>
             </>
           ) : (
             <Link href="/">Home</Link>
           )}
+          <Link href="/gallery">Gallery</Link>
           <Link href="/order" className="btn btn-primary navbar__cta">
             Design Your Cake
           </Link>

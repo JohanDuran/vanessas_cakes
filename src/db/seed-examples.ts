@@ -2,9 +2,21 @@ import zlib from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { eq } from "drizzle-orm";
 import { db, dataDir } from "./index";
-import { catalogItems, constraintPairs, designPhotos, designRecipeItems, designs, orders, orderSelections } from "./schema";
-import { AXES, type Axis } from "../lib/axes";
+import {
+  constraintPairs,
+  designExcludedOptions,
+  designFieldValues,
+  designLockedFields,
+  designPhotos,
+  designs,
+  fieldOptions,
+  fields,
+  orders,
+  orderSelections,
+} from "./schema";
+import { BASE_FIELD_SLUGS, type BaseFieldSlug, type FieldType } from "../lib/fields";
 
 // --- tiny solid-color PNG encoder (no deps) -------------------------------
 
@@ -67,14 +79,46 @@ function savePlaceholderPhoto(color: [number, number, number]): string {
   return filename;
 }
 
-// --- seed data --------------------------------------------------------------
+// --- custom fields ----------------------------------------------------------
+// A couple of admin-defined fields (unified with the base ones, isBase: false)
+// so the seeded data demonstrates the full field system: a locked custom text
+// field and an included-but-unlocked custom multi-select field.
+
+const customFieldSeeds: {
+  slug: string;
+  name: string;
+  type: FieldType;
+  options: { name: string; priceCents: number }[];
+}[] = [
+  { slug: "topper-message", name: "Topper Message", type: "text", options: [] },
+  {
+    slug: "extra-toppings",
+    name: "Extra Toppings",
+    type: "multi_select",
+    options: [
+      { name: "Edible Glitter", priceCents: 300 },
+      { name: "Fresh Mint Sprig", priceCents: 150 },
+      { name: "Chocolate Shavings", priceCents: 250 },
+    ],
+  },
+];
+
+// --- design seed data --------------------------------------------------------
+
+type CustomFieldValueSeed =
+  | { fieldSlug: string; kind: "options"; optionNames: string[]; locked?: boolean }
+  | { fieldSlug: string; kind: "text"; value: string; locked?: boolean }
+  | { fieldSlug: string; kind: "number"; value: number; locked?: boolean };
 
 type DesignSeed = {
   name: string;
   description: string;
   color: [number, number, number];
   chargedDollars: number;
-  recipe: Record<Axis, string>; // axis -> catalog item name
+  recipe: Record<BaseFieldSlug, string>; // base field slug -> option name
+  lockedBaseFields?: BaseFieldSlug[];
+  excludedOptions?: { fieldSlug: BaseFieldSlug; name: string }[];
+  customFieldValues?: CustomFieldValueSeed[];
 };
 
 const designSeeds: DesignSeed[] = [
@@ -91,6 +135,11 @@ const designSeeds: DesignSeed[] = [
       frosting: "Buttercream",
       decoration: "Choco Drip",
     },
+    // demonstrates a locked base field and an excluded base option
+    lockedBaseFields: ["cake_type"],
+    excludedOptions: [{ fieldSlug: "frosting", name: "Fondant" }],
+    // demonstrates a locked custom field (fixed to an admin-set default)
+    customFieldValues: [{ fieldSlug: "topper-message", kind: "text", value: "Happy Birthday!", locked: true }],
   },
   {
     name: "Velvet Bloom",
@@ -105,6 +154,8 @@ const designSeeds: DesignSeed[] = [
       frosting: "Cream Cheese Frosting",
       decoration: "Sugar Flowers",
     },
+    // demonstrates an included-but-unlocked custom field (customer can change it)
+    customFieldValues: [{ fieldSlug: "extra-toppings", kind: "options", optionNames: ["Edible Glitter"] }],
   },
   {
     name: "Marble Sprinkle Party",
@@ -150,7 +201,7 @@ const designSeeds: DesignSeed[] = [
   },
 ];
 
-type ConstraintSeed = { a: [Axis, string]; b: [Axis, string] };
+type ConstraintSeed = { a: [BaseFieldSlug, string]; b: [BaseFieldSlug, string] };
 
 const constraintSeeds: ConstraintSeed[] = [
   { a: ["cake_type", "Naked Cake"], b: ["frosting", "Fondant"] },
@@ -165,7 +216,7 @@ type OrderSeed = {
   customerPhone?: string;
   comments?: string;
   status: "new" | "viewed" | "archived";
-  overrides?: Partial<Record<Axis, string>>;
+  overrides?: Partial<Record<BaseFieldSlug, string>>;
 };
 
 const orderSeeds: OrderSeed[] = [
@@ -187,19 +238,44 @@ const orderSeeds: OrderSeed[] = [
 ];
 
 function main() {
-  const items = db.select().from(catalogItems).all();
-  const itemByAxisName = new Map<string, (typeof items)[number]>();
-  for (const item of items) itemByAxisName.set(`${item.axis}:${item.name}`, item);
+  // ensure the custom fields (and their options) exist before anything below
+  // looks them up — idempotent, same pattern as the design/constraint/order loops
+  const existingFieldsBySlug = new Map(db.select().from(fields).all().map((f) => [f.slug, f]));
+  for (const cf of customFieldSeeds) {
+    if (existingFieldsBySlug.has(cf.slug)) continue;
+    const insertedField = db
+      .insert(fields)
+      .values({ slug: cf.slug, name: cf.name, type: cf.type, isBase: false, updatedAt: Date.now() })
+      .returning()
+      .get();
+    cf.options.forEach((opt, index) => {
+      db.insert(fieldOptions)
+        .values({ fieldId: insertedField.id, name: opt.name, priceCents: opt.priceCents, sortOrder: index, updatedAt: Date.now() })
+        .run();
+    });
+    console.log(`Created custom field "${cf.name}".`);
+  }
 
-  const lookup = (axis: Axis, name: string) => {
-    const item = itemByAxisName.get(`${axis}:${name}`);
-    if (!item) throw new Error(`Catalog item not found: ${axis} / ${name} — run "npm run db:seed" first.`);
-    return item;
+  const allFields = db.select().from(fields).all();
+  const fieldBySlug = new Map(allFields.map((f) => [f.slug, f]));
+  const allOptions = db.select().from(fieldOptions).all();
+  const optionByFieldIdName = new Map<string, (typeof allOptions)[number]>();
+  for (const opt of allOptions) optionByFieldIdName.set(`${opt.fieldId}:${opt.name}`, opt);
+
+  const requireField = (slug: string) => {
+    const field = fieldBySlug.get(slug);
+    if (!field) throw new Error(`Field not found: ${slug} — run "npm run db:seed" first.`);
+    return field;
+  };
+  const lookupOption = (slug: string, name: string) => {
+    const field = requireField(slug);
+    const opt = optionByFieldIdName.get(`${field.id}:${name}`);
+    if (!opt) throw new Error(`Catalog option not found: ${slug} / ${name} — run "npm run db:seed" first.`);
+    return opt;
   };
 
   const existingDesigns = db.select().from(designs).all();
   const existingNames = new Set(existingDesigns.map((d) => d.name));
-
   const designIdByName = new Map<string, number>(existingDesigns.map((d) => [d.name, d.id]));
 
   for (const seed of designSeeds) {
@@ -208,8 +284,24 @@ function main() {
       continue;
     }
 
-    const recipeItems = AXES.map((axis) => ({ axis, item: lookup(axis, seed.recipe[axis]) }));
-    const standardCents = recipeItems.reduce((sum, r) => sum + r.item.priceCents, 0);
+    const baseSelections = BASE_FIELD_SLUGS.map((slug) => ({
+      field: requireField(slug),
+      option: lookupOption(slug, seed.recipe[slug]),
+    }));
+
+    let standardCents = baseSelections.reduce((sum, s) => sum + s.option.priceCents, 0);
+
+    const customSelections = (seed.customFieldValues ?? []).map((cfv) => {
+      const field = requireField(cfv.fieldSlug);
+      if (cfv.kind === "options") {
+        const options = cfv.optionNames.map((name) => lookupOption(cfv.fieldSlug, name));
+        standardCents += options.reduce((sum, o) => sum + o.priceCents, 0);
+        return { field, kind: "options" as const, options, locked: cfv.locked ?? false };
+      }
+      if (cfv.kind === "text") return { field, kind: "text" as const, value: cfv.value, locked: cfv.locked ?? false };
+      return { field, kind: "number" as const, value: cfv.value, locked: cfv.locked ?? false };
+    });
+
     const chargedCents = Math.round(seed.chargedDollars * 100);
     const premiumCents = chargedCents - standardCents;
 
@@ -227,8 +319,33 @@ function main() {
         .returning({ id: designs.id })
         .get();
 
-      for (const { axis, item } of recipeItems) {
-        tx.insert(designRecipeItems).values({ designId: inserted.id, axis, catalogItemId: item.id }).run();
+      for (const { field, option } of baseSelections) {
+        tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: field.id, fieldOptionId: option.id }).run();
+      }
+
+      for (const cs of customSelections) {
+        if (cs.kind === "options") {
+          for (const option of cs.options) {
+            tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, fieldOptionId: option.id }).run();
+          }
+        } else if (cs.kind === "text") {
+          tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, textValue: cs.value }).run();
+        } else {
+          tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, numberValue: cs.value }).run();
+        }
+      }
+
+      for (const slug of seed.lockedBaseFields ?? []) {
+        tx.insert(designLockedFields).values({ designId: inserted.id, fieldId: requireField(slug).id }).run();
+      }
+      for (const cs of customSelections) {
+        if (cs.locked) tx.insert(designLockedFields).values({ designId: inserted.id, fieldId: cs.field.id }).run();
+      }
+
+      for (const excl of seed.excludedOptions ?? []) {
+        tx.insert(designExcludedOptions)
+          .values({ designId: inserted.id, fieldOptionId: lookupOption(excl.fieldSlug, excl.name).id })
+          .run();
       }
 
       return inserted.id;
@@ -243,19 +360,17 @@ function main() {
 
   const existingPairs = db.select().from(constraintPairs).all();
   const pairExists = (aId: number, bId: number) =>
-    existingPairs.some((p) => (p.itemAId === aId && p.itemBId === bId) || (p.itemAId === bId && p.itemBId === aId));
+    existingPairs.some((p) => (p.optionAId === aId && p.optionBId === bId) || (p.optionAId === bId && p.optionBId === aId));
 
   for (const seed of constraintSeeds) {
-    const a = lookup(seed.a[0], seed.a[1]);
-    const b = lookup(seed.b[0], seed.b[1]);
+    const a = lookupOption(seed.a[0], seed.a[1]);
+    const b = lookupOption(seed.b[0], seed.b[1]);
     if (pairExists(a.id, b.id)) {
       console.log(`Constraint ${seed.a[1]} x ${seed.b[1]} already exists — skipping.`);
       continue;
     }
-    const [first, second] = a.id < b.id ? [{ ...a, axis: seed.a[0] }, { ...b, axis: seed.b[0] }] : [{ ...b, axis: seed.b[0] }, { ...a, axis: seed.a[0] }];
-    db.insert(constraintPairs)
-      .values({ axisA: first.axis, itemAId: first.id, axisB: second.axis, itemBId: second.id })
-      .run();
+    const [first, second] = a.id < b.id ? [a, b] : [b, a];
+    db.insert(constraintPairs).values({ optionAId: first.id, optionBId: second.id }).run();
     console.log(`Created constraint: ${seed.a[1]} x ${seed.b[1]}.`);
   }
 
@@ -270,23 +385,19 @@ function main() {
     const designId = designIdByName.get(seed.designName);
     if (!designId) throw new Error(`Design not found for order seed: ${seed.designName}`);
 
-    const recipeRows = db
-      .select()
-      .from(designRecipeItems)
-      .all()
-      .filter((r) => r.designId === designId);
-
+    const designFieldValueRows = db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).all();
     const design = db.select().from(designs).all().find((d) => d.id === designId)!;
 
-    const selections = AXES.map((axis) => {
-      const overrideName = seed.overrides?.[axis];
-      if (overrideName) return { axis, item: lookup(axis, overrideName) };
-      const recipeRow = recipeRows.find((r) => r.axis === axis)!;
-      const item = items.find((i) => i.id === recipeRow.catalogItemId)!;
-      return { axis, item };
+    const selections = BASE_FIELD_SLUGS.map((slug) => {
+      const field = requireField(slug);
+      const overrideName = seed.overrides?.[slug];
+      if (overrideName) return { field, option: lookupOption(slug, overrideName) };
+      const row = designFieldValueRows.find((r) => r.fieldId === field.id)!;
+      const option = allOptions.find((o) => o.id === row.fieldOptionId)!;
+      return { field, option };
     });
 
-    const standardCents = selections.reduce((sum, s) => sum + s.item.priceCents, 0);
+    const standardCents = selections.reduce((sum, s) => sum + s.option.priceCents, 0);
     const totalCents = standardCents + design.premiumCents;
 
     db.transaction((tx) => {
@@ -304,14 +415,14 @@ function main() {
         .returning({ id: orders.id })
         .get();
 
-      for (const { axis, item } of selections) {
+      for (const { field, option } of selections) {
         tx.insert(orderSelections)
           .values({
             orderId: inserted.id,
-            axis,
-            catalogItemId: item.id,
-            itemNameSnapshot: item.name,
-            priceCentsSnapshot: item.priceCents,
+            fieldId: field.id,
+            fieldOptionId: option.id,
+            labelSnapshot: option.name,
+            priceCentsSnapshot: option.priceCents,
           })
           .run();
       }

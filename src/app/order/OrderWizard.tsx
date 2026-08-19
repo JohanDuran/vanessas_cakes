@@ -1,16 +1,20 @@
 "use client";
 
 import { useMemo, useReducer, useState } from "react";
-import { AXES, AXIS_LABELS, type Axis } from "../../lib/axes";
-import type { CatalogItemDTO, DesignSummaryDTO } from "../../lib/order-types";
-import { getHiddenItemIds, resolveSelections, type ConstraintPair } from "../../lib/constraints";
+import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO } from "../../lib/order-types";
+import { getHiddenOptionIds, resolveAnswers, type ConstraintPair } from "../../lib/constraints";
+import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
+import { SIZE_FIELD_SLUG } from "../../lib/fields";
 import DesignPickerModal from "../../components/order/DesignPickerModal";
-import SizeStep from "../../components/order/steps/SizeStep";
-import AxisOptionStep from "../../components/order/steps/AxisOptionStep";
+import DesignPhotoCarousel from "../../components/order/DesignPhotoCarousel";
+import FieldOptionStep from "../../components/order/steps/FieldOptionStep";
+import TextFieldStep from "../../components/order/steps/TextFieldStep";
+import NumberFieldStep from "../../components/order/steps/NumberFieldStep";
 import OrderSummaryPanel from "../../components/order/OrderSummaryPanel";
 
 type Props = {
-  items: CatalogItemDTO[];
+  fields: FieldDTO[];
+  options: FieldOptionDTO[];
   designs: DesignSummaryDTO[];
   constraintPairs: ConstraintPair[];
   /** When set (gallery entry point), the design step is skipped and locked. */
@@ -21,31 +25,64 @@ type Props = {
 
 type State = {
   designId: number | null;
-  selections: Partial<Record<Axis, number>>;
-  step: number; // 0 = design picker, 1..AXES.length = axis steps, AXES.length+1 = review
+  answers: Answers;
+  step: number; // 0 = design picker, 1..designFields.length = field steps, designFields.length+1 = review
 };
 
 type Action =
   | { type: "SELECT_DESIGN"; design: DesignSummaryDTO }
-  | { type: "SELECT_ITEM"; axis: Axis; itemId: number }
+  | { type: "SET_OPTIONS"; fieldId: number; optionIds: number[] }
+  | { type: "SET_TEXT"; fieldId: number; value: string }
+  | { type: "SET_NUMBER"; fieldId: number; value: string }
   | { type: "GOTO"; step: number };
 
-const REVIEW_STEP = AXES.length + 1;
+/** A design's actual fields: every base field (always required), plus
+ *  whichever custom fields the admin included (inclusion *is* having a
+ *  default answer for it), in canonical/catalog order. */
+function fieldsForDesign(fields: FieldDTO[], design: DesignSummaryDTO): FieldDTO[] {
+  return fields.filter((f) => f.isBase || design.fieldValues[f.id] != null);
+}
 
-function makeReducer(pairs: ConstraintPair[]) {
+/** First step index that isn't locked for this design — where the wizard
+ *  should land after picking it, since locked field steps are never shown
+ *  or navigable. */
+function firstNavigableStepFor(fields: FieldDTO[], design: DesignSummaryDTO): number {
+  const designFields = fieldsForDesign(fields, design);
+  const lockedSet = new Set(design.lockedFieldIds);
+  const idx = designFields.findIndex((f) => !lockedSet.has(f.id));
+  return idx === -1 ? designFields.length + 1 : idx + 1;
+}
+
+function makeReducer(fields: FieldDTO[], pairs: ConstraintPair[]) {
   return function reducer(state: State, action: Action): State {
     switch (action.type) {
       case "SELECT_DESIGN":
         return {
           ...state,
           designId: action.design.id,
-          selections: resolveSelections({ ...action.design.recipe }, pairs),
-          step: 1,
+          answers: resolveAnswers({ ...action.design.fieldValues }, pairs),
+          step: firstNavigableStepFor(fields, action.design),
         };
-      case "SELECT_ITEM":
+      case "SET_OPTIONS":
         return {
           ...state,
-          selections: resolveSelections({ ...state.selections, [action.axis]: action.itemId }, pairs),
+          answers: resolveAnswers(
+            { ...state.answers, [action.fieldId]: { type: "options", optionIds: action.optionIds } },
+            pairs
+          ),
+        };
+      case "SET_TEXT":
+        return {
+          ...state,
+          answers: { ...state.answers, [action.fieldId]: { type: "text", value: action.value } },
+        };
+      case "SET_NUMBER":
+        return {
+          ...state,
+          answers: {
+            ...state.answers,
+            [action.fieldId]: { type: "number", value: Number(action.value) || 0 },
+          },
         };
       case "GOTO":
         return { ...state, step: action.step };
@@ -55,34 +92,76 @@ function makeReducer(pairs: ConstraintPair[]) {
   };
 }
 
-export default function OrderWizard({ items, designs, constraintPairs, lockedDesign, initialSizeId }: Props) {
-  const reducer = useMemo(() => makeReducer(constraintPairs), [constraintPairs]);
+export default function OrderWizard({ fields, options, designs, constraintPairs, lockedDesign, initialSizeId }: Props) {
+  const reducer = useMemo(() => makeReducer(fields, constraintPairs), [fields, constraintPairs]);
+
+  const sizeField = useMemo(() => fields.find((f) => f.slug === SIZE_FIELD_SLUG), [fields]);
+
   const [state, dispatch] = useReducer(reducer, {
     designId: lockedDesign?.id ?? null,
-    selections: lockedDesign
-      ? resolveSelections(
-          { ...lockedDesign.recipe, ...(initialSizeId ? { size: initialSizeId } : {}) },
+    answers: lockedDesign
+      ? resolveAnswers(
+          {
+            ...lockedDesign.fieldValues,
+            ...(initialSizeId && sizeField ? { [sizeField.id]: { type: "options", optionIds: [initialSizeId] } } : {}),
+          },
           constraintPairs
         )
       : {},
-    step: lockedDesign ? 1 : 0,
+    step: lockedDesign ? firstNavigableStepFor(fields, lockedDesign) : 0,
   });
   const [showDesignModal, setShowDesignModal] = useState(!lockedDesign);
 
-  const itemsByAxis = useMemo(() => {
-    const map = new Map<Axis, CatalogItemDTO[]>();
-    for (const axis of AXES) map.set(axis, items.filter((i) => i.axis === axis));
+  const optionsByField = useMemo(() => {
+    const map = new Map<number, FieldOptionDTO[]>();
+    for (const f of fields) map.set(f.id, options.filter((o) => o.fieldId === f.id));
     return map;
-  }, [items]);
+  }, [fields, options]);
 
   const selectedDesign = lockedDesign ?? designs.find((d) => d.id === state.designId) ?? null;
-  const currentAxis: Axis | null = state.step >= 1 && state.step <= AXES.length ? AXES[state.step - 1] : null;
+
+  const designFields = useMemo(
+    () => (selectedDesign ? fieldsForDesign(fields, selectedDesign) : []),
+    [fields, selectedDesign]
+  );
+  const REVIEW_STEP = designFields.length + 1;
+
+  const currentField = state.step >= 1 && state.step <= designFields.length ? designFields[state.step - 1] : null;
+  const currentAnswer = currentField ? state.answers[currentField.id] : undefined;
   const isReview = state.step === REVIEW_STEP;
 
-  const stepLabels = ["Design", ...AXES.map((a) => AXIS_LABELS[a]), "Review"];
+  const lockedFieldIdSet = useMemo(() => new Set(selectedDesign?.lockedFieldIds ?? []), [selectedDesign]);
+  const excludedOptionIdSet = useMemo(
+    () => new Set(selectedDesign?.excludedOptionIds ?? []),
+    [selectedDesign]
+  );
 
-  const goNext = () => dispatch({ type: "GOTO", step: Math.min(state.step + 1, REVIEW_STEP) });
-  const goBack = () => dispatch({ type: "GOTO", step: Math.max(state.step - 1, 1) });
+  // the sequence of steps a customer can actually land on for this design —
+  // locked fields are skipped entirely, not just disabled
+  const navigableSteps = useMemo(() => {
+    const fieldSteps = designFields
+      .map((_, idx) => idx + 1)
+      .filter((i) => !lockedFieldIdSet.has(designFields[i - 1].id));
+    return [...fieldSteps, REVIEW_STEP];
+  }, [designFields, lockedFieldIdSet, REVIEW_STEP]);
+
+  const stepLabels = ["Design", ...designFields.map((f) => f.name), "Review"];
+  const visibleSteps = stepLabels.map((label, i) => ({ label, i })).filter(({ i }) => {
+    if (i === 0) return !lockedDesign;
+    if (i >= 1 && i <= designFields.length) return !lockedFieldIdSet.has(designFields[i - 1].id);
+    return true;
+  });
+
+  const goNext = () => {
+    const idx = navigableSteps.indexOf(state.step);
+    const next = idx >= 0 && idx < navigableSteps.length - 1 ? navigableSteps[idx + 1] : state.step;
+    dispatch({ type: "GOTO", step: next });
+  };
+  const goBack = () => {
+    const idx = navigableSteps.indexOf(state.step);
+    const prev = idx > 0 ? navigableSteps[idx - 1] : state.step;
+    dispatch({ type: "GOTO", step: prev });
+  };
 
   if (!selectedDesign) {
     return (
@@ -119,59 +198,87 @@ export default function OrderWizard({ items, designs, constraintPairs, lockedDes
         </div>
       </header>
 
+      <div className="container">
+        <DesignPhotoCarousel photos={selectedDesign.photos} alt={selectedDesign.name} />
+      </div>
+
       <div className="container order-layout">
         <div className="order-stepper">
-          {stepLabels.map((label, i) => (
-            <div
+          {visibleSteps.map(({ label, i }) => (
+            <button
               key={label}
+              type="button"
               className={`order-stepper__item ${i === state.step ? "is-active" : ""} ${
                 i < state.step ? "is-done" : ""
               }`}
+              onClick={() => (i === 0 ? setShowDesignModal(true) : dispatch({ type: "GOTO", step: i }))}
             >
               {label}
-            </div>
+            </button>
           ))}
         </div>
 
         <div className="order-stage">
-          {currentAxis === "size" && (
-            <SizeStep
-              options={(itemsByAxis.get("size") ?? []).filter(
-                (i) => !getHiddenItemIds("size", state.selections, constraintPairs).has(i.id)
+          {currentField && (currentField.type === "single_select" || currentField.type === "multi_select") && (
+            <FieldOptionStep
+              field={currentField}
+              options={(optionsByField.get(currentField.id) ?? []).filter(
+                (o) =>
+                  !getHiddenOptionIds(currentField.id, state.answers, constraintPairs).has(o.id) &&
+                  !excludedOptionIdSet.has(o.id)
               )}
-              selectedId={state.selections.size}
-              onSelect={(id) => dispatch({ type: "SELECT_ITEM", axis: "size", itemId: id })}
+              selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
+              onToggle={(optionId) => {
+                const currentIds = currentAnswer?.type === "options" ? currentAnswer.optionIds : [];
+                const nextIds =
+                  currentField.type === "single_select"
+                    ? [optionId]
+                    : currentIds.includes(optionId)
+                      ? currentIds.filter((id) => id !== optionId)
+                      : [...currentIds, optionId];
+                dispatch({ type: "SET_OPTIONS", fieldId: currentField.id, optionIds: nextIds });
+              }}
             />
           )}
 
-          {currentAxis && currentAxis !== "size" && (
-            <AxisOptionStep
-              axis={currentAxis}
-              options={(itemsByAxis.get(currentAxis) ?? []).filter(
-                (i) => !getHiddenItemIds(currentAxis, state.selections, constraintPairs).has(i.id)
-              )}
-              selectedId={state.selections[currentAxis]}
-              onSelect={(id) => dispatch({ type: "SELECT_ITEM", axis: currentAxis, itemId: id })}
+          {currentField && currentField.type === "text" && (
+            <TextFieldStep
+              field={currentField}
+              value={currentAnswer?.type === "text" ? currentAnswer.value : ""}
+              onChange={(value) => dispatch({ type: "SET_TEXT", fieldId: currentField.id, value })}
+            />
+          )}
+
+          {currentField && currentField.type === "number" && (
+            <NumberFieldStep
+              field={currentField}
+              value={currentAnswer?.type === "number" ? String(currentAnswer.value) : ""}
+              onChange={(value) => dispatch({ type: "SET_NUMBER", fieldId: currentField.id, value })}
             />
           )}
 
           {isReview && (
             <OrderSummaryPanel
               design={selectedDesign}
-              selections={state.selections}
-              items={items}
-              onEditStep={(axis) => dispatch({ type: "GOTO", step: AXES.indexOf(axis) + 1 })}
+              designFields={designFields}
+              answers={state.answers}
+              options={options}
+              lockedFieldIds={lockedFieldIdSet}
+              onEditStep={(fieldId) => {
+                const idx = designFields.findIndex((f) => f.id === fieldId);
+                if (idx !== -1) dispatch({ type: "GOTO", step: idx + 1 });
+              }}
             />
           )}
 
           {!isReview && (
             <div className="order-nav">
-              {state.step > 1 && (
+              {navigableSteps.indexOf(state.step) > 0 && (
                 <button type="button" className="btn btn-outline" onClick={goBack}>
                   Back
                 </button>
               )}
-              {!lockedDesign && state.step === 1 && (
+              {!lockedDesign && state.step === navigableSteps[0] && (
                 <button type="button" className="btn btn-outline" onClick={() => setShowDesignModal(true)}>
                   Change Design
                 </button>
@@ -180,7 +287,10 @@ export default function OrderWizard({ items, designs, constraintPairs, lockedDes
                 type="button"
                 className="btn btn-primary"
                 onClick={goNext}
-                disabled={currentAxis != null && state.selections[currentAxis] == null}
+                disabled={
+                  currentField?.type === "single_select" &&
+                  !(currentAnswer?.type === "options" && currentAnswer.optionIds.length > 0)
+                }
               >
                 Next
               </button>
@@ -188,6 +298,23 @@ export default function OrderWizard({ items, designs, constraintPairs, lockedDes
           )}
         </div>
       </div>
+
+      {!isReview && (
+        <div className="order-subtotal-bar">
+          <div className="container order-subtotal-bar__inner">
+            <span className="order-subtotal-bar__label">Subtotal</span>
+            <span className="order-subtotal-bar__value">
+              {formatCents(
+                computeTotalCents(
+                  state.answers,
+                  selectedDesign.premiumCents,
+                  options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }))
+                )
+              )}
+            </span>
+          </div>
+        </div>
+      )}
 
       {showDesignModal && (
         <DesignPickerModal

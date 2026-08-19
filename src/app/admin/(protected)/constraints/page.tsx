@@ -1,67 +1,72 @@
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../../../../db";
-import { catalogItems, constraintPairs } from "../../../../db/schema";
-import { AXES, AXIS_LABELS } from "../../../../lib/axes";
+import { fieldOptions, fields, constraintPairs } from "../../../../db/schema";
+import { baseFieldRank } from "../../../../lib/fields";
 import { createConstraint, deleteConstraint } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConstraintsPage() {
-  const [items, allItems, pairs] = await Promise.all([
-    db
-      .select()
-      .from(catalogItems)
-      .where(eq(catalogItems.active, true))
-      .orderBy(asc(catalogItems.axis), asc(catalogItems.sortOrder))
-      .then((rows) => rows),
-    db.select().from(catalogItems).then((rows) => rows),
+  const [allFields, allOptions, pairs] = await Promise.all([
+    db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
+    // all options (including inactive) so already-existing pairs stay legible
+    // if an option is later deactivated; the pickers below filter to active only
+    db.select().from(fieldOptions).then((r) => r),
     db.select().from(constraintPairs).all(),
   ]);
 
-  // active items populate the "add a constraint" pickers; all items (including
-  // deactivated ones) resolve names for already-existing pairs below, so a
-  // constraint doesn't go illegible just because its item was deactivated.
-  const itemById = new Map(allItems.map((i) => [i.id, i]));
+  const sortedFields = [...allFields].sort(
+    (a, b) =>
+      baseFieldRank(a.slug) - baseFieldRank(b.slug) ||
+      a.sortOrder - b.sortOrder ||
+      a.name.localeCompare(b.name)
+  );
+  const fieldById = new Map(allFields.map((f) => [f.id, f]));
+  const optionById = new Map(allOptions.map((o) => [o.id, o]));
+
+  const activeOptionsByField = new Map<number, typeof allOptions>();
+  for (const opt of allOptions) {
+    if (!opt.active) continue;
+    const list = activeOptionsByField.get(opt.fieldId) ?? [];
+    list.push(opt);
+    activeOptionsByField.set(opt.fieldId, list);
+  }
 
   return (
     <>
       <h1>Constraints</h1>
       <p className="admin-main__subtitle">
-        Pairs of items that can&apos;t be combined — hidden from customers once they&apos;ve picked
-        the other item.
+        Pairs of options that can&apos;t be combined — hidden from customers once they&apos;ve
+        picked the other option.
       </p>
 
       <div className="admin-card">
         <h3 style={{ marginBottom: 14 }}>Add a constraint</h3>
         <form action={createConstraint} className="admin-form-row">
           <div className="admin-field">
-            <label>Item A</label>
-            <select name="itemAId" required style={{ minWidth: 200 }}>
-              {AXES.map((axis) => (
-                <optgroup key={axis} label={AXIS_LABELS[axis]}>
-                  {items
-                    .filter((i) => i.axis === axis)
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.name}
-                      </option>
-                    ))}
+            <label>Option A</label>
+            <select name="optionAId" required style={{ minWidth: 200 }}>
+              {sortedFields.map((f) => (
+                <optgroup key={f.id} label={f.name}>
+                  {(activeOptionsByField.get(f.id) ?? []).map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
                 </optgroup>
               ))}
             </select>
           </div>
           <div className="admin-field">
-            <label>Item B</label>
-            <select name="itemBId" required style={{ minWidth: 200 }}>
-              {AXES.map((axis) => (
-                <optgroup key={axis} label={AXIS_LABELS[axis]}>
-                  {items
-                    .filter((i) => i.axis === axis)
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.name}
-                      </option>
-                    ))}
+            <label>Option B</label>
+            <select name="optionBId" required style={{ minWidth: 200 }}>
+              {sortedFields.map((f) => (
+                <optgroup key={f.id} label={f.name}>
+                  {(activeOptionsByField.get(f.id) ?? []).map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
                 </optgroup>
               ))}
             </select>
@@ -76,26 +81,28 @@ export default async function ConstraintsPage() {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Item A</th>
-              <th>Item B</th>
+              <th>Option A</th>
+              <th>Option B</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {pairs.map((pair) => {
-              const a = itemById.get(pair.itemAId);
-              const b = itemById.get(pair.itemBId);
+              const a = optionById.get(pair.optionAId);
+              const b = optionById.get(pair.optionBId);
+              const aField = a ? fieldById.get(a.fieldId) : undefined;
+              const bField = b ? fieldById.get(b.fieldId) : undefined;
               return (
                 <tr key={pair.id}>
                   <td>
                     {a
-                      ? `${AXIS_LABELS[pair.axisA as keyof typeof AXIS_LABELS] ?? pair.axisA} — ${a.name}${a.active ? "" : " (inactive)"}`
-                      : "(deleted item)"}
+                      ? `${aField?.name ?? "?"} — ${a.name}${a.active ? "" : " (inactive)"}`
+                      : "(deleted option)"}
                   </td>
                   <td>
                     {b
-                      ? `${AXIS_LABELS[pair.axisB as keyof typeof AXIS_LABELS] ?? pair.axisB} — ${b.name}${b.active ? "" : " (inactive)"}`
-                      : "(deleted item)"}
+                      ? `${bField?.name ?? "?"} — ${b.name}${b.active ? "" : " (inactive)"}`
+                      : "(deleted option)"}
                   </td>
                   <td>
                     <form action={deleteConstraint}>

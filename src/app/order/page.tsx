@@ -7,12 +7,12 @@ import "../../components/order/order-wizard.css";
 export const dynamic = "force-dynamic";
 
 export default async function OrderPage() {
-  const { items, designSummaries, constraintPairsDTO } = await loadOrderData();
+  const { fields, options, designSummaries, constraintPairsDTO } = await loadOrderData();
 
   return (
     <>
       <Navbar />
-      <OrderWizard items={items} designs={designSummaries} constraintPairs={constraintPairsDTO} />
+      <OrderWizard fields={fields} options={options} designs={designSummaries} constraintPairs={constraintPairsDTO} />
       <Footer />
     </>
   );

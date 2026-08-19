@@ -13,7 +13,7 @@ export default function Footer() {
         <p className="footer__tag">Handmade pastel cakes, baked fresh every day.</p>
         <nav className="footer__links">
           <a href="/#story">Our Story</a>
-          <a href="/#gallery">Gallery</a>
+          <Link href="/gallery">Gallery</Link>
           <a href="/#reviews">Reviews</a>
           <Link href="/order">Design a Cake</Link>
         </nav>

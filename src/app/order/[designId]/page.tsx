@@ -19,7 +19,7 @@ export default async function LockedDesignOrderPage({
   const id = Number(designId);
   if (!Number.isInteger(id)) notFound();
 
-  const { items, designSummaries, constraintPairsDTO } = await loadOrderData();
+  const { fields, options, designSummaries, constraintPairsDTO } = await loadOrderData();
   const lockedDesign = designSummaries.find((d) => d.id === id);
   if (!lockedDesign) notFound();
 
@@ -29,7 +29,8 @@ export default async function LockedDesignOrderPage({
     <>
       <Navbar />
       <OrderWizard
-        items={items}
+        fields={fields}
+        options={options}
         designs={designSummaries}
         constraintPairs={constraintPairsDTO}
         lockedDesign={lockedDesign}
