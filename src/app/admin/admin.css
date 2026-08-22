@@ -375,3 +375,52 @@
   color: var(--pink-600);
   cursor: pointer;
 }
+
+@media (max-width: 900px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 16px 20px;
+  }
+
+  .admin-sidebar__nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .admin-sidebar__logout {
+    margin-top: 0;
+    margin-left: auto;
+  }
+
+  .admin-sidebar__logout button {
+    width: auto;
+  }
+
+  .admin-main {
+    padding: 24px 18px;
+    max-width: 100%;
+  }
+
+  .admin-card {
+    padding: 18px;
+    overflow-x: auto;
+  }
+
+  /* keeps columns legible — the card scrolls horizontally instead of
+     squeezing every column onto a phone-width table */
+  .admin-table {
+    min-width: 620px;
+  }
+
+  .admin-modal {
+    padding: 22px;
+  }
+}

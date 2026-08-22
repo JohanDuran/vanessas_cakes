@@ -6,7 +6,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions } from "../../../../db/schema";
-import { FIELD_TYPES, fieldHasOptions, slugify } from "../../../../lib/fields";
+import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, slugify } from "../../../../lib/fields";
+
+/** cake_style is locked to its exact 3 seeded options — admins may
+ *  rename/re-price them but not add/remove/deactivate. */
+const LOCKED_OPTION_SET_SLUGS = new Set([CAKE_STYLE_FIELD_SLUG]);
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -103,6 +107,10 @@ const optionShape = {
   tiers: z.string().optional(),
   servesMin: z.string().optional(),
   servesMax: z.string().optional(),
+  // only meaningful for the `size` field — which style (Standard/Tall) this
+  // size option belongs to. Tiered size options are never created here; see
+  // tierPresetActions.ts.
+  styleKind: z.enum(["standard", "tall"]).optional(),
 };
 
 const createOptionSchema = z.object(optionShape);
@@ -128,6 +136,13 @@ export async function createOption(formData: FormData) {
   const parsed = createOptionSchema.parse(Object.fromEntries(formData));
   const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
   if (!field) throw new Error("Field not found.");
+  if (LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
+    throw new Error(`${field.name}'s options are fixed and can't be added to.`);
+  }
+  const isSizeField = field.slug === SIZE_FIELD_SLUG;
+  if (isSizeField && !parsed.styleKind) {
+    throw new Error("Choose Standard or Tall for this size — tiered presets are built below instead.");
+  }
 
   db.transaction((tx) => {
     const inserted = tx
@@ -137,6 +152,7 @@ export async function createOption(formData: FormData) {
         name: parsed.name,
         priceCents: dollarsToCents(parsed.priceDollars),
         sortOrder: parsed.sortOrder,
+        styleKind: isSizeField ? parsed.styleKind : null,
         updatedAt: Date.now(),
       })
       .returning({ id: fieldOptions.id })
@@ -192,6 +208,10 @@ const setOptionActiveSchema = z.object({
 
 export async function setOptionActive(formData: FormData) {
   const parsed = setOptionActiveSchema.parse(Object.fromEntries(formData));
+  const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
+  if (field && !parsed.active && LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
+    throw new Error(`${field.name}'s 3 options must always stay active.`);
+  }
   db.update(fieldOptions)
     .set({ active: Boolean(parsed.active), updatedAt: Date.now() })
     .where(eq(fieldOptions.id, parsed.id))

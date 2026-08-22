@@ -40,6 +40,7 @@ export default function Navbar() {
             <Link href="/">Home</Link>
           )}
           <Link href="/gallery">Gallery</Link>
+          <Link href="/order/custom">Custom Cake</Link>
           <Link href="/order" className="btn btn-primary navbar__cta">
             Design Your Cake
           </Link>

@@ -9,10 +9,12 @@ type Props = {
   field: FieldDTO;
   options: FieldOptionDTO[];
   selectedIds: number[];
+  /** custom-cake quotes don't have fixed pricing yet, so no prices are shown */
+  hidePrice?: boolean;
   onToggle: (optionId: number) => void;
 };
 
-export default function FieldOptionStep({ field, options, selectedIds, onToggle }: Props) {
+export default function FieldOptionStep({ field, options, selectedIds, hidePrice, onToggle }: Props) {
   const showDiagram = field.hasShapeDiagram;
   const isMulti = field.type === "multi_select";
   const selectedSet = new Set(selectedIds);
@@ -57,7 +59,7 @@ export default function FieldOptionStep({ field, options, selectedIds, onToggle 
                     Serves {dims?.servesMin ?? "?"}–{dims?.servesMax ?? "?"}
                   </span>
                 )}
-                <PriceDelta cents={deltaFor(item)} selected={isSelected} />
+                {!hidePrice && <PriceDelta cents={deltaFor(item)} selected={isSelected} />}
               </button>
             );
           })}
@@ -81,7 +83,7 @@ export default function FieldOptionStep({ field, options, selectedIds, onToggle 
               onClick={() => onToggle(item.id)}
             >
               <span className="option-card__name">{item.name}</span>
-              <PriceDelta cents={deltaFor(item)} selected={isSelected} />
+              {!hidePrice && <PriceDelta cents={deltaFor(item)} selected={isSelected} />}
             </button>
           );
         })}

@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designs, orders } from "../../../../db/schema";
 import { formatCents } from "../../../../lib/pricing";
+import { fromDateKey, formatTimeLabel } from "../../../../lib/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export default async function OrdersInboxPage() {
       status: orders.status,
       createdAt: orders.createdAt,
       designName: designs.name,
+      pickupDate: orders.pickupDate,
+      pickupTime: orders.pickupTime,
     })
     .from(orders)
     .leftJoin(designs, eq(orders.designId, designs.id))
@@ -34,6 +37,7 @@ export default async function OrdersInboxPage() {
               <th>Date</th>
               <th>Customer</th>
               <th>Design</th>
+              <th>Pickup</th>
               <th>Total</th>
               <th>Status</th>
               <th></th>
@@ -47,7 +51,12 @@ export default async function OrdersInboxPage() {
                   {o.customerName}
                   <div style={{ fontSize: "0.8rem", color: "var(--text-soft)" }}>{o.customerEmail}</div>
                 </td>
-                <td>{o.designName ?? "—"}</td>
+                <td>{o.designName ?? "Custom Cake"}</td>
+                <td>
+                  {o.pickupDate && o.pickupTime
+                    ? `${fromDateKey(o.pickupDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${formatTimeLabel(o.pickupTime)}`
+                    : "—"}
+                </td>
                 <td>{formatCents(o.totalPriceCents)}</td>
                 <td style={{ textTransform: "capitalize" }}>{o.status}</td>
                 <td>
@@ -59,7 +68,7 @@ export default async function OrdersInboxPage() {
             ))}
             {allOrders.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ color: "var(--text-soft)" }}>
+                <td colSpan={7} style={{ color: "var(--text-soft)" }}>
                   No orders yet.
                 </td>
               </tr>

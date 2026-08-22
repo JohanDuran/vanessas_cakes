@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, gte } from "drizzle-orm";
 import { db } from "./index";
 import {
   fields,
@@ -10,10 +10,79 @@ import {
   designFieldValues,
   designs,
   constraintPairs,
+  tierPresets,
+  tierPresetLevels,
+  pickupSettings,
+  pickupWeeklyHours,
+  pickupDateOverrides,
 } from "./schema";
-import { baseFieldRank, isFieldType, type FieldType } from "../lib/fields";
+import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
 import type { Answers } from "../lib/pricing";
-import type { DesignSummaryDTO, FieldDTO, FieldOptionDTO } from "../lib/order-types";
+import type {
+  DesignSummaryDTO,
+  FieldDTO,
+  FieldOptionDTO,
+  TierPresetDTO,
+  TierPresetLevelDTO,
+} from "../lib/order-types";
+import { toDateKey, type DateOverride, type PickupSettings, type WeeklyHour } from "../lib/availability";
+
+export const DEFAULT_PICKUP_SETTINGS: PickupSettings = {
+  leadTimeHours: 24,
+  maxAdvanceDays: 60,
+  slotIntervalMinutes: 30,
+};
+
+/** Everything the order wizard's pickup calendar needs to compute available
+ *  dates/slots client-side, and everything submitOrder needs to re-validate
+ *  a submitted slot server-side. Weekly hours always has all 7 days (closed
+ *  default for any day the admin hasn't configured yet); overrides are
+ *  limited to today-or-later since past ones can no longer affect booking. */
+export async function loadPickupAvailability(): Promise<{
+  settings: PickupSettings;
+  weeklyHours: WeeklyHour[];
+  overrides: DateOverride[];
+}> {
+  const todayKey = toDateKey(new Date());
+
+  const [settingsRow, weeklyRows, overrideRows] = await Promise.all([
+    db.select().from(pickupSettings).limit(1).then((r) => r[0]),
+    db.select().from(pickupWeeklyHours).then((r) => r),
+    db.select().from(pickupDateOverrides).where(gte(pickupDateOverrides.endDate, todayKey)).then((r) => r),
+  ]);
+
+  const weeklyByDay = new Map(weeklyRows.map((w) => [w.dayOfWeek, w]));
+  const weeklyHours: WeeklyHour[] = Array.from({ length: 7 }, (_, dayOfWeek) => {
+    const row = weeklyByDay.get(dayOfWeek);
+    return {
+      dayOfWeek,
+      isOpen: row?.isOpen ?? false,
+      openTime: row?.openTime ?? null,
+      closeTime: row?.closeTime ?? null,
+    };
+  });
+
+  const overrides: DateOverride[] = overrideRows.map((o) => ({
+    startDate: o.startDate,
+    endDate: o.endDate,
+    closed: o.closed,
+    openTime: o.openTime,
+    closeTime: o.closeTime,
+    note: o.note,
+  }));
+
+  return {
+    settings: settingsRow
+      ? {
+          leadTimeHours: settingsRow.leadTimeHours,
+          maxAdvanceDays: settingsRow.maxAdvanceDays,
+          slotIntervalMinutes: settingsRow.slotIntervalMinutes,
+        }
+      : DEFAULT_PICKUP_SETTINGS,
+    weeklyHours,
+    overrides,
+  };
+}
 
 /** Everything the customer-facing order flow (wizard + gallery) needs:
  *  active fields + options (base and custom, unified), published designs
@@ -29,6 +98,8 @@ export async function loadOrderData() {
     pairs,
     allLockedRows,
     allExcludedRows,
+    allTierPresetRows,
+    allTierPresetLevelRows,
   ] = await Promise.all([
     db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
     db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
@@ -43,6 +114,8 @@ export async function loadOrderData() {
     db.select().from(constraintPairs).then((r) => r),
     db.select().from(designLockedFields).then((r) => r),
     db.select().from(designExcludedOptions).then((r) => r),
+    db.select().from(tierPresets).then((r) => r),
+    db.select().from(tierPresetLevels).orderBy(asc(tierPresetLevels.position)).then((r) => r),
   ]);
 
   const fieldSummaries: FieldDTO[] = allFields
@@ -74,7 +147,33 @@ export async function loadOrderData() {
       dimensions: d
         ? { diameterIn: d.diameterIn, shape: d.shape, tiers: d.tiers, servesMin: d.servesMin, servesMax: d.servesMax }
         : null,
+      styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+      tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
     };
+  });
+
+  const optionById = new Map(optionSummaries.map((o) => [o.id, o]));
+  const levelsByPresetId = new Map<number, typeof allTierPresetLevelRows>();
+  for (const row of allTierPresetLevelRows) {
+    const list = levelsByPresetId.get(row.tierPresetId) ?? [];
+    list.push(row);
+    levelsByPresetId.set(row.tierPresetId, list);
+  }
+
+  const tierPresetDTOs: TierPresetDTO[] = allTierPresetRows.map((preset) => {
+    const levels: TierPresetLevelDTO[] = (levelsByPresetId.get(preset.id) ?? []).map((lvl) => {
+      const mold = optionById.get(lvl.moldOptionId);
+      return {
+        position: lvl.position,
+        moldOptionId: lvl.moldOptionId,
+        moldName: mold?.name ?? "Unknown",
+        diameterIn: mold?.dimensions?.diameterIn ?? null,
+        shape: mold?.dimensions?.shape ?? null,
+        servesMin: mold?.dimensions?.servesMin ?? null,
+        servesMax: mold?.dimensions?.servesMax ?? null,
+      };
+    });
+    return { fieldOptionId: preset.fieldOptionId, levelCount: preset.levelCount, levels };
   });
 
   const photosByDesign = new Map<number, string[]>();
@@ -128,5 +227,11 @@ export async function loadOrderData() {
 
   const constraintPairsDTO = pairs.map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
 
-  return { fields: fieldSummaries, options: optionSummaries, designSummaries, constraintPairsDTO };
+  return {
+    fields: fieldSummaries,
+    options: optionSummaries,
+    designSummaries,
+    constraintPairsDTO,
+    tierPresets: tierPresetDTOs,
+  };
 }

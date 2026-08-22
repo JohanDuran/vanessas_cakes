@@ -1,6 +1,7 @@
 .gallery-hero {
   background: linear-gradient(160deg, var(--pink-100), var(--cream) 70%);
-  padding: 64px 0 48px;
+  /* clears the fixed navbar (74px tall) with room to spare */
+  padding: 96px 0 48px;
   text-align: center;
 }
 

@@ -1,0 +1,125 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+import { db } from "../../../../db";
+import { fields, fieldOptions, tierPresets, tierPresetLevels } from "../../../../db/schema";
+import { SIZE_FIELD_SLUG, isTierLevelCount } from "../../../../lib/fields";
+import { isValidMoldStack, type AtomicMold } from "../../../../lib/cakeStyle";
+
+const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
+
+/** Tiered presets are `size` field options tagged styleKind="tiered". */
+function getSizeField() {
+  const field = db.select().from(fields).where(eq(fields.slug, SIZE_FIELD_SLUG)).get();
+  if (!field) throw new Error("size field not found.");
+  return field;
+}
+
+/** Active Standard-styled molds — the only options a tier preset is allowed
+ *  to reference, ranked by sortOrder for the adjacency/no-skip check. */
+function getAtomicMolds(sizeFieldId: number): AtomicMold[] {
+  return db
+    .select({ id: fieldOptions.id, sortOrder: fieldOptions.sortOrder })
+    .from(fieldOptions)
+    .where(
+      and(
+        eq(fieldOptions.fieldId, sizeFieldId),
+        eq(fieldOptions.active, true),
+        eq(fieldOptions.styleKind, "standard")
+      )
+    )
+    .all();
+}
+
+const presetShape = {
+  name: z.string().trim().min(1, "Name is required"),
+  priceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
+  levelCount: z.coerce.number().int(),
+  moldOptionIds: z.array(z.coerce.number().int()),
+};
+
+const createPresetSchema = z.object(presetShape);
+const updatePresetSchema = z.object({ id: z.coerce.number().int(), ...presetShape });
+
+function readPresetForm(formData: FormData) {
+  return {
+    id: formData.get("id"),
+    name: formData.get("name"),
+    priceDollars: formData.get("priceDollars"),
+    levelCount: formData.get("levelCount"),
+    moldOptionIds: formData.getAll("moldOptionIds"),
+  };
+}
+
+function validateLevels(levelCount: number, moldOptionIds: number[], sizeFieldId: number) {
+  if (!isTierLevelCount(levelCount)) throw new Error("Invalid number of tiers.");
+  if (moldOptionIds.length !== levelCount) throw new Error("Pick a mold for every tier level.");
+  if (!isValidMoldStack(moldOptionIds, getAtomicMolds(sizeFieldId))) {
+    throw new Error(
+      "Molds must run base (widest) to top (narrowest) through adjacent sizes, with no size skipped."
+    );
+  }
+}
+
+export async function createTierPreset(formData: FormData) {
+  const parsed = createPresetSchema.parse(readPresetForm(formData));
+  const sizeField = getSizeField();
+  validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+
+  db.transaction((tx) => {
+    const insertedOption = tx
+      .insert(fieldOptions)
+      .values({
+        fieldId: sizeField.id,
+        name: parsed.name,
+        priceCents: dollarsToCents(parsed.priceDollars),
+        sortOrder: parsed.levelCount,
+        styleKind: "tiered",
+        updatedAt: Date.now(),
+      })
+      .returning({ id: fieldOptions.id })
+      .get();
+    const insertedPreset = tx
+      .insert(tierPresets)
+      .values({ fieldOptionId: insertedOption.id, levelCount: parsed.levelCount, updatedAt: Date.now() })
+      .returning({ id: tierPresets.id })
+      .get();
+    parsed.moldOptionIds.forEach((moldOptionId, index) => {
+      tx.insert(tierPresetLevels)
+        .values({ tierPresetId: insertedPreset.id, position: index + 1, moldOptionId })
+        .run();
+    });
+  });
+
+  revalidatePath(`/admin/catalog/${sizeField.id}`);
+}
+
+export async function updateTierPreset(formData: FormData) {
+  const parsed = updatePresetSchema.parse(readPresetForm(formData));
+  const sizeField = getSizeField();
+  validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+
+  const preset = db.select().from(tierPresets).where(eq(tierPresets.fieldOptionId, parsed.id)).get();
+  if (!preset) throw new Error("Tier preset not found.");
+
+  db.transaction((tx) => {
+    tx.update(fieldOptions)
+      .set({ name: parsed.name, priceCents: dollarsToCents(parsed.priceDollars), updatedAt: Date.now() })
+      .where(eq(fieldOptions.id, parsed.id))
+      .run();
+    tx.update(tierPresets)
+      .set({ levelCount: parsed.levelCount, updatedAt: Date.now() })
+      .where(eq(tierPresets.id, preset.id))
+      .run();
+    tx.delete(tierPresetLevels).where(eq(tierPresetLevels.tierPresetId, preset.id)).run();
+    parsed.moldOptionIds.forEach((moldOptionId, index) => {
+      tx.insert(tierPresetLevels)
+        .values({ tierPresetId: preset.id, position: index + 1, moldOptionId })
+        .run();
+    });
+  });
+
+  revalidatePath(`/admin/catalog/${sizeField.id}`);
+}

@@ -42,6 +42,16 @@ export const fieldOptions = sqliteTable("field_options", {
   priceCents: integer("price_cents").notNull().default(0),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
+  // Set for the 3 fixed cake_style options (standard | tall | tiered, not
+  // editable via the generic option form) AND reused to tag every `size`
+  // field option with which style it belongs to — standard/tall are plain
+  // molds, tiered options are stack presets (see tierPresets/tierPresetLevels
+  // below). See src/lib/fields.ts CakeStyleKind and src/lib/cakeStyle.ts.
+  styleKind: text("style_kind"),
+  // Historical: only ever set for the old tier_levels field's 3 fixed
+  // options (now retired from the flow — see BASE_FIELD_SLUGS in
+  // src/lib/fields.ts). tierPresets.levelCount is the source of truth today.
+  tierLevelCount: integer("tier_level_count"),
 
   createdAt: integer("created_at")
     .notNull()
@@ -72,6 +82,43 @@ export const fieldOptionDimensions = sqliteTable("field_option_dimensions", {
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),
 });
+
+/** A named, admin-built preset in the `tier_size` field — e.g. "Large" for a
+ *  4-tier cake. 1:1 with the field_options row that IS the preset; name and
+ *  flat priceCents live there, same additive pricing model as every other
+ *  option (never derived from the constituent molds' prices). */
+export const tierPresets = sqliteTable("tier_presets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fieldOptionId: integer("field_option_id")
+    .notNull()
+    .unique()
+    .references(() => fieldOptions.id, { onDelete: "cascade" }),
+  levelCount: integer("level_count").notNull(), // 2 | 3 | 4, denormalized for fast filtering
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** One level of a tier preset's mold stack, position 1 = base/bottom (widest)
+ *  up to position levelCount = top (narrowest). moldOptionId always points at
+ *  an option in the `size` field — that field stays 100% atomic molds. */
+export const tierPresetLevels = sqliteTable(
+  "tier_preset_levels",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    tierPresetId: integer("tier_preset_id")
+      .notNull()
+      .references(() => tierPresets.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    moldOptionId: integer("mold_option_id")
+      .notNull()
+      .references(() => fieldOptions.id, { onDelete: "restrict" }),
+  },
+  (t) => [uniqueIndex("tier_preset_levels_preset_position_idx").on(t.tierPresetId, t.position)]
+);
 
 export const designs = sqliteTable("designs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -184,15 +231,79 @@ export const constraintPairs = sqliteTable(
 
 export const orders = sqliteTable("orders", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  designId: integer("design_id")
-    .notNull()
-    .references(() => designs.id, { onDelete: "restrict" }),
+  // null means this is a custom-cake quote request with no catalog design attached
+  designId: integer("design_id").references(() => designs.id, { onDelete: "restrict" }),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   customerPhone: text("customer_phone"),
   comments: text("comments"),
   totalPriceCents: integer("total_price_cents").notNull(),
   status: text("status").notNull().default("new"), // new | viewed | archived
+  // nullable only because orders placed before pickup scheduling existed have none
+  pickupDate: text("pickup_date"), // YYYY-MM-DD
+  pickupTime: text("pickup_time"), // HH:MM, 24h
+  // only set on custom-cake quote requests: call | sms | whatsapp | email
+  contactPreference: text("contact_preference"),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** Optional reference photos a customer attaches to a custom-cake quote request. */
+export const orderReferenceImages = sqliteTable("order_reference_images", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  orderId: integer("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+// --- pickup scheduling --------------------------------------------------
+// Admin-configured availability for the order wizard's pickup calendar.
+// A requested slot is valid when: the date's effective hours (override, if
+// any, else the weekly default for that day-of-week) are open, the time
+// falls on one of the generated slots, and the slot is far enough in the
+// future to satisfy pickupSettings.leadTimeHours — see src/lib/availability.ts,
+// which is the single source of truth for that logic on both client and server.
+
+/** Singleton row (id=1) of pickup-wide settings. */
+export const pickupSettings = sqliteTable("pickup_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  leadTimeHours: integer("lead_time_hours").notNull().default(24),
+  maxAdvanceDays: integer("max_advance_days").notNull().default(60),
+  slotIntervalMinutes: integer("slot_interval_minutes").notNull().default(30),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** Default open hours per day of week (0=Sunday..6=Saturday), one row each. */
+export const pickupWeeklyHours = sqliteTable("pickup_weekly_hours", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  dayOfWeek: integer("day_of_week").notNull().unique(),
+  isOpen: integer("is_open", { mode: "boolean" }).notNull().default(false),
+  openTime: text("open_time"), // HH:MM, 24h — set when isOpen
+  closeTime: text("close_time"),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** Date-range exceptions to the weekly default — a closure (vacation, holiday)
+ *  or custom hours for a specific day or span of days. Takes precedence over
+ *  pickupWeeklyHours for any date it covers. */
+export const pickupDateOverrides = sqliteTable("pickup_date_overrides", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  startDate: text("start_date").notNull(), // YYYY-MM-DD
+  endDate: text("end_date").notNull(), // YYYY-MM-DD, inclusive; equals startDate for a single day
+  closed: integer("closed", { mode: "boolean" }).notNull().default(true),
+  openTime: text("open_time"), // set when closed=false
+  closeTime: text("close_time"),
+  note: text("note"),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),

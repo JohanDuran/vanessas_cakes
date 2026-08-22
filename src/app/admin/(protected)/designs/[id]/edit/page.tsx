@@ -9,10 +9,13 @@ import {
   designs,
   fieldOptions,
   fields,
+  tierPresets,
+  tierPresetLevels,
 } from "../../../../../../db/schema";
-import { baseFieldRank, isFieldType, type FieldType } from "../../../../../../lib/fields";
+import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../../lib/fields";
 import type { Answers } from "../../../../../../lib/pricing";
 import DesignForm, { type FieldSummary } from "../../../../../../components/admin/DesignForm";
+import { buildTierPresetSummaries } from "../../tierPresetSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -31,14 +34,17 @@ export default async function EditDesignPage({
   const design = db.select().from(designs).where(eq(designs.id, designId)).get();
   if (!design) notFound();
 
-  const [allFields, allOptions, photos, fieldValueRows, lockedRows, excludedRows] = await Promise.all([
-    db.select().from(fields).then((r) => r),
-    db.select().from(fieldOptions).then((r) => r),
-    db.select().from(designPhotos).where(eq(designPhotos.designId, designId)).then((r) => r),
-    db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).then((r) => r),
-    db.select().from(designLockedFields).where(eq(designLockedFields.designId, designId)).then((r) => r),
-    db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, designId)).then((r) => r),
-  ]);
+  const [allFields, allOptions, photos, fieldValueRows, lockedRows, excludedRows, allTierPresetRows, allTierPresetLevelRows] =
+    await Promise.all([
+      db.select().from(fields).then((r) => r),
+      db.select().from(fieldOptions).then((r) => r),
+      db.select().from(designPhotos).where(eq(designPhotos.designId, designId)).then((r) => r),
+      db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).then((r) => r),
+      db.select().from(designLockedFields).where(eq(designLockedFields.designId, designId)).then((r) => r),
+      db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, designId)).then((r) => r),
+      db.select().from(tierPresets).then((r) => r),
+      db.select().from(tierPresetLevels).then((r) => r),
+    ]);
 
   const optionsByField = new Map<number, typeof allOptions>();
   for (const opt of allOptions) {
@@ -67,8 +73,12 @@ export default async function EditDesignPage({
         name: o.name,
         priceCents: o.priceCents,
         active: o.active,
+        styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+        tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
       })),
     }));
+
+  const tierPresetSummaries = buildTierPresetSummaries(allOptions, allTierPresetRows, allTierPresetLevelRows);
 
   const fieldValues: Answers = {};
   for (const row of fieldValueRows) {
@@ -95,6 +105,7 @@ export default async function EditDesignPage({
       )}
       <DesignForm
         fields={fieldSummaries}
+        tierPresets={tierPresetSummaries}
         design={{
           id: design.id,
           name: design.name,

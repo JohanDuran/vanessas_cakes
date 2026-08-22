@@ -1,4 +1,4 @@
-import type { FieldType } from "./fields";
+import type { CakeStyleKind, FieldType, TierLevelCount } from "./fields";
 import type { Answers } from "./pricing";
 
 export type FieldDTO = {
@@ -26,6 +26,31 @@ export type FieldOptionDTO = {
   priceCents: number;
   /** bolt-on visual metadata — only present when the owning field has hasShapeDiagram=true */
   dimensions: FieldOptionDimensionsDTO | null;
+  /** set only for the cake_style field's 3 fixed options */
+  styleKind: CakeStyleKind | null;
+  /** set only for the tier_levels field's 3 fixed options */
+  tierLevelCount: TierLevelCount | null;
+};
+
+/** One level of a tier preset's mold stack, position 1 = base/bottom (widest). */
+export type TierPresetLevelDTO = {
+  position: number;
+  /** references a `size`-field FieldOptionDTO.id */
+  moldOptionId: number;
+  moldName: string;
+  diameterIn: string | null;
+  shape: string | null;
+  servesMin: number | null;
+  servesMax: number | null;
+};
+
+/** An admin-built named preset in the `tier_size` field — e.g. "Large" for a
+ *  4-tier cake — with its ordered mold stack, base (position 1) to top. */
+export type TierPresetDTO = {
+  /** the tier_size field's option id that IS this preset */
+  fieldOptionId: number;
+  levelCount: number;
+  levels: TierPresetLevelDTO[];
 };
 
 export type DesignSummaryDTO = {

@@ -14,10 +14,15 @@ import {
   fieldOptions,
   fields,
   constraintPairs,
+  tierPresets,
+  tierPresetLevels,
 } from "../../../../db/schema";
 import { selectionsViolateConstraints } from "../../../../lib/constraints";
+import { buildCakeStyleContext } from "../../../../lib/cakeStyle";
 import { computeStandardPriceCents, type Answers } from "../../../../lib/pricing";
+import { isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../lib/fields";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
+import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../../../lib/order-types";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -34,6 +39,48 @@ export async function saveDesign(formData: FormData) {
 
   const allFields = db.select().from(fields).all();
   const allOptions = db.select().from(fieldOptions).all();
+
+  const allTierPresetRows = db.select().from(tierPresets).all();
+  const allTierPresetLevelRows = db.select().from(tierPresetLevels).all();
+  const optionByIdRaw = new Map(allOptions.map((o) => [o.id, o]));
+  const tierPresetDTOs: TierPresetDTO[] = allTierPresetRows.map((preset) => ({
+    fieldOptionId: preset.fieldOptionId,
+    levelCount: preset.levelCount,
+    levels: allTierPresetLevelRows
+      .filter((lvl) => lvl.tierPresetId === preset.id)
+      .sort((a, b) => a.position - b.position)
+      .map((lvl) => ({
+        position: lvl.position,
+        moldOptionId: lvl.moldOptionId,
+        moldName: optionByIdRaw.get(lvl.moldOptionId)?.name ?? "Unknown",
+        diameterIn: null,
+        shape: null,
+        servesMin: null,
+        servesMax: null,
+      })),
+  }));
+
+  const fieldDTOs: FieldDTO[] = allFields
+    .filter((f) => isFieldType(f.type))
+    .map((f) => ({
+      id: f.id,
+      slug: f.slug,
+      name: f.name,
+      type: f.type as FieldType,
+      isBase: f.isBase,
+      sortOrder: f.sortOrder,
+      hasShapeDiagram: f.hasShapeDiagram,
+    }));
+  const optionDTOs: FieldOptionDTO[] = allOptions.map((o) => ({
+    id: o.id,
+    fieldId: o.fieldId,
+    name: o.name,
+    priceCents: o.priceCents,
+    dimensions: null,
+    styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+    tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
+  }));
+  const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
 
   const includedCustomFieldIds = new Set(
     formData
@@ -73,6 +120,21 @@ export async function saveDesign(formData: FormData) {
   for (const field of allFields) {
     if (field.isBase && !answers[field.id]) {
       throw new Error(`${field.name} is required.`);
+    }
+  }
+
+  // the submitted `size` option must belong to the submitted cake_style —
+  // catches a stale size pick left over from a different style in the form
+  if (cakeStyleCtx) {
+    const styleAnswer = answers[cakeStyleCtx.styleFieldId];
+    const styleOptionId = styleAnswer?.type === "options" ? styleAnswer.optionIds[0] : undefined;
+    const styleKind = styleOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(styleOptionId) : undefined;
+
+    const sizeAnswer = answers[cakeStyleCtx.sizeFieldId];
+    const sizeOptionId = sizeAnswer?.type === "options" ? sizeAnswer.optionIds[0] : undefined;
+    const sizeOptionStyle = sizeOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(sizeOptionId) : undefined;
+    if (sizeOptionId != null && sizeOptionStyle !== styleKind) {
+      throw new Error("Size doesn't match the selected Cake Style.");
     }
   }
 

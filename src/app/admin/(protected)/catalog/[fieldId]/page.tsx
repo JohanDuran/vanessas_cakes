@@ -2,15 +2,28 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { db } from "../../../../../db";
-import { fields, fieldOptions, fieldOptionDimensions } from "../../../../../db/schema";
-import { FIELD_TYPES, FIELD_TYPE_LABELS, isFieldType } from "../../../../../lib/fields";
+import { fields, fieldOptions, fieldOptionDimensions, tierPresets, tierPresetLevels } from "../../../../../db/schema";
+import {
+  CAKE_STYLE_FIELD_SLUG,
+  FIELD_TYPES,
+  FIELD_TYPE_LABELS,
+  SIZE_FIELD_SLUG,
+  TIER_LEVEL_COUNTS,
+  isFieldType,
+} from "../../../../../lib/fields";
 import { createOption, saveFieldSettings, setOptionActive, updateOption } from "../actions";
+import { createTierPreset, updateTierPreset } from "../tierPresetActions";
+import TierPresetBuilder from "../../../../../components/admin/TierPresetBuilder";
+import TierPresetRow, { type TierPresetSummary } from "../../../../../components/admin/TierPresetRow";
 
 export const dynamic = "force-dynamic";
 
 function centsToDollarsStr(cents: number) {
   return (cents / 100).toFixed(2);
 }
+
+type OptionRow = typeof fieldOptions.$inferSelect;
+type DimsRow = typeof fieldOptionDimensions.$inferSelect;
 
 export default async function FieldDetailPage({
   params,
@@ -48,6 +61,260 @@ export default async function FieldDetailPage({
   );
 
   const showDimensionColumns = field.hasShapeDiagram;
+  const isCakeStyleField = field.slug === CAKE_STYLE_FIELD_SLUG;
+  const isLockedOptionSetField = isCakeStyleField;
+  const isSizeField = field.slug === SIZE_FIELD_SLUG;
+
+  const standardOptions = isSizeField ? options.filter((o) => o.styleKind === "standard") : [];
+  const tallOptions = isSizeField ? options.filter((o) => o.styleKind === "tall") : [];
+  const tieredOptions = isSizeField ? options.filter((o) => o.styleKind === "tiered") : [];
+
+  let tierPresetSummaries: TierPresetSummary[] = [];
+  let atomicMolds: { id: number; name: string; sortOrder: number }[] = [];
+  if (isSizeField) {
+    // active-only, since only active Standard molds are valid preset building blocks
+    atomicMolds = standardOptions
+      .filter((o) => o.active)
+      .map((o) => ({ id: o.id, name: o.name, sortOrder: o.sortOrder }));
+
+    const moldNameById = new Map(atomicMolds.map((m) => [m.id, m.name]));
+    const presetRows =
+      tieredOptions.length > 0
+        ? db.select().from(tierPresets).where(inArray(tierPresets.fieldOptionId, tieredOptions.map((o) => o.id))).all()
+        : [];
+    const levelRows =
+      presetRows.length > 0
+        ? db
+            .select()
+            .from(tierPresetLevels)
+            .where(inArray(tierPresetLevels.tierPresetId, presetRows.map((p) => p.id)))
+            .orderBy(asc(tierPresetLevels.position))
+            .all()
+        : [];
+    const levelsByPresetId = new Map<number, typeof levelRows>();
+    for (const row of levelRows) {
+      const list = levelsByPresetId.get(row.tierPresetId) ?? [];
+      list.push(row);
+      levelsByPresetId.set(row.tierPresetId, list);
+    }
+
+    tierPresetSummaries = presetRows.map((preset) => {
+      const opt = tieredOptions.find((o) => o.id === preset.fieldOptionId)!;
+      const levels = (levelsByPresetId.get(preset.id) ?? []).sort((a, b) => a.position - b.position);
+      return {
+        optionId: opt.id,
+        fieldId: field.id,
+        name: opt.name,
+        priceDollars: centsToDollarsStr(opt.priceCents),
+        levelCount: preset.levelCount,
+        moldOptionIds: levels.map((l) => l.moldOptionId),
+        breakdown: levels.map((l) => moldNameById.get(l.moldOptionId) ?? "Unknown").join(" → "),
+        active: opt.active,
+      };
+    });
+  }
+
+  // reusable "Add option" form + options table for one style-scoped slice of
+  // the `size` field (Standard/Tall), or for a regular non-size field
+  const optionsSection = (sectionOptions: OptionRow[], styleKind?: "standard" | "tall") => {
+    return (
+      <>
+        {!isLockedOptionSetField && (
+          <div className="admin-card">
+            <h3 style={{ marginBottom: 14 }}>Add option</h3>
+            <form action={createOption} className="admin-form-row">
+              <input type="hidden" name="fieldId" value={field.id} />
+              {styleKind && <input type="hidden" name="styleKind" value={styleKind} />}
+              <div className="admin-field">
+                <label>Name</label>
+                <input name="name" required />
+              </div>
+              <div className="admin-field">
+                <label>Price ($)</label>
+                <input name="priceDollars" type="number" step="0.01" defaultValue="0" required />
+              </div>
+              <div className="admin-field">
+                <label>Sort order</label>
+                <input name="sortOrder" type="number" defaultValue="0" style={{ minWidth: 70 }} />
+              </div>
+              {showDimensionColumns && (
+                <>
+                  <div className="admin-field">
+                    <label>Diameter</label>
+                    <input name="diameterIn" placeholder={'8"'} style={{ minWidth: 70 }} />
+                  </div>
+                  <div className="admin-field">
+                    <label>Shape</label>
+                    <select name="shape" defaultValue="round">
+                      <option value="round">Round</option>
+                      <option value="square">Square</option>
+                      <option value="sheet">Sheet</option>
+                    </select>
+                  </div>
+                  <div className="admin-field">
+                    <label>Tiers</label>
+                    <input name="tiers" type="number" defaultValue="1" style={{ minWidth: 60 }} />
+                  </div>
+                  <div className="admin-field">
+                    <label>Serves min</label>
+                    <input name="servesMin" type="number" style={{ minWidth: 70 }} />
+                  </div>
+                  <div className="admin-field">
+                    <label>Serves max</label>
+                    <input name="servesMax" type="number" style={{ minWidth: 70 }} />
+                  </div>
+                </>
+              )}
+              <button type="submit" className="btn btn-primary" style={{ padding: "10px 22px" }}>
+                Add
+              </button>
+            </form>
+          </div>
+        )}
+
+        {isLockedOptionSetField && (
+          <p className="admin-main__subtitle">
+            This field&apos;s 3 options are fixed by the app — you can rename them or change their
+            price, but not add, remove, or deactivate any of them.
+          </p>
+        )}
+
+        <div className="admin-card">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Price ($)</th>
+                <th>Sort</th>
+                {showDimensionColumns && (
+                  <>
+                    <th>Diameter</th>
+                    <th>Shape</th>
+                    <th>Tiers</th>
+                    <th>Serves</th>
+                  </>
+                )}
+                {isLockedOptionSetField && <th>Kind</th>}
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectionOptions.map((opt) => {
+                const formId = `option-form-${opt.id}`;
+                const dims: DimsRow | undefined = dimsByOptionId.get(opt.id);
+                return (
+                  <tr key={opt.id} className={opt.active ? "" : "is-inactive"}>
+                    <td style={{ minWidth: 150 }}>
+                      {/* empty submitter for this row — every input below points at it via the `form` attribute so each field can live in its own <td> and still line up under the header */}
+                      <form id={formId} action={updateOption} />
+                      <input type="hidden" form={formId} name="id" value={opt.id} />
+                      <input type="hidden" form={formId} name="fieldId" value={field.id} />
+                      <input form={formId} name="name" defaultValue={opt.name} required style={{ width: "100%" }} />
+                    </td>
+                    <td style={{ minWidth: 90 }}>
+                      <input
+                        form={formId}
+                        name="priceDollars"
+                        type="number"
+                        step="0.01"
+                        defaultValue={centsToDollarsStr(opt.priceCents)}
+                        style={{ width: "100%" }}
+                      />
+                    </td>
+                    <td style={{ minWidth: 70 }}>
+                      <input
+                        form={formId}
+                        name="sortOrder"
+                        type="number"
+                        defaultValue={opt.sortOrder}
+                        style={{ width: "100%" }}
+                      />
+                    </td>
+                    {showDimensionColumns && (
+                      <>
+                        <td>
+                          <input
+                            form={formId}
+                            name="diameterIn"
+                            defaultValue={dims?.diameterIn ?? ""}
+                            style={{ width: "100%" }}
+                          />
+                        </td>
+                        <td>
+                          <select form={formId} name="shape" defaultValue={dims?.shape ?? "round"} style={{ width: "100%" }}>
+                            <option value="round">Round</option>
+                            <option value="square">Square</option>
+                            <option value="sheet">Sheet</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            form={formId}
+                            name="tiers"
+                            type="number"
+                            defaultValue={dims?.tiers ?? 1}
+                            style={{ width: "100%" }}
+                          />
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input
+                              form={formId}
+                              name="servesMin"
+                              type="number"
+                              defaultValue={dims?.servesMin ?? ""}
+                              style={{ width: "100%" }}
+                            />
+                            <input
+                              form={formId}
+                              name="servesMax"
+                              type="number"
+                              defaultValue={dims?.servesMax ?? ""}
+                              style={{ width: "100%" }}
+                            />
+                          </div>
+                        </td>
+                      </>
+                    )}
+                    {isLockedOptionSetField && <td style={{ color: "var(--text-soft)" }}>{opt.styleKind ?? "—"}</td>}
+                    <td>{opt.active ? "Active" : "Inactive"}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button form={formId} type="submit" className="admin-btn-sm admin-btn-sm--ghost">
+                          Save
+                        </button>
+                        {!isLockedOptionSetField && (
+                          <form action={setOptionActive}>
+                            <input type="hidden" name="id" value={opt.id} />
+                            <input type="hidden" name="fieldId" value={field.id} />
+                            <input type="hidden" name="active" value={opt.active ? 0 : 1} />
+                            <button
+                              type="submit"
+                              className={`admin-btn-sm ${opt.active ? "admin-btn-sm--danger" : "admin-btn-sm--ghost"}`}
+                            >
+                              {opt.active ? "Deactivate" : "Reactivate"}
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {sectionOptions.length === 0 && (
+                <tr>
+                  <td colSpan={showDimensionColumns ? 9 : 5} style={{ color: "var(--text-soft)" }}>
+                    No options yet — add one above.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  };
 
   return (
     <>
@@ -98,189 +365,60 @@ export default async function FieldDetailPage({
         </form>
       </div>
 
-      {(field.type === "single_select" || field.type === "multi_select") && (
+      {isSizeField && (
         <>
+          <p className="admin-main__subtitle">
+            Every cake style has its own independently-priced set of sizes. Standard and Tall are
+            plain molds; Tiered sizes are built as stacked presets below.
+          </p>
+
+          <h2 style={{ marginTop: 24 }}>Standard sizes</h2>
+          {optionsSection(standardOptions, "standard")}
+
+          <h2 style={{ marginTop: 24 }}>Tall sizes</h2>
+          {optionsSection(tallOptions, "tall")}
+
+          <h2 style={{ marginTop: 24 }}>Tiered presets</h2>
           <div className="admin-card">
-            <h3 style={{ marginBottom: 14 }}>Add option</h3>
-            <form action={createOption} className="admin-form-row">
-              <input type="hidden" name="fieldId" value={field.id} />
-              <div className="admin-field">
-                <label>Name</label>
-                <input name="name" required />
-              </div>
-              <div className="admin-field">
-                <label>Price ($)</label>
-                <input name="priceDollars" type="number" step="0.01" defaultValue="0" required />
-              </div>
-              <div className="admin-field">
-                <label>Sort order</label>
-                <input name="sortOrder" type="number" defaultValue="0" style={{ minWidth: 70 }} />
-              </div>
-              {showDimensionColumns && (
-                <>
-                  <div className="admin-field">
-                    <label>Diameter</label>
-                    <input name="diameterIn" placeholder={'8"'} style={{ minWidth: 70 }} />
-                  </div>
-                  <div className="admin-field">
-                    <label>Shape</label>
-                    <select name="shape" defaultValue="round">
-                      <option value="round">Round</option>
-                      <option value="square">Square</option>
-                      <option value="sheet">Sheet</option>
-                    </select>
-                  </div>
-                  <div className="admin-field">
-                    <label>Tiers</label>
-                    <input name="tiers" type="number" defaultValue="1" style={{ minWidth: 60 }} />
-                  </div>
-                  <div className="admin-field">
-                    <label>Serves min</label>
-                    <input name="servesMin" type="number" style={{ minWidth: 70 }} />
-                  </div>
-                  <div className="admin-field">
-                    <label>Serves max</label>
-                    <input name="servesMax" type="number" style={{ minWidth: 70 }} />
-                  </div>
-                </>
-              )}
-              <button type="submit" className="btn btn-primary" style={{ padding: "10px 22px" }}>
-                Add
-              </button>
-            </form>
+            <h3 style={{ marginBottom: 14 }}>Add Tier Preset</h3>
+            <p className="admin-main__subtitle" style={{ marginBottom: 14 }}>
+              Built from your active Standard sizes above, base (widest) to top (narrowest) —
+              adjacent sizes only, no skipping a level.
+            </p>
+            {atomicMolds.length < 2 ? (
+              <p style={{ color: "var(--text-soft)" }}>
+                Add at least 2 active Standard sizes before building a tier preset.
+              </p>
+            ) : (
+              <TierPresetBuilder
+                action={createTierPreset}
+                molds={atomicMolds}
+                levelCounts={TIER_LEVEL_COUNTS}
+                submitLabel="Add Preset"
+              />
+            )}
           </div>
 
           <div className="admin-card">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Price ($)</th>
-                  <th>Sort</th>
-                  {showDimensionColumns && (
-                    <>
-                      <th>Diameter</th>
-                      <th>Shape</th>
-                      <th>Tiers</th>
-                      <th>Serves</th>
-                    </>
-                  )}
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {options.map((opt) => {
-                  const formId = `option-form-${opt.id}`;
-                  const dims = dimsByOptionId.get(opt.id);
-                  return (
-                    <tr key={opt.id} className={opt.active ? "" : "is-inactive"}>
-                      <td style={{ minWidth: 150 }}>
-                        {/* empty submitter for this row — every input below points at it via the `form` attribute so each field can live in its own <td> and still line up under the header */}
-                        <form id={formId} action={updateOption} />
-                        <input type="hidden" form={formId} name="id" value={opt.id} />
-                        <input type="hidden" form={formId} name="fieldId" value={field.id} />
-                        <input form={formId} name="name" defaultValue={opt.name} required style={{ width: "100%" }} />
-                      </td>
-                      <td style={{ minWidth: 90 }}>
-                        <input
-                          form={formId}
-                          name="priceDollars"
-                          type="number"
-                          step="0.01"
-                          defaultValue={centsToDollarsStr(opt.priceCents)}
-                          style={{ width: "100%" }}
-                        />
-                      </td>
-                      <td style={{ minWidth: 70 }}>
-                        <input
-                          form={formId}
-                          name="sortOrder"
-                          type="number"
-                          defaultValue={opt.sortOrder}
-                          style={{ width: "100%" }}
-                        />
-                      </td>
-                      {showDimensionColumns && (
-                        <>
-                          <td>
-                            <input
-                              form={formId}
-                              name="diameterIn"
-                              defaultValue={dims?.diameterIn ?? ""}
-                              style={{ width: "100%" }}
-                            />
-                          </td>
-                          <td>
-                            <select form={formId} name="shape" defaultValue={dims?.shape ?? "round"} style={{ width: "100%" }}>
-                              <option value="round">Round</option>
-                              <option value="square">Square</option>
-                              <option value="sheet">Sheet</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              form={formId}
-                              name="tiers"
-                              type="number"
-                              defaultValue={dims?.tiers ?? 1}
-                              style={{ width: "100%" }}
-                            />
-                          </td>
-                          <td>
-                            <div style={{ display: "flex", gap: 4 }}>
-                              <input
-                                form={formId}
-                                name="servesMin"
-                                type="number"
-                                defaultValue={dims?.servesMin ?? ""}
-                                style={{ width: "100%" }}
-                              />
-                              <input
-                                form={formId}
-                                name="servesMax"
-                                type="number"
-                                defaultValue={dims?.servesMax ?? ""}
-                                style={{ width: "100%" }}
-                              />
-                            </div>
-                          </td>
-                        </>
-                      )}
-                      <td>{opt.active ? "Active" : "Inactive"}</td>
-                      <td>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button form={formId} type="submit" className="admin-btn-sm admin-btn-sm--ghost">
-                            Save
-                          </button>
-                          <form action={setOptionActive}>
-                            <input type="hidden" name="id" value={opt.id} />
-                            <input type="hidden" name="fieldId" value={field.id} />
-                            <input type="hidden" name="active" value={opt.active ? 0 : 1} />
-                            <button
-                              type="submit"
-                              className={`admin-btn-sm ${opt.active ? "admin-btn-sm--danger" : "admin-btn-sm--ghost"}`}
-                            >
-                              {opt.active ? "Deactivate" : "Reactivate"}
-                            </button>
-                          </form>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {options.length === 0 && (
-                  <tr>
-                    <td colSpan={showDimensionColumns ? 9 : 5} style={{ color: "var(--text-soft)" }}>
-                      No options yet — add one above.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <h3 style={{ marginBottom: 14 }}>Tier Presets</h3>
+            {tierPresetSummaries.length === 0 && (
+              <p style={{ color: "var(--text-soft)" }}>No tier presets yet — add one above.</p>
+            )}
+            {tierPresetSummaries.map((preset) => (
+              <TierPresetRow
+                key={preset.optionId}
+                action={updateTierPreset}
+                deactivateAction={setOptionActive}
+                molds={atomicMolds}
+                levelCounts={TIER_LEVEL_COUNTS}
+                preset={preset}
+              />
+            ))}
           </div>
         </>
       )}
+
+      {!isSizeField && (field.type === "single_select" || field.type === "multi_select") && optionsSection(options)}
 
       {(field.type === "text" || field.type === "number") && (
         <div className="admin-card">

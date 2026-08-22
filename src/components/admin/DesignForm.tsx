@@ -1,12 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FIELD_TYPE_LABELS, fieldHasOptions, type FieldType } from "../../lib/fields";
+import { FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type FieldType, type TierLevelCount } from "../../lib/fields";
+import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { computeStandardPriceCents, formatCents, type Answers } from "../../lib/pricing";
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
+import type { DesignTierPresetSummary } from "../../app/admin/(protected)/designs/tierPresetSummary";
 import QuickAddFieldModal from "./QuickAddFieldModal";
 
-export type FieldOptionSummary = { id: number; name: string; priceCents: number; active: boolean };
+export type FieldOptionSummary = {
+  id: number;
+  name: string;
+  priceCents: number;
+  active: boolean;
+  styleKind?: CakeStyleKind | null;
+  tierLevelCount?: TierLevelCount | null;
+};
 
 export type FieldSummary = {
   id: number;
@@ -22,6 +31,7 @@ type Photo = { id: number; path: string; isPrimary: boolean };
 
 type Props = {
   fields: FieldSummary[];
+  tierPresets?: DesignTierPresetSummary[];
   design?: {
     id: number;
     name: string;
@@ -45,7 +55,7 @@ function draftFromAnswer(answer: Answers[number] | undefined): Draft {
   };
 }
 
-export default function DesignForm({ fields, design }: Props) {
+export default function DesignForm({ fields, tierPresets = [], design }: Props) {
   const [chargedDollars, setChargedDollars] = useState(
     design ? (design.chargedPriceCents / 100).toFixed(2) : ""
   );
@@ -132,15 +142,76 @@ export default function DesignForm({ fields, design }: Props) {
     [availableFields]
   );
 
+  // `size`'s available options depend on the drafted cake_style answer
+  const cakeStyleCtx = useMemo(() => {
+    const fieldDTOs = availableFields.map((f) => ({
+      id: f.id,
+      slug: f.slug,
+      name: f.name,
+      type: f.type,
+      isBase: f.isBase,
+      sortOrder: 0,
+      hasShapeDiagram: false,
+    }));
+    const optionDTOs = availableFields.flatMap((f) =>
+      f.options.map((o) => ({
+        id: o.id,
+        fieldId: f.id,
+        name: o.name,
+        priceCents: o.priceCents,
+        dimensions: null,
+        styleKind: o.styleKind ?? null,
+        tierLevelCount: o.tierLevelCount ?? null,
+      }))
+    );
+    const presetDTOs = tierPresets.map((p) => ({
+      fieldOptionId: p.fieldOptionId,
+      levelCount: p.levelCount,
+      levels: p.levels.map((l, i) => ({
+        position: i + 1,
+        moldOptionId: 0,
+        moldName: l.moldName,
+        diameterIn: null,
+        shape: null,
+        servesMin: null,
+        servesMax: null,
+      })),
+    }));
+    return buildCakeStyleContext(fieldDTOs, optionDTOs, presetDTOs);
+  }, [availableFields, tierPresets]);
+
+  const styleKind = cakeStyleCtx ? currentStyleKind(currentAnswers, cakeStyleCtx) : undefined;
+  const presetsByOptionId = useMemo(() => new Map(tierPresets.map((p) => [p.fieldOptionId, p])), [tierPresets]);
+
+  // drops the drafted `size` answer once it no longer belongs to the drafted
+  // style (e.g. a Tiered preset pick left over from before switching back to
+  // Standard) — same rule the order wizard applies, so the price preview
+  // below never double-counts a stale, no-longer-selectable size option
+  const effectiveAnswers: Answers = useMemo(
+    () => (cakeStyleCtx ? applyCakeStyleRules(currentAnswers, cakeStyleCtx) : currentAnswers),
+    [currentAnswers, cakeStyleCtx]
+  );
+
+  const allBaseAnswered = availableFields.filter((f) => f.isBase).every((f) => effectiveAnswers[f.id] != null);
+
+  // custom fields with the "Include" box checked but no actual value: select
+  // fields already force a value via the required <select>, but text/number/
+  // multi_select don't, so a checked-but-empty field would otherwise save
+  // silently with no design_field_values row at all — see currentAnswers above
+  const includedFieldsMissingValue = availableFields.filter((f) => {
+    if (f.isBase || !includedCustomFieldIds.has(f.id)) return false;
+    if (f.type === "single_select") return false; // required <select> already blocks this
+    return currentAnswers[f.id] == null;
+  });
+  const includedFieldsMissingValueIds = new Set(includedFieldsMissingValue.map((f) => f.id));
+
   const standardPriceCents = useMemo(
-    () => computeStandardPriceCents(currentAnswers, allOptionsFlat),
-    [currentAnswers, allOptionsFlat]
+    () => computeStandardPriceCents(effectiveAnswers, allOptionsFlat),
+    [effectiveAnswers, allOptionsFlat]
   );
 
   const chargedCents = Math.round(Number(chargedDollars || "0") * 100);
   const premiumCents = Number.isFinite(chargedCents) ? chargedCents - standardPriceCents : 0;
-
-  const allBaseAnswered = availableFields.filter((f) => f.isBase).every((f) => currentAnswers[f.id] != null);
 
   return (
     <>
@@ -180,7 +251,16 @@ export default function DesignForm({ fields, design }: Props) {
               const isLocked = lockedFieldIds.has(field.id);
               const draft = drafts[field.id] ?? { optionIds: [], text: "", number: "" };
               const hasOptions = fieldHasOptions(field.type);
-              const hideableOptions = field.options.filter((opt) => !draft.optionIds.includes(opt.id));
+              const isSizeField = field.slug === SIZE_FIELD_SLUG;
+              const hideableOptions = field.options
+                .filter((opt) => !draft.optionIds.includes(opt.id))
+                .map((opt) => ({
+                  ...opt,
+                  label: isSizeField && opt.styleKind ? `${opt.name} (${opt.styleKind})` : opt.name,
+                }));
+              const selectableOptions = isSizeField
+                ? field.options.filter((opt) => opt.styleKind === styleKind)
+                : field.options;
 
               return (
                 <div className="recipe-axis-row" key={field.id}>
@@ -214,13 +294,26 @@ export default function DesignForm({ fields, design }: Props) {
                         <option value="" disabled>
                           Select…
                         </option>
-                        {field.options.map((opt) => (
-                          <option key={opt.id} value={opt.id}>
-                            {opt.name}
-                            {!opt.active ? " (inactive)" : ""} — {formatCents(opt.priceCents)}
-                          </option>
-                        ))}
+                        {selectableOptions.map((opt) => {
+                          const breakdown = presetsByOptionId.get(opt.id)?.levels.map((l) => l.moldName).join(" → ");
+                          return (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.name}
+                              {breakdown ? ` (${breakdown})` : ""}
+                              {!opt.active ? " (inactive)" : ""} — {formatCents(opt.priceCents)}
+                            </option>
+                          );
+                        })}
                       </select>
+                    )}
+                    {isSizeField && (
+                      <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: "4px 0 0" }}>
+                        {styleKind == null
+                          ? "Pick a Cake Style first."
+                          : selectableOptions.length === 0
+                            ? `No ${styleKind} sizes configured yet — add some from Catalog.`
+                            : null}
+                      </p>
                     )}
 
                     {isIncluded && field.type === "text" && (
@@ -243,6 +336,13 @@ export default function DesignForm({ fields, design }: Props) {
                         style={{ minWidth: 120 }}
                       />
                     )}
+
+                    {(field.type === "text" || field.type === "number") &&
+                      includedFieldsMissingValueIds.has(field.id) && (
+                        <p style={{ color: "var(--pink-600)", fontSize: "0.8rem", margin: "4px 0 0" }}>
+                          Needs a default value before this can be saved.
+                        </p>
+                      )}
                   </div>
 
                   {isIncluded && field.type === "multi_select" && (
@@ -269,6 +369,11 @@ export default function DesignForm({ fields, design }: Props) {
                         {field.options.length === 0 && (
                           <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
                             No options yet — add some from Catalog.
+                          </span>
+                        )}
+                        {includedFieldsMissingValueIds.has(field.id) && (
+                          <span style={{ color: "var(--pink-600)", fontSize: "0.8rem" }}>
+                            Needs at least one default selection before this can be saved.
                           </span>
                         )}
                       </div>
@@ -301,7 +406,7 @@ export default function DesignForm({ fields, design }: Props) {
                               checked={excludedOptionIds.has(opt.id)}
                               onChange={() => toggleExcluded(opt.id)}
                             />
-                            {opt.name}
+                            {opt.label}
                           </label>
                         ))}
                         {hideableOptions.length === 0 && (
@@ -359,9 +464,19 @@ export default function DesignForm({ fields, design }: Props) {
         </div>
 
         <div>
-          <button type="submit" className="btn btn-primary" disabled={!allBaseAnswered}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={!allBaseAnswered || includedFieldsMissingValue.length > 0}
+          >
             {design ? "Save Design" : "Create Design"}
           </button>
+          {includedFieldsMissingValue.length > 0 && (
+            <p style={{ color: "var(--pink-600)", fontSize: "0.85rem", marginTop: 6 }}>
+              Give a default value for: {includedFieldsMissingValue.map((f) => f.name).join(", ")} — or
+              uncheck &quot;Include in this design&quot; if you don&apos;t want to use it.
+            </p>
+          )}
         </div>
       </form>
 

@@ -16,7 +16,7 @@ import {
   orders,
   orderSelections,
 } from "./schema";
-import { BASE_FIELD_SLUGS, type BaseFieldSlug, type FieldType } from "../lib/fields";
+import type { BaseFieldSlug, FieldType } from "../lib/fields";
 
 // --- tiny solid-color PNG encoder (no deps) -------------------------------
 
@@ -115,7 +115,10 @@ type DesignSeed = {
   description: string;
   color: [number, number, number];
   chargedDollars: number;
-  recipe: Record<BaseFieldSlug, string>; // base field slug -> option name
+  // base field slug -> option name; only fields that actually apply to this
+  // design need an entry (e.g. tier_levels/tier_size are omitted for every
+  // Standard-style example here, same as a real admin would leave them blank)
+  recipe: Partial<Record<BaseFieldSlug, string>>;
   lockedBaseFields?: BaseFieldSlug[];
   excludedOptions?: { fieldSlug: BaseFieldSlug; name: string }[];
   customFieldValues?: CustomFieldValueSeed[];
@@ -128,6 +131,7 @@ const designSeeds: DesignSeed[] = [
     color: [107, 66, 38],
     chargedDollars: 78,
     recipe: {
+      cake_style: "Standard",
       size: "Large",
       cake_type: "Classic Layer Cake",
       flavor: "Chocolate",
@@ -147,6 +151,7 @@ const designSeeds: DesignSeed[] = [
     color: [193, 53, 94],
     chargedDollars: 72,
     recipe: {
+      cake_style: "Standard",
       size: "Medium",
       cake_type: "Naked Cake",
       flavor: "Red Velvet",
@@ -163,6 +168,7 @@ const designSeeds: DesignSeed[] = [
     color: [227, 214, 251],
     chargedDollars: 48,
     recipe: {
+      cake_style: "Standard",
       size: "Small",
       cake_type: "Classic Layer Cake",
       flavor: "Marble",
@@ -177,6 +183,7 @@ const designSeeds: DesignSeed[] = [
     color: [255, 229, 138],
     chargedDollars: 68,
     recipe: {
+      cake_style: "Standard",
       size: "Medium",
       cake_type: "Classic Layer Cake",
       flavor: "Vanilla",
@@ -191,6 +198,7 @@ const designSeeds: DesignSeed[] = [
     color: [230, 145, 60],
     chargedDollars: 82,
     recipe: {
+      cake_style: "Standard",
       size: "Medium",
       cake_type: "Carlotta",
       flavor: "Chocolate",
@@ -284,9 +292,9 @@ function main() {
       continue;
     }
 
-    const baseSelections = BASE_FIELD_SLUGS.map((slug) => ({
+    const baseSelections = (Object.keys(seed.recipe) as BaseFieldSlug[]).map((slug) => ({
       field: requireField(slug),
-      option: lookupOption(slug, seed.recipe[slug]),
+      option: lookupOption(slug, seed.recipe[slug]!),
     }));
 
     let standardCents = baseSelections.reduce((sum, s) => sum + s.option.priceCents, 0);
@@ -388,11 +396,19 @@ function main() {
     const designFieldValueRows = db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).all();
     const design = db.select().from(designs).all().find((d) => d.id === designId)!;
 
-    const selections = BASE_FIELD_SLUGS.map((slug) => {
-      const field = requireField(slug);
-      const overrideName = seed.overrides?.[slug];
-      if (overrideName) return { field, option: lookupOption(slug, overrideName) };
-      const row = designFieldValueRows.find((r) => r.fieldId === field.id)!;
+    // only the fields this design actually answered (base fields that don't
+    // apply, e.g. tier_levels/tier_size for a Standard-style design, have no
+    // row and are correctly skipped) plus whichever fields this order overrides
+    const fieldById = new Map(allFields.map((f) => [f.id, f]));
+    const relevantFieldIds = new Set(designFieldValueRows.map((r) => r.fieldId));
+    for (const slug of Object.keys(seed.overrides ?? {}) as BaseFieldSlug[]) {
+      relevantFieldIds.add(requireField(slug).id);
+    }
+    const selections = [...relevantFieldIds].map((fieldId) => {
+      const field = fieldById.get(fieldId)!;
+      const overrideName = seed.overrides?.[field.slug as BaseFieldSlug];
+      if (overrideName) return { field, option: lookupOption(field.slug, overrideName) };
+      const row = designFieldValueRows.find((r) => r.fieldId === fieldId)!;
       const option = allOptions.find((o) => o.id === row.fieldOptionId)!;
       return { field, option };
     });

@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { fieldOptions, fields } from "../../../../../db/schema";
-import { baseFieldRank, isFieldType, type FieldType } from "../../../../../lib/fields";
+import { fieldOptions, fields, tierPresets, tierPresetLevels } from "../../../../../db/schema";
+import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../lib/fields";
 import DesignForm, { type FieldSummary } from "../../../../../components/admin/DesignForm";
+import { buildTierPresetSummaries } from "../tierPresetSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,11 @@ export default async function NewDesignPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
-  const [allFields, allOptions] = await Promise.all([
+  const [allFields, allOptions, allTierPresetRows, allTierPresetLevelRows] = await Promise.all([
     db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
     db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
+    db.select().from(tierPresets).then((r) => r),
+    db.select().from(tierPresetLevels).then((r) => r),
   ]);
 
   const optionsByField = new Map<number, typeof allOptions>();
@@ -44,8 +47,12 @@ export default async function NewDesignPage({
         name: o.name,
         priceCents: o.priceCents,
         active: o.active,
+        styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+        tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
       })),
     }));
+
+  const tierPresetSummaries = buildTierPresetSummaries(allOptions, allTierPresetRows, allTierPresetLevelRows);
 
   return (
     <>
@@ -59,7 +66,7 @@ export default async function NewDesignPage({
           that constraint first.
         </div>
       )}
-      <DesignForm fields={fieldSummaries} />
+      <DesignForm fields={fieldSummaries} tierPresets={tierPresetSummaries} />
     </>
   );
 }
