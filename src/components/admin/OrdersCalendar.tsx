@@ -128,6 +128,18 @@ export default function OrdersCalendar({
             );
           })}
         </div>
+
+        <div className="orders-calendar__legend">
+          <span className="orders-calendar__legend-item">
+            <span className="orders-calendar__legend-swatch orders-calendar__legend-swatch--orders" /> Has orders
+          </span>
+          <span className="orders-calendar__legend-item">
+            <span className="orders-calendar__legend-swatch orders-calendar__legend-swatch--new" /> New orders
+          </span>
+          <span className="orders-calendar__legend-item">
+            <span className="orders-calendar__legend-swatch orders-calendar__legend-swatch--closed" /> Closed to new orders
+          </span>
+        </div>
       </div>
 
       {selectedDate && (

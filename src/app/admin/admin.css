@@ -572,17 +572,6 @@
   background: transparent;
 }
 
-.orders-calendar__cell.is-closed {
-  background: repeating-linear-gradient(
-    135deg,
-    var(--cream),
-    var(--cream) 6px,
-    var(--peach-100) 6px,
-    var(--peach-100) 7px
-  );
-  color: var(--text-soft);
-}
-
 .orders-calendar__cell.is-today {
   box-shadow: inset 0 0 0 2px var(--pink-300);
 }
@@ -605,6 +594,53 @@
 
 .orders-calendar__cell.has-new:hover {
   background: var(--pink-500);
+}
+
+/* Closed-for-new-orders always wins visually, even on a day that also has
+   orders already booked (has-orders/has-new) — otherwise a full, closed day
+   looks identical to any other busy day. Source order after has-new is what
+   gives it priority: same specificity, later rule wins. */
+.orders-calendar__cell.is-closed {
+  background: repeating-linear-gradient(135deg, #c0392b, #c0392b 6px, #d8624f 6px, #d8624f 7px);
+  color: var(--white);
+}
+
+.orders-calendar__cell.is-closed:hover {
+  background: repeating-linear-gradient(135deg, #ad3323, #ad3323 6px, #c0392b 6px, #c0392b 7px);
+}
+
+.orders-calendar__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
+.orders-calendar__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.orders-calendar__legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.orders-calendar__legend-swatch--orders {
+  background: var(--pink-100);
+}
+
+.orders-calendar__legend-swatch--new {
+  background: var(--pink-500);
+}
+
+.orders-calendar__legend-swatch--closed {
+  background: repeating-linear-gradient(135deg, #c0392b, #c0392b 4px, #d8624f 4px, #d8624f 5px);
 }
 
 .orders-calendar__badge {

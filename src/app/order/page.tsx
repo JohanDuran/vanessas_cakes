@@ -1,28 +1,7 @@
-import { loadOrderData, loadPickupAvailability } from "../../db/queries";
-import Navbar from "../../components/Navbar";
-import Footer from "../../components/Footer";
-import OrderWizard from "./OrderWizard";
-import "../../components/order/order-wizard.css";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function OrderPage() {
-  const [{ fields, options, designSummaries, constraintPairsDTO, tierPresets, categories }, availability] =
-    await Promise.all([loadOrderData(), loadPickupAvailability()]);
-
-  return (
-    <>
-      <Navbar />
-      <OrderWizard
-        fields={fields}
-        options={options}
-        designs={designSummaries}
-        constraintPairs={constraintPairsDTO}
-        tierPresets={tierPresets}
-        categories={categories}
-        availability={availability}
-      />
-      <Footer />
-    </>
-  );
+// Design selection is centralized on /gallery now — there's no more design-picker
+// popup to land on here. Keep this route working for old links/bookmarks.
+export default function OrderPage() {
+  redirect("/gallery");
 }

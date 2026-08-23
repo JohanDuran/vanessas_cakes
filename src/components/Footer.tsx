@@ -15,7 +15,7 @@ export default function Footer() {
           <a href="/#story">Our Story</a>
           <Link href="/gallery">Gallery</Link>
           <a href="/#reviews">Reviews</a>
-          <Link href="/order">Design a Cake</Link>
+          <Link href="/gallery">Design a Cake</Link>
         </nav>
         <p className="footer__copy">© {new Date().getFullYear()} Vanessa's cake. All sweetness reserved.</p>
       </div>

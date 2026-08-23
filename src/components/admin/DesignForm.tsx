@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { computeStandardPriceCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
@@ -194,6 +194,22 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const styleKind = cakeStyleCtx ? currentStyleKind(currentAnswers, cakeStyleCtx) : undefined;
   const presetsByOptionId = useMemo(() => new Map(tierPresets.map((p) => [p.fieldOptionId, p])), [tierPresets]);
 
+  // mirrors the order wizard's resolveAll: a `size` default left over from a
+  // different cake_style (picked before a later style change, or inherited
+  // from stale data) must not linger in the draft — otherwise it silently
+  // fails allBaseAnswered below with nothing on screen explaining why Save
+  // is disabled. Clearing it here keeps the visible dropdown, the drafted
+  // state, and the validation all in agreement.
+  useEffect(() => {
+    if (!cakeStyleCtx) return;
+    const sizeDraft = drafts[cakeStyleCtx.sizeFieldId];
+    const optionId = sizeDraft?.optionIds[0];
+    if (optionId == null) return;
+    if (cakeStyleCtx.styleKindByOptionId.get(optionId) === styleKind) return;
+    setDraft(cakeStyleCtx.sizeFieldId, { optionIds: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleKind, cakeStyleCtx]);
+
   // drops the drafted `size` answer once it no longer belongs to the drafted
   // style (e.g. a Tiered preset pick left over from before switching back to
   // Standard) — same rule the order wizard applies, so the price preview
@@ -203,7 +219,8 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     [currentAnswers, cakeStyleCtx]
   );
 
-  const allBaseAnswered = availableFields.filter((f) => f.isBase).every((f) => effectiveAnswers[f.id] != null);
+  const missingBaseFields = availableFields.filter((f) => f.isBase && effectiveAnswers[f.id] == null);
+  const allBaseAnswered = missingBaseFields.length === 0;
 
   // custom fields with the "Include" box checked but no actual value: a
   // multi_select field needs at least one default checked or it would save
@@ -518,6 +535,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             <p style={{ color: "var(--pink-600)", fontSize: "0.85rem", marginTop: 6 }}>
               Give a default value for: {includedFieldsMissingValue.map((f) => f.name).join(", ")} — or
               uncheck &quot;Include in this design&quot; if you don&apos;t want to use it.
+            </p>
+          )}
+          {missingBaseFields.length > 0 && (
+            <p style={{ color: "var(--pink-600)", fontSize: "0.85rem", marginTop: 6 }}>
+              Pick a value for: {missingBaseFields.map((f) => f.name).join(", ")} before saving.
             </p>
           )}
         </div>

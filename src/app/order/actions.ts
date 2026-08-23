@@ -38,25 +38,39 @@ const submitSchema = z.object({
   comments: z.string().trim().optional(),
 });
 
-export async function submitOrder(formData: FormData) {
-  const parsed = submitSchema.parse(Object.fromEntries(formData));
+/** Result shape for useActionState in OrderSummaryPanel — a thrown error inside
+ *  a form action has no friendly on-page presentation (Next.js falls back to
+ *  its generic error page, dropping every answer the customer picked), so
+ *  every validation failure here is returned instead, letting the review step
+ *  show it next to Submit and keep the customer's answers intact. */
+export type SubmitOrderState = { error: string } | undefined;
+
+export async function submitOrder(
+  _prevState: SubmitOrderState,
+  formData: FormData
+): Promise<SubmitOrderState> {
+  const rawParsed = submitSchema.safeParse(Object.fromEntries(formData));
+  if (!rawParsed.success) {
+    return { error: rawParsed.error.issues[0]?.message ?? "Please check the form and try again." };
+  }
+  const parsed = rawParsed.data;
 
   // no designId means this is a custom-cake quote request, not a catalog order
   const isCustomOrder = !parsed.designId;
   const designId = isCustomOrder ? null : Number(parsed.designId);
   if (!isCustomOrder && !Number.isInteger(designId)) {
-    throw new Error("Invalid design.");
+    return { error: "Invalid design." };
   }
 
   if (!parsed.contactPreference) {
-    throw new Error("Choose how you'd like us to reach you.");
+    return { error: "Choose how you'd like us to reach you." };
   }
 
   let design: typeof designs.$inferSelect | undefined;
   if (!isCustomOrder) {
     design = db.select().from(designs).where(eq(designs.id, designId!)).get();
     if (!design || !design.published) {
-      throw new Error("This design is no longer available.");
+      return { error: "This design is no longer available." };
     }
   }
 
@@ -66,8 +80,8 @@ export async function submitOrder(formData: FormData) {
   // preference, so an empty pickup is fine.
   const hasPickupDate = !!parsed.pickupDate && /^\d{4}-\d{2}-\d{2}$/.test(parsed.pickupDate);
   const hasPickupTime = !!parsed.pickupTime && /^([01]\d|2[0-3]):[0-5]\d$/.test(parsed.pickupTime);
-  if (!isCustomOrder && !hasPickupDate) throw new Error("Choose a pickup date");
-  if (!isCustomOrder && !hasPickupTime) throw new Error("Choose a pickup time");
+  if (!isCustomOrder && !hasPickupDate) return { error: "Choose a pickup date" };
+  if (!isCustomOrder && !hasPickupTime) return { error: "Choose a pickup time" };
 
   let pickupDate: string | null = null;
   let pickupTime: string | null = null;
@@ -84,7 +98,7 @@ export async function submitOrder(formData: FormData) {
         orderCountsByDate
       )
     ) {
-      throw new Error("That pickup time is no longer available — please go back and choose another.");
+      return { error: "That pickup time is no longer available — please go back and choose another." };
     }
     pickupDate = parsed.pickupDate!;
     pickupTime = parsed.pickupTime!;
@@ -207,13 +221,13 @@ export async function submitOrder(formData: FormData) {
         .map((v) => Number(v))
         .filter((n) => Number.isInteger(n));
       if (field.type === "single_select" && ids.length > 1) {
-        throw new Error(`Invalid selection for ${field.name}.`);
+        return { error: `Invalid selection for ${field.name}.` };
       }
       for (const id of ids) {
         const option = optionById.get(id);
-        if (!option || option.fieldId !== field.id) throw new Error(`Invalid selection for ${field.name}.`);
+        if (!option || option.fieldId !== field.id) return { error: `Invalid selection for ${field.name}.` };
         if (excludedOptionIds.has(id)) {
-          throw new Error("One of your selections isn't available for this design.");
+          return { error: "One of your selections isn't available for this design." };
         }
       }
       if (ids.length > 0) answers[field.id] = { type: "options", optionIds: ids };
@@ -231,7 +245,7 @@ export async function submitOrder(formData: FormData) {
       const requiresAnswer =
         field.type === "single_select" || ((field.type === "text" || field.type === "number") && field.required);
       if (!requiresAnswer) continue;
-      if (!answers[field.id]) throw new Error(`${field.name} is required.`);
+      if (!answers[field.id]) return { error: `${field.name} is required.` };
     }
 
     // the submitted `size` option must belong to the submitted cake_style
@@ -244,14 +258,14 @@ export async function submitOrder(formData: FormData) {
       const sizeOptionId = sizeAnswer?.type === "options" ? sizeAnswer.optionIds[0] : undefined;
       const sizeOptionStyle = sizeOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(sizeOptionId) : undefined;
       if (sizeOptionId != null && sizeOptionStyle !== styleKind) {
-        throw new Error("Size doesn't match the selected Cake Style — please go back and re-check.");
+        return { error: "Size doesn't match the selected Cake Style — please go back and re-check." };
       }
     }
   }
 
   const pairs = db.select().from(constraintPairs).all();
   if (selectionsViolateConstraints(answers, pairs)) {
-    throw new Error("This combination is not allowed — please go back and adjust your selections.");
+    return { error: "This combination is not allowed — please go back and adjust your selections." };
   }
 
   // total is recomputed here — never trust a client-sent price

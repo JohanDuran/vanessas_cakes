@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
 import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
 import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../lib/availability";
@@ -43,6 +43,13 @@ export default function OrderSummaryPanel({
   onEditPickup,
   onEditCustom,
 }: Props) {
+  const [submitState, formAction, isSubmitting] = useActionState(submitOrder, undefined);
+
+  // kept as controlled state so a failed submit (e.g. the pickup slot filled
+  // up while reviewing) doesn't wipe what the customer already typed — React
+  // resets an uncontrolled form's fields once its action finishes
+  const [contactFields, setContactFields] = useState({ name: "", email: "", phone: "", comments: "" });
+
   const optionById = new Map(options.map((o) => [o.id, o]));
   const presetsByOptionId = new Map(tierPresets.map((p) => [p.fieldOptionId, p]));
   const flatOptions = options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
@@ -58,7 +65,7 @@ export default function OrderSummaryPanel({
   }, [referenceImages]);
 
   return (
-    <form action={submitOrder} className="wizard-step order-summary">
+    <form action={formAction} className="wizard-step order-summary">
       {!isCustom && <input type="hidden" name="designId" value={design.id} />}
       {contactPreference && <input type="hidden" name="contactPreference" value={contactPreference} />}
       {isCustom && (
@@ -191,27 +198,62 @@ export default function OrderSummaryPanel({
 
       <div className="wizard-field">
         <label htmlFor="customerName">Your name</label>
-        <input id="customerName" name="customerName" required />
+        <input
+          id="customerName"
+          name="customerName"
+          required
+          value={contactFields.name}
+          onChange={(e) => setContactFields((prev) => ({ ...prev, name: e.target.value }))}
+        />
       </div>
       <div className="wizard-field">
         <label htmlFor="customerEmail">Email</label>
-        <input id="customerEmail" name="customerEmail" type="email" required />
+        <input
+          id="customerEmail"
+          name="customerEmail"
+          type="email"
+          required
+          value={contactFields.email}
+          onChange={(e) => setContactFields((prev) => ({ ...prev, email: e.target.value }))}
+        />
       </div>
       <div className="wizard-field">
         <label htmlFor="customerPhone">Phone</label>
-        <input id="customerPhone" name="customerPhone" type="tel" />
+        <input
+          id="customerPhone"
+          name="customerPhone"
+          type="tel"
+          value={contactFields.phone}
+          onChange={(e) => setContactFields((prev) => ({ ...prev, phone: e.target.value }))}
+        />
       </div>
       <div className="wizard-field">
         <label htmlFor="comments">Comments / special requests</label>
-        <textarea id="comments" name="comments" rows={4} />
+        <textarea
+          id="comments"
+          name="comments"
+          rows={4}
+          value={contactFields.comments}
+          onChange={(e) => setContactFields((prev) => ({ ...prev, comments: e.target.value }))}
+        />
       </div>
+
+      {submitState?.error && (
+        <p className="order-summary__error" role="alert">
+          {submitState.error}
+        </p>
+      )}
 
       <button
         type="submit"
         className="btn btn-primary order-summary__submit"
-        disabled={!contactPreference}
+        disabled={!contactPreference || isSubmitting}
       >
-        {isCustom ? "Send Custom Quote Request" : "Send Order to the Baker"}
+        {isSubmitting
+          ? "Sending…"
+          : isCustom
+            ? "Send Custom Quote Request"
+            : "Send Order to the Baker"}
       </button>
     </form>
   );

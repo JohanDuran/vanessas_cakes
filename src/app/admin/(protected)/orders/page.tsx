@@ -2,7 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designs, orders } from "../../../../db/schema";
-import { loadPickupAvailability } from "../../../../db/queries";
+import { closePastPickupOrders, loadPickupAvailability } from "../../../../db/queries";
 import { formatCents } from "../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../lib/availability";
 import OrdersCalendar, { type CalendarOrder } from "../../../../components/admin/OrdersCalendar";
@@ -11,6 +11,8 @@ import { closeDayForNewOrders, reopenDay } from "../availability/actions";
 export const dynamic = "force-dynamic";
 
 export default async function OrdersInboxPage() {
+  closePastPickupOrders();
+
   const [allOrders, { settings, overrides }] = await Promise.all([
     db
       .select({

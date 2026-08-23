@@ -1,4 +1,4 @@
-import { asc, count, eq, gte } from "drizzle-orm";
+import { and, asc, count, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
 import { db } from "./index";
 import {
   fields,
@@ -37,6 +37,20 @@ export const DEFAULT_PICKUP_SETTINGS: PickupSettings = {
   slotIntervalMinutes: 30,
   maxOrdersPerDay: null,
 };
+
+/** Archives every order whose pickup date has already passed and isn't
+ *  already archived, so a fulfilled/missed pickup stops showing as a "new"
+ *  order needing attention — same auto-transition pattern as the order
+ *  detail page's new->viewed flip on view. Orders with no pickup date (e.g.
+ *  custom-cake quote requests) are left alone since there's no date to judge
+ *  "past" by. Call this before reading orders in any admin orders view. */
+export function closePastPickupOrders(): void {
+  const todayKey = toDateKey(new Date());
+  db.update(orders)
+    .set({ status: "archived" })
+    .where(and(ne(orders.status, "archived"), isNotNull(orders.pickupDate), lt(orders.pickupDate, todayKey)))
+    .run();
+}
 
 /** Everything the order wizard's pickup calendar needs to compute available
  *  dates/slots client-side, and everything submitOrder needs to re-validate
@@ -103,6 +117,45 @@ export async function loadPickupAvailability(): Promise<{
     overrides,
     orderCountsByDate,
   };
+}
+
+export type FeaturedDesignDTO = {
+  id: number;
+  name: string;
+  description: string | null;
+  chargedPriceCents: number;
+  photo: string | null;
+};
+
+/** The admin's curated pick for the homepage hero carousel (designs.featured)
+ *  — published only, since an unpublished design has no order page to link to.
+ *  See setDesignFeatured in admin/(protected)/designs/actions.ts for the
+ *  write side. */
+export async function loadFeaturedDesigns(): Promise<FeaturedDesignDTO[]> {
+  const featuredDesigns = await db
+    .select()
+    .from(designs)
+    .where(and(eq(designs.featured, true), eq(designs.published, true)))
+    .orderBy(asc(designs.featuredSortOrder), asc(designs.name))
+    .then((r) => r);
+
+  if (featuredDesigns.length === 0) return [];
+
+  const photos = await db.select().from(designPhotos).orderBy(asc(designPhotos.sortOrder)).then((r) => r);
+  const primaryPhotoByDesign = new Map<number, string>();
+  for (const photo of photos) {
+    if (photo.isPrimary || !primaryPhotoByDesign.has(photo.designId)) {
+      primaryPhotoByDesign.set(photo.designId, photo.path);
+    }
+  }
+
+  return featuredDesigns.map((d) => ({
+    id: d.id,
+    name: d.name,
+    description: d.description,
+    chargedPriceCents: d.chargedPriceCents,
+    photo: primaryPhotoByDesign.get(d.id) ?? null,
+  }));
 }
 
 /** Everything the customer-facing order flow (wizard + gallery) needs:

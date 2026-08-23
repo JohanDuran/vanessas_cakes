@@ -320,3 +320,20 @@ export async function setDesignPublished(formData: FormData) {
     .run();
   revalidatePath("/admin/designs");
 }
+
+const toggleFeaturedSchema = z.object({
+  id: z.coerce.number().int(),
+  featured: z.coerce.number(),
+});
+
+/** Admin's pick of which designs show in the homepage hero carousel — see
+ *  loadFeaturedDesigns in db/queries.ts, the single place that reads it back. */
+export async function setDesignFeatured(formData: FormData) {
+  const parsed = toggleFeaturedSchema.parse(Object.fromEntries(formData));
+  db.update(designs)
+    .set({ featured: Boolean(parsed.featured), updatedAt: Date.now() })
+    .where(eq(designs.id, parsed.id))
+    .run();
+  revalidatePath("/admin/designs");
+  revalidatePath("/");
+}

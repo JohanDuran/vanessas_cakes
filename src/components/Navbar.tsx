@@ -41,7 +41,7 @@ export default function Navbar() {
           )}
           <Link href="/gallery">Gallery</Link>
           <Link href="/order/custom">Custom Cake</Link>
-          <Link href="/order" className="btn btn-primary navbar__cta">
+          <Link href="/gallery" className="btn btn-primary navbar__cta">
             Design Your Cake
           </Link>
         </nav>

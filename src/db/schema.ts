@@ -150,6 +150,10 @@ export const designs = sqliteTable("designs", {
   // server-computed: chargedPriceCents - sum(standard prices of the design's field values)
   premiumCents: integer("premium_cents").notNull().default(0),
   published: integer("published", { mode: "boolean" }).notNull().default(false),
+  // admin-curated pick for the homepage hero carousel — never automatic, so
+  // the homepage only ever shows cakes the admin explicitly chose to feature
+  featured: integer("featured", { mode: "boolean" }).notNull().default(false),
+  featuredSortOrder: integer("featured_sort_order").notNull().default(0),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),

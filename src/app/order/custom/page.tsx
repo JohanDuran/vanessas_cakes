@@ -7,7 +7,7 @@ import "../../../components/order/order-wizard.css";
 export const dynamic = "force-dynamic";
 
 export default async function CustomCakeOrderPage() {
-  const [{ fields, options, designSummaries, constraintPairsDTO, tierPresets, categories }, availability] =
+  const [{ fields, options, designSummaries, constraintPairsDTO, tierPresets }, availability] =
     await Promise.all([loadOrderData(), loadPickupAvailability()]);
 
   return (
@@ -19,7 +19,6 @@ export default async function CustomCakeOrderPage() {
         designs={designSummaries}
         constraintPairs={constraintPairsDTO}
         tierPresets={tierPresets}
-        categories={categories}
         availability={availability}
         startCustom
       />

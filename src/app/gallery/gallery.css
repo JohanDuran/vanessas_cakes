@@ -163,3 +163,12 @@
   font-size: 0.9rem;
   white-space: nowrap;
 }
+
+.gallery-card--custom {
+  border: 2px dashed var(--pink-300);
+  cursor: pointer;
+}
+
+.gallery-card__art--custom {
+  background: linear-gradient(160deg, var(--pink-100), var(--peach-100));
+}

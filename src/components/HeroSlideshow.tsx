@@ -5,31 +5,45 @@ import Link from "next/link";
 import CakeIllustration from "./CakeIllustration";
 import Donut from "./Donut";
 import { slideshowCakes } from "../data/content";
+import type { FeaturedDesignDTO } from "../db/queries";
+import { formatCents } from "../lib/pricing";
 import "./HeroSlideshow.css";
 
 const AUTOPLAY_MS = 4500;
 
-export default function HeroSlideshow() {
+type Props = {
+  /** Admin's curated pick (designs.featured) — real catalog cakes with
+   *  photos, each linking straight to its order page. Falls back to the
+   *  static illustrated slides below when the admin hasn't featured any
+   *  design yet, so the homepage is never empty. */
+  featured?: FeaturedDesignDTO[];
+};
+
+export default function HeroSlideshow({ featured = [] }: Props) {
+  const usingFeatured = featured.length > 0;
+  const slideCount = usingFeatured ? featured.length : slideshowCakes.length;
+
   const [index, setIndex] = useState(0);
   const timerRef = useRef<number | null>(null);
 
   const goTo = useCallback((i: number) => {
-    setIndex((i + slideshowCakes.length) % slideshowCakes.length);
-  }, []);
+    setIndex((i + slideCount) % slideCount);
+  }, [slideCount]);
 
   const next = useCallback(() => goTo(index + 1), [goTo, index]);
   const prev = useCallback(() => goTo(index - 1), [goTo, index]);
 
   useEffect(() => {
     timerRef.current = window.setInterval(() => {
-      setIndex((i) => (i + 1) % slideshowCakes.length);
+      setIndex((i) => (i + 1) % slideCount);
     }, AUTOPLAY_MS);
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
     };
-  }, []);
+  }, [slideCount]);
 
-  const active = slideshowCakes[index];
+  const activeFeatured = usingFeatured ? featured[index] : null;
+  const active = usingFeatured ? null : slideshowCakes[index];
 
   return (
     <section className="hero">
@@ -55,7 +69,7 @@ export default function HeroSlideshow() {
             Explore our favorites, or design your own from scratch.
           </p>
           <div className="hero__actions">
-            <Link href="/order" className="btn btn-primary">
+            <Link href="/gallery" className="btn btn-primary">
               🎂 Design Your Cake
             </Link>
             <Link href="/gallery" className="btn btn-outline">
@@ -67,27 +81,46 @@ export default function HeroSlideshow() {
         <div className="hero__stage">
           <div className="hero__stage-glow" aria-hidden="true" />
           <div className="hero__slide-frame">
-            {slideshowCakes.map((cake, i) => (
-              <div
-                key={cake.id}
-                className={`hero__slide ${i === index ? "hero__slide--active" : ""}`}
-                aria-hidden={i !== index}
-              >
-                <CakeIllustration
-                  flavor={cake.flavor}
-                  icing={cake.icing}
-                  icingSoft={cake.icingSoft}
-                  topping={cake.topping}
-                  tiers={cake.tiers}
-                  size={300}
-                />
-              </div>
-            ))}
+            {usingFeatured
+              ? featured.map((cake, i) => (
+                  <Link
+                    key={cake.id}
+                    href={`/order/${cake.id}`}
+                    className={`hero__slide hero__slide--photo ${i === index ? "hero__slide--active" : ""}`}
+                    aria-hidden={i !== index}
+                  >
+                    {cake.photo ? (
+                      <img src={`/uploads/${cake.photo}`} alt={cake.name} />
+                    ) : (
+                      <div className="hero__slide-placeholder">🎂</div>
+                    )}
+                  </Link>
+                ))
+              : slideshowCakes.map((cake, i) => (
+                  <div
+                    key={cake.id}
+                    className={`hero__slide ${i === index ? "hero__slide--active" : ""}`}
+                    aria-hidden={i !== index}
+                  >
+                    <CakeIllustration
+                      flavor={cake.flavor}
+                      icing={cake.icing}
+                      icingSoft={cake.icingSoft}
+                      topping={cake.topping}
+                      tiers={cake.tiers}
+                      size={300}
+                    />
+                  </div>
+                ))}
           </div>
 
           <div className="hero__caption">
-            <h3>{active.name}</h3>
-            <p>{active.description}</p>
+            <h3>{activeFeatured ? activeFeatured.name : active!.name}</h3>
+            <p>
+              {activeFeatured
+                ? (activeFeatured.description ?? formatCents(activeFeatured.chargedPriceCents))
+                : active!.description}
+            </p>
           </div>
 
           <button className="hero__nav hero__nav--prev" onClick={prev} aria-label="Previous cake">
@@ -98,7 +131,7 @@ export default function HeroSlideshow() {
           </button>
 
           <div className="hero__dots">
-            {slideshowCakes.map((cake, i) => (
+            {(usingFeatured ? featured : slideshowCakes).map((cake, i) => (
               <button
                 key={cake.id}
                 className={`hero__dot ${i === index ? "hero__dot--active" : ""}`}

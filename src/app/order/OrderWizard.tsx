@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO, CategoryDTO } from "../../lib/order-types";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
 import { getHiddenOptionIds, resolveAnswers, type ConstraintPair } from "../../lib/constraints";
 import {
   applyCakeStyleRules,
@@ -13,7 +15,6 @@ import {
 import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
 import { SIZE_FIELD_SLUG, type ContactPreference } from "../../lib/fields";
 import type { WeeklyHour, DateOverride, PickupSettings } from "../../lib/availability";
-import DesignPickerModal from "../../components/order/DesignPickerModal";
 import DesignPhotoCarousel from "../../components/order/DesignPhotoCarousel";
 import FieldOptionStep from "../../components/order/steps/FieldOptionStep";
 import TierPresetStep from "../../components/order/steps/TierPresetStep";
@@ -29,7 +30,6 @@ type Props = {
   designs: DesignSummaryDTO[];
   constraintPairs: ConstraintPair[];
   tierPresets: TierPresetDTO[];
-  categories: CategoryDTO[];
   availability: {
     settings: PickupSettings;
     weeklyHours: WeeklyHour[];
@@ -183,7 +183,6 @@ export default function OrderWizard({
   designs,
   constraintPairs,
   tierPresets,
-  categories,
   availability,
   lockedDesign,
   initialSizeId,
@@ -218,8 +217,8 @@ export default function OrderWizard({
     pickupTime: null,
     step: lockedDesign ? 1 : startCustom ? CUSTOM_STEP : 0,
   });
-  const [showDesignModal, setShowDesignModal] = useState(!lockedDesign && !startCustom);
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
+  const router = useRouter();
 
   const optionsByField = useMemo(() => {
     const map = new Map<number, FieldOptionDTO[]>();
@@ -318,34 +317,9 @@ export default function OrderWizard({
     dispatch({ type: "GOTO", step: prev });
   };
 
-  // Rendered as a normal in-flow page (not a fixed overlay) so the browser's
-  // own scrollbar handles scrolling — no nested scroll container.
-  if (showDesignModal) {
-    return (
-      <main className="order-page">
-        <DesignPickerModal
-          designs={designs}
-          fields={fields}
-          options={options}
-          constraintPairs={constraintPairs}
-          tierPresets={tierPresets}
-          categories={categories}
-          closable
-          onClose={() => setShowDesignModal(false)}
-          onSelect={(design) => {
-            setReferenceImages([]);
-            dispatch({ type: "SELECT_DESIGN", design });
-            setShowDesignModal(false);
-          }}
-          onSelectCustom={() => {
-            dispatch({ type: "SELECT_CUSTOM" });
-            setShowDesignModal(false);
-          }}
-        />
-      </main>
-    );
-  }
-
+  // Design selection now happens entirely on /gallery — every route that
+  // renders this wizard supplies lockedDesign or startCustom. This is just a
+  // safety net for the (should-never-happen) case neither is set.
   if (!selectedDesign) {
     return (
       <main className="order-page">
@@ -354,9 +328,9 @@ export default function OrderWizard({
             <span className="section-eyebrow">Cake Designer</span>
             <h1>Build Your Dream Cake</h1>
             <p>Start by picking a design — everything else adjusts from there.</p>
-            <button type="button" className="btn btn-primary" onClick={() => setShowDesignModal(true)}>
+            <Link href="/gallery" className="btn btn-primary">
               Choose Your Design
-            </button>
+            </Link>
           </div>
         </header>
       </main>
@@ -396,7 +370,7 @@ export default function OrderWizard({
                     i < state.step ? "is-done" : ""
                   } ${isFuture ? "is-future" : ""}`}
                   disabled={isFuture}
-                  onClick={() => (i === 0 ? setShowDesignModal(true) : dispatch({ type: "GOTO", step: i }))}
+                  onClick={() => (i === 0 ? router.push("/gallery") : dispatch({ type: "GOTO", step: i }))}
                 >
                   <span className="order-stepper__num">{idx + 1}</span>
                   <span className="order-stepper__label">{label}</span>
@@ -517,7 +491,7 @@ export default function OrderWizard({
                 </button>
               )}
               {!lockedDesign && state.step === navigableSteps[0] && (
-                <button type="button" className="btn btn-outline" onClick={() => setShowDesignModal(true)}>
+                <button type="button" className="btn btn-outline" onClick={() => router.push("/gallery")}>
                   Change Design
                 </button>
               )}

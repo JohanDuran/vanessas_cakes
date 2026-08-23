@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { CategoryDTO, DesignSummaryDTO } from "../../lib/order-types";
 import GalleryCard from "./GalleryCard";
@@ -12,17 +13,30 @@ type Props = {
 };
 
 export default function GalleryFilters({ cards, categories }: Props) {
-  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
+  // multiple chips can be active at once — a design shows if it belongs to
+  // ANY of the selected categories (not all), same as a typical tag filter
+  const [activeCategoryIds, setActiveCategoryIds] = useState<Set<number>>(new Set());
 
   const usedCategories = useMemo(
     () => categories.filter((c) => cards.some((card) => card.design.categoryIds.includes(c.id))),
     [categories, cards]
   );
 
+  const toggleCategory = (categoryId: number) => {
+    setActiveCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
+  };
+
   const visibleCards = useMemo(
     () =>
-      activeCategoryId == null ? cards : cards.filter((card) => card.design.categoryIds.includes(activeCategoryId)),
-    [cards, activeCategoryId]
+      activeCategoryIds.size === 0
+        ? cards
+        : cards.filter((card) => card.design.categoryIds.some((id) => activeCategoryIds.has(id))),
+    [cards, activeCategoryIds]
   );
 
   return (
@@ -31,8 +45,8 @@ export default function GalleryFilters({ cards, categories }: Props) {
         <div className="gallery-categories">
           <button
             type="button"
-            className={`gallery-category-chip${activeCategoryId === null ? " is-active" : ""}`}
-            onClick={() => setActiveCategoryId(null)}
+            className={`gallery-category-chip${activeCategoryIds.size === 0 ? " is-active" : ""}`}
+            onClick={() => setActiveCategoryIds(new Set())}
           >
             All
           </button>
@@ -40,8 +54,9 @@ export default function GalleryFilters({ cards, categories }: Props) {
             <button
               type="button"
               key={category.id}
-              className={`gallery-category-chip${activeCategoryId === category.id ? " is-active" : ""}`}
-              onClick={() => setActiveCategoryId(category.id)}
+              className={`gallery-category-chip${activeCategoryIds.has(category.id) ? " is-active" : ""}`}
+              aria-pressed={activeCategoryIds.has(category.id)}
+              onClick={() => toggleCategory(category.id)}
             >
               {category.name}
             </button>
@@ -49,6 +64,18 @@ export default function GalleryFilters({ cards, categories }: Props) {
         </div>
       )}
       <div className="gallery__grid">
+        {activeCategoryIds.size === 0 && (
+          <Link href="/order/custom" className="gallery-card gallery-card--custom">
+            <div className="gallery-card__art gallery-card__art--custom">
+              <div className="gallery-card__placeholder">✨</div>
+            </div>
+            <h3>Custom Cake</h3>
+            <p>Don&apos;t see what you&apos;re after? Tell us your vision and get a free quote.</p>
+            <div className="gallery-card__footer">
+              <span className="btn btn-primary gallery-card__cta">Start a Custom Order</span>
+            </div>
+          </Link>
+        )}
         {visibleCards.map(({ design, minPriceCents, maxPriceCents }) => (
           <GalleryCard key={design.id} design={design} minPriceCents={minPriceCents} maxPriceCents={maxPriceCents} />
         ))}

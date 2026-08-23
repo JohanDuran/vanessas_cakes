@@ -2,7 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../../../db";
 import { designs, orders } from "../../../db/schema";
-import { loadPickupAvailability } from "../../../db/queries";
+import { closePastPickupOrders, loadPickupAvailability } from "../../../db/queries";
 import { formatCents } from "../../../lib/pricing";
 import { fromDateKey, formatTimeLabel, toDateKey, isDayAtCapacity } from "../../../lib/availability";
 
@@ -12,6 +12,8 @@ const UPCOMING_WINDOW_DAYS = 7;
 const RECENT_ORDERS_LIMIT = 6;
 
 export default async function AdminDashboardPage() {
+  closePastPickupOrders();
+
   const now = new Date();
   const todayKey = toDateKey(now);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
