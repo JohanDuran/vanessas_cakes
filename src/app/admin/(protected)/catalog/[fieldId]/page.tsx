@@ -362,6 +362,26 @@ export default async function FieldDetailPage({
               </label>
             </div>
           )}
+          {(field.type === "text" || field.type === "number") && (
+            <div className="admin-form-row">
+              <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" id="required" name="required" value="1" defaultChecked={field.required} />
+                <label htmlFor="required" style={{ margin: 0 }}>
+                  Required — customer must answer before ordering
+                </label>
+              </div>
+              <div className="admin-field">
+                <label>Additional price ($)</label>
+                <input
+                  name="additionalPriceDollars"
+                  type="number"
+                  step="0.01"
+                  defaultValue={centsToDollarsStr(field.additionalPriceCents)}
+                  style={{ minWidth: 110 }}
+                />
+              </div>
+            </div>
+          )}
         </form>
       </div>
 

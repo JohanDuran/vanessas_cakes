@@ -2,33 +2,61 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designs, orders } from "../../../../db/schema";
+import { loadPickupAvailability } from "../../../../db/queries";
 import { formatCents } from "../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../lib/availability";
+import OrdersCalendar, { type CalendarOrder } from "../../../../components/admin/OrdersCalendar";
+import { closeDayForNewOrders, reopenDay } from "../availability/actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrdersInboxPage() {
-  const allOrders = db
-    .select({
-      id: orders.id,
-      customerName: orders.customerName,
-      customerEmail: orders.customerEmail,
-      totalPriceCents: orders.totalPriceCents,
-      status: orders.status,
-      createdAt: orders.createdAt,
-      designName: designs.name,
-      pickupDate: orders.pickupDate,
-      pickupTime: orders.pickupTime,
-    })
-    .from(orders)
-    .leftJoin(designs, eq(orders.designId, designs.id))
-    .orderBy(desc(orders.createdAt))
-    .all();
+  const [allOrders, { settings, overrides }] = await Promise.all([
+    db
+      .select({
+        id: orders.id,
+        customerName: orders.customerName,
+        customerEmail: orders.customerEmail,
+        totalPriceCents: orders.totalPriceCents,
+        status: orders.status,
+        createdAt: orders.createdAt,
+        designName: designs.name,
+        pickupDate: orders.pickupDate,
+        pickupTime: orders.pickupTime,
+      })
+      .from(orders)
+      .leftJoin(designs, eq(orders.designId, designs.id))
+      .orderBy(desc(orders.createdAt))
+      .all(),
+    loadPickupAvailability(),
+  ]);
+
+  const ordersByDate: Record<string, CalendarOrder[]> = {};
+  for (const o of allOrders) {
+    if (!o.pickupDate) continue;
+    const list = ordersByDate[o.pickupDate] ?? (ordersByDate[o.pickupDate] = []);
+    list.push({
+      id: o.id,
+      customerName: o.customerName,
+      designName: o.designName,
+      pickupTime: o.pickupTime,
+      totalPriceCents: o.totalPriceCents,
+      status: o.status,
+    });
+  }
 
   return (
     <>
       <h1>Orders</h1>
       <p className="admin-main__subtitle">Cake orders submitted by customers, newest first.</p>
+
+      <OrdersCalendar
+        ordersByDate={ordersByDate}
+        maxOrdersPerDay={settings.maxOrdersPerDay}
+        overrides={overrides}
+        closeDayForNewOrders={closeDayForNewOrders}
+        reopenDay={reopenDay}
+      />
 
       <div className="admin-card">
         <table className="admin-table">

@@ -21,6 +21,36 @@
   background: linear-gradient(180deg, var(--cream) 0%, var(--pink-50) 100%);
 }
 
+.gallery-categories {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.gallery-category-chip {
+  border: 2px solid var(--pink-100);
+  background: var(--white);
+  color: var(--choco-900);
+  border-radius: 999px;
+  padding: 7px 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.gallery-category-chip:hover {
+  border-color: var(--pink-400);
+}
+
+.gallery-category-chip.is-active {
+  background: var(--pink-500);
+  border-color: var(--pink-500);
+  color: var(--white);
+}
+
 .gallery__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

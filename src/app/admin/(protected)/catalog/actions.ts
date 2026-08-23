@@ -1,12 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions } from "../../../../db/schema";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, slugify } from "../../../../lib/fields";
+import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 /** cake_style is locked to its exact 3 seeded options — admins may
  *  rename/re-price them but not add/remove/deactivate. */
@@ -36,20 +36,45 @@ function uniqueSlug(base: string): string {
 const createFieldSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   type: z.enum(FIELD_TYPES),
+  required: z.coerce.number().optional(),
+  additionalPriceDollars: z.string().optional(),
 });
 
+/** Required/additional-price only ever apply to text/number fields — a
+ *  select-type field is already required via its native <select> and priced
+ *  per-option, so those two inputs are ignored for any other type. */
+function textOrNumberOnly<T>(type: string, value: T, fallback: T): T {
+  return type === "text" || type === "number" ? value : fallback;
+}
+
 export async function createField(formData: FormData) {
-  const parsed = createFieldSchema.parse(Object.fromEntries(formData));
-  const slug = uniqueSlug(slugify(parsed.name));
+  let fieldId: number | undefined;
 
-  const inserted = db
-    .insert(fields)
-    .values({ slug, name: parsed.name, type: parsed.type, isBase: false, updatedAt: Date.now() })
-    .returning({ id: fields.id })
-    .get();
+  try {
+    const parsed = createFieldSchema.parse(Object.fromEntries(formData));
+    const slug = uniqueSlug(slugify(parsed.name));
 
-  revalidatePath("/admin/catalog");
-  redirect(`/admin/catalog/${inserted.id}`);
+    const inserted = db
+      .insert(fields)
+      .values({
+        slug,
+        name: parsed.name,
+        type: parsed.type,
+        isBase: false,
+        required: textOrNumberOnly(parsed.type, Boolean(parsed.required), false),
+        additionalPriceCents: textOrNumberOnly(parsed.type, dollarsToCents(parsed.additionalPriceDollars || "0"), 0),
+        updatedAt: Date.now(),
+      })
+      .returning({ id: fields.id })
+      .get();
+    fieldId = inserted.id;
+
+    revalidatePath("/admin/catalog");
+  } catch (err) {
+    toastRedirect("/admin/catalog/new", "error", toastMessage(err, "Couldn't create this field."));
+  }
+
+  toastRedirect(`/admin/catalog/${fieldId}`, "success", "Field created successfully!");
 }
 
 const fieldSettingsSchema = z.object({
@@ -57,28 +82,45 @@ const fieldSettingsSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   type: z.enum(FIELD_TYPES).optional(), // absent for base fields (type select is disabled there)
   hasShapeDiagram: z.coerce.number().optional(),
+  required: z.coerce.number().optional(),
+  additionalPriceDollars: z.string().optional(),
 });
 
 export async function saveFieldSettings(formData: FormData) {
-  const parsed = fieldSettingsSchema.parse(Object.fromEntries(formData));
-  const field = db.select().from(fields).where(eq(fields.id, parsed.id)).get();
-  if (!field) throw new Error("Field not found.");
+  const rawId = formData.get("id");
+  const path = `/admin/catalog/${rawId}`;
 
-  const finalType = field.isBase ? field.type : (parsed.type ?? field.type);
+  try {
+    const parsed = fieldSettingsSchema.parse(Object.fromEntries(formData));
+    const field = db.select().from(fields).where(eq(fields.id, parsed.id)).get();
+    if (!field) throw new Error("Field not found.");
 
-  db.update(fields)
-    .set({
-      name: parsed.name,
-      type: finalType,
-      // only select-type fields have options to attach dimensions to
-      hasShapeDiagram: fieldHasOptions(finalType) ? Boolean(parsed.hasShapeDiagram) : false,
-      updatedAt: Date.now(),
-    })
-    .where(eq(fields.id, parsed.id))
-    .run();
+    const finalType = field.isBase ? field.type : (parsed.type ?? field.type);
 
-  revalidatePath("/admin/catalog");
-  revalidatePath(`/admin/catalog/${parsed.id}`);
+    db.update(fields)
+      .set({
+        name: parsed.name,
+        type: finalType,
+        // only select-type fields have options to attach dimensions to
+        hasShapeDiagram: fieldHasOptions(finalType) ? Boolean(parsed.hasShapeDiagram) : false,
+        required: textOrNumberOnly(finalType, Boolean(parsed.required), false),
+        additionalPriceCents: textOrNumberOnly(
+          finalType,
+          dollarsToCents(parsed.additionalPriceDollars || "0"),
+          0
+        ),
+        updatedAt: Date.now(),
+      })
+      .where(eq(fields.id, parsed.id))
+      .run();
+
+    revalidatePath("/admin/catalog");
+    revalidatePath(path);
+  } catch (err) {
+    toastRedirect(path, "error", toastMessage(err, "Couldn't save field settings."));
+  }
+
+  toastRedirect(path, "success", "Field settings saved successfully!");
 }
 
 const setFieldActiveSchema = z.object({
@@ -133,71 +175,89 @@ function sizeMeta(data: {
 }
 
 export async function createOption(formData: FormData) {
-  const parsed = createOptionSchema.parse(Object.fromEntries(formData));
-  const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
-  if (!field) throw new Error("Field not found.");
-  if (LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
-    throw new Error(`${field.name}'s options are fixed and can't be added to.`);
-  }
-  const isSizeField = field.slug === SIZE_FIELD_SLUG;
-  if (isSizeField && !parsed.styleKind) {
-    throw new Error("Choose Standard or Tall for this size — tiered presets are built below instead.");
-  }
+  const rawFieldId = formData.get("fieldId");
+  const path = `/admin/catalog/${rawFieldId}`;
 
-  db.transaction((tx) => {
-    const inserted = tx
-      .insert(fieldOptions)
-      .values({
-        fieldId: parsed.fieldId,
-        name: parsed.name,
-        priceCents: dollarsToCents(parsed.priceDollars),
-        sortOrder: parsed.sortOrder,
-        styleKind: isSizeField ? parsed.styleKind : null,
-        updatedAt: Date.now(),
-      })
-      .returning({ id: fieldOptions.id })
-      .get();
-
-    const dims = sizeMeta(parsed);
-    const hasAnyDim = Object.values(dims).some((v) => v !== null);
-    if (field.hasShapeDiagram && hasAnyDim) {
-      tx.insert(fieldOptionDimensions)
-        .values({ fieldOptionId: inserted.id, ...dims, updatedAt: Date.now() })
-        .run();
+  try {
+    const parsed = createOptionSchema.parse(Object.fromEntries(formData));
+    const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
+    if (!field) throw new Error("Field not found.");
+    if (LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
+      throw new Error(`${field.name}'s options are fixed and can't be added to.`);
     }
-  });
+    const isSizeField = field.slug === SIZE_FIELD_SLUG;
+    if (isSizeField && !parsed.styleKind) {
+      throw new Error("Choose Standard or Tall for this size — tiered presets are built below instead.");
+    }
 
-  revalidatePath(`/admin/catalog/${parsed.fieldId}`);
+    db.transaction((tx) => {
+      const inserted = tx
+        .insert(fieldOptions)
+        .values({
+          fieldId: parsed.fieldId,
+          name: parsed.name,
+          priceCents: dollarsToCents(parsed.priceDollars),
+          sortOrder: parsed.sortOrder,
+          styleKind: isSizeField ? parsed.styleKind : null,
+          updatedAt: Date.now(),
+        })
+        .returning({ id: fieldOptions.id })
+        .get();
+
+      const dims = sizeMeta(parsed);
+      const hasAnyDim = Object.values(dims).some((v) => v !== null);
+      if (field.hasShapeDiagram && hasAnyDim) {
+        tx.insert(fieldOptionDimensions)
+          .values({ fieldOptionId: inserted.id, ...dims, updatedAt: Date.now() })
+          .run();
+      }
+    });
+
+    revalidatePath(path);
+  } catch (err) {
+    toastRedirect(path, "error", toastMessage(err, "Couldn't add this option."));
+  }
+
+  toastRedirect(path, "success", "Option added successfully!");
 }
 
 export async function updateOption(formData: FormData) {
-  const parsed = updateOptionSchema.parse(Object.fromEntries(formData));
-  const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
-  if (!field) throw new Error("Field not found.");
+  const rawFieldId = formData.get("fieldId");
+  const path = `/admin/catalog/${rawFieldId}`;
 
-  db.transaction((tx) => {
-    tx.update(fieldOptions)
-      .set({
-        name: parsed.name,
-        priceCents: dollarsToCents(parsed.priceDollars),
-        sortOrder: parsed.sortOrder,
-        updatedAt: Date.now(),
-      })
-      .where(eq(fieldOptions.id, parsed.id))
-      .run();
+  try {
+    const parsed = updateOptionSchema.parse(Object.fromEntries(formData));
+    const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
+    if (!field) throw new Error("Field not found.");
 
-    tx.delete(fieldOptionDimensions).where(eq(fieldOptionDimensions.fieldOptionId, parsed.id)).run();
-
-    const dims = sizeMeta(parsed);
-    const hasAnyDim = Object.values(dims).some((v) => v !== null);
-    if (field.hasShapeDiagram && hasAnyDim) {
-      tx.insert(fieldOptionDimensions)
-        .values({ fieldOptionId: parsed.id, ...dims, updatedAt: Date.now() })
+    db.transaction((tx) => {
+      tx.update(fieldOptions)
+        .set({
+          name: parsed.name,
+          priceCents: dollarsToCents(parsed.priceDollars),
+          sortOrder: parsed.sortOrder,
+          updatedAt: Date.now(),
+        })
+        .where(eq(fieldOptions.id, parsed.id))
         .run();
-    }
-  });
 
-  revalidatePath(`/admin/catalog/${parsed.fieldId}`);
+      tx.delete(fieldOptionDimensions).where(eq(fieldOptionDimensions.fieldOptionId, parsed.id)).run();
+
+      const dims = sizeMeta(parsed);
+      const hasAnyDim = Object.values(dims).some((v) => v !== null);
+      if (field.hasShapeDiagram && hasAnyDim) {
+        tx.insert(fieldOptionDimensions)
+          .values({ fieldOptionId: parsed.id, ...dims, updatedAt: Date.now() })
+          .run();
+      }
+    });
+
+    revalidatePath(path);
+  } catch (err) {
+    toastRedirect(path, "error", toastMessage(err, "Couldn't save this option."));
+  }
+
+  toastRedirect(path, "success", "Option saved successfully!");
 }
 
 const setOptionActiveSchema = z.object({
@@ -228,6 +288,8 @@ export type QuickField = {
   slug: string;
   name: string;
   type: string;
+  required: boolean;
+  additionalPriceCents: number;
   options: { id: number; name: string; priceCents: number }[];
 };
 
@@ -240,6 +302,8 @@ const quickCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   type: z.enum(FIELD_TYPES),
   optionsJson: z.string().optional(),
+  required: z.coerce.number().optional(),
+  additionalPriceDollars: z.string().optional(),
 });
 
 export async function quickCreateField(formData: FormData): Promise<QuickField> {
@@ -255,11 +319,25 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
   }
 
   const slug = uniqueSlug(slugify(parsed.name));
+  const required = textOrNumberOnly(parsed.type, Boolean(parsed.required), false);
+  const additionalPriceCents = textOrNumberOnly(
+    parsed.type,
+    dollarsToCents(parsed.additionalPriceDollars || "0"),
+    0
+  );
 
   const fieldId = db.transaction((tx) => {
     const inserted = tx
       .insert(fields)
-      .values({ slug, name: parsed.name, type: parsed.type, isBase: false, updatedAt: Date.now() })
+      .values({
+        slug,
+        name: parsed.name,
+        type: parsed.type,
+        isBase: false,
+        required,
+        additionalPriceCents,
+        updatedAt: Date.now(),
+      })
       .returning({ id: fields.id })
       .get();
 
@@ -286,6 +364,8 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
     slug,
     name: parsed.name,
     type: parsed.type,
+    required,
+    additionalPriceCents,
     options: savedOptions.map((o) => ({ id: o.id, name: o.name, priceCents: o.priceCents })),
   };
 }

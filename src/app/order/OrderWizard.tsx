@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
+import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO, CategoryDTO } from "../../lib/order-types";
 import { getHiddenOptionIds, resolveAnswers, type ConstraintPair } from "../../lib/constraints";
 import {
   applyCakeStyleRules,
@@ -29,7 +29,13 @@ type Props = {
   designs: DesignSummaryDTO[];
   constraintPairs: ConstraintPair[];
   tierPresets: TierPresetDTO[];
-  availability: { settings: PickupSettings; weeklyHours: WeeklyHour[]; overrides: DateOverride[] };
+  categories: CategoryDTO[];
+  availability: {
+    settings: PickupSettings;
+    weeklyHours: WeeklyHour[];
+    overrides: DateOverride[];
+    orderCountsByDate: Record<string, number>;
+  };
   /** When set (gallery entry point), the design step is skipped and locked. */
   lockedDesign?: DesignSummaryDTO;
   /** When set alongside lockedDesign, pre-selects this size before the wizard opens. */
@@ -62,11 +68,22 @@ type Action =
   | { type: "GOTO"; step: number };
 
 /** A design's actual fields: every base field (always required), plus
- *  whichever custom fields the admin included (inclusion *is* having a
- *  default answer for it), in canonical/catalog order. A custom-cake quote
- *  has no catalog design, so this naturally reduces to just the base fields. */
+ *  whichever custom fields the admin included (with or without a default
+ *  answer), in canonical/catalog order. A custom-cake quote has no catalog
+ *  design, so this naturally reduces to just the base fields. */
 function fieldsForDesign(fields: FieldDTO[], design: DesignSummaryDTO): FieldDTO[] {
-  return fields.filter((f) => f.isBase || design.fieldValues[f.id] != null);
+  return fields.filter((f) => f.isBase || design.includedFieldIds.includes(f.id));
+}
+
+/** Whether the customer has actually answered this field — used to gate the
+ *  Next button for single_select (always) and text/number fields marked
+ *  Required. multi_select is never required-gated. */
+function isFieldAnswered(field: FieldDTO, answer: Answers[number] | undefined): boolean {
+  if (!answer) return false;
+  if (field.type === "text") return answer.type === "text" && answer.value.trim() !== "";
+  if (field.type === "number") return answer.type === "number";
+  if (field.type === "single_select") return answer.type === "options" && answer.optionIds.length > 0;
+  return true;
 }
 
 /** Placeholder "design" for the custom-cake flow — has no catalog id, price,
@@ -82,6 +99,8 @@ const CUSTOM_DESIGN: DesignSummaryDTO = {
   fieldValues: {},
   lockedFieldIds: [],
   excludedOptionIds: [],
+  categoryIds: [],
+  includedFieldIds: [],
 };
 
 /** Step index reserved for the custom-cake quote step — only reachable when
@@ -137,14 +156,17 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
           ...state,
           answers: { ...state.answers, [action.fieldId]: { type: "text", value: action.value } },
         };
-      case "SET_NUMBER":
+      case "SET_NUMBER": {
+        if (action.value === "") {
+          const next = { ...state.answers };
+          delete next[action.fieldId];
+          return { ...state, answers: next };
+        }
         return {
           ...state,
-          answers: {
-            ...state.answers,
-            [action.fieldId]: { type: "number", value: Number(action.value) || 0 },
-          },
+          answers: { ...state.answers, [action.fieldId]: { type: "number", value: Number(action.value) } },
         };
+      }
       case "SET_PICKUP":
         return { ...state, pickupDate: action.date, pickupTime: action.time };
       case "GOTO":
@@ -161,6 +183,7 @@ export default function OrderWizard({
   designs,
   constraintPairs,
   tierPresets,
+  categories,
   availability,
   lockedDesign,
   initialSizeId,
@@ -295,6 +318,34 @@ export default function OrderWizard({
     dispatch({ type: "GOTO", step: prev });
   };
 
+  // Rendered as a normal in-flow page (not a fixed overlay) so the browser's
+  // own scrollbar handles scrolling — no nested scroll container.
+  if (showDesignModal) {
+    return (
+      <main className="order-page">
+        <DesignPickerModal
+          designs={designs}
+          fields={fields}
+          options={options}
+          constraintPairs={constraintPairs}
+          tierPresets={tierPresets}
+          categories={categories}
+          closable
+          onClose={() => setShowDesignModal(false)}
+          onSelect={(design) => {
+            setReferenceImages([]);
+            dispatch({ type: "SELECT_DESIGN", design });
+            setShowDesignModal(false);
+          }}
+          onSelectCustom={() => {
+            dispatch({ type: "SELECT_CUSTOM" });
+            setShowDesignModal(false);
+          }}
+        />
+      </main>
+    );
+  }
+
   if (!selectedDesign) {
     return (
       <main className="order-page">
@@ -308,26 +359,6 @@ export default function OrderWizard({
             </button>
           </div>
         </header>
-        {showDesignModal && (
-          <DesignPickerModal
-            designs={designs}
-            fields={fields}
-            options={options}
-            constraintPairs={constraintPairs}
-            tierPresets={tierPresets}
-            closable
-            onClose={() => setShowDesignModal(false)}
-            onSelect={(design) => {
-              setReferenceImages([]);
-              dispatch({ type: "SELECT_DESIGN", design });
-              setShowDesignModal(false);
-            }}
-            onSelectCustom={() => {
-              dispatch({ type: "SELECT_CUSTOM" });
-              setShowDesignModal(false);
-            }}
-          />
-        )}
       </main>
     );
   }
@@ -496,8 +527,10 @@ export default function OrderWizard({
                 onClick={goNext}
                 disabled={
                   (!state.isCustom &&
-                    currentField?.type === "single_select" &&
-                    !(currentAnswer?.type === "options" && currentAnswer.optionIds.length > 0)) ||
+                    currentField != null &&
+                    (currentField.type === "single_select" ||
+                      ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
+                    !isFieldAnswered(currentField, currentAnswer)) ||
                   (isPickup && !state.isCustom && !(state.pickupDate && state.pickupTime))
                 }
               >
@@ -517,33 +550,13 @@ export default function OrderWizard({
                 computeTotalCents(
                   state.answers,
                   selectedDesign.premiumCents,
-                  options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }))
+                  options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+                  fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
                 )
               )}
             </span>
           </div>
         </div>
-      )}
-
-      {showDesignModal && (
-        <DesignPickerModal
-          designs={designs}
-          fields={fields}
-          options={options}
-          constraintPairs={constraintPairs}
-          tierPresets={tierPresets}
-          closable
-          onClose={() => setShowDesignModal(false)}
-          onSelect={(design) => {
-            setReferenceImages([]);
-            dispatch({ type: "SELECT_DESIGN", design });
-            setShowDesignModal(false);
-          }}
-          onSelectCustom={() => {
-            dispatch({ type: "SELECT_CUSTOM" });
-            setShowDesignModal(false);
-          }}
-        />
       )}
     </main>
   );

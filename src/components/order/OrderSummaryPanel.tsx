@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
 import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../lib/availability";
 import { CONTACT_PREFERENCES, CONTACT_PREFERENCE_LABELS, type ContactPreference } from "../../lib/fields";
 import { submitOrder } from "../../app/order/actions";
+import PriceDelta from "./PriceDelta";
 
 type Props = {
   design: DesignSummaryDTO;
@@ -45,7 +46,8 @@ export default function OrderSummaryPanel({
   const optionById = new Map(options.map((o) => [o.id, o]));
   const presetsByOptionId = new Map(tierPresets.map((p) => [p.fieldOptionId, p]));
   const flatOptions = options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-  const total = computeTotalCents(answers, design.premiumCents, flatOptions);
+  const flatFields = designFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
+  const total = computeTotalCents(answers, design.premiumCents, flatOptions, flatFields);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -111,7 +113,7 @@ export default function OrderSummaryPanel({
         {designFields.map((field) => {
           const answer = answers[field.id];
           let valueLabel = "—";
-          let priceLabel = "";
+          let priceNode: ReactNode = null;
           if (answer?.type === "options") {
             const names = answer.optionIds
               .map((id) => {
@@ -125,18 +127,20 @@ export default function OrderSummaryPanel({
             valueLabel = names.length > 0 ? names.join(", ") : "—";
             if (names.length > 0 && !isCustom) {
               const priceCents = answer.optionIds.reduce((sum, id) => sum + (optionById.get(id)?.priceCents ?? 0), 0);
-              priceLabel = formatCents(priceCents);
+              priceNode = formatCents(priceCents);
             }
           } else if (answer?.type === "text") {
             valueLabel = answer.value || "—";
+            if (answer.value && !isCustom) priceNode = <PriceDelta cents={field.additionalPriceCents} />;
           } else if (answer?.type === "number") {
             valueLabel = String(answer.value);
+            if (!isCustom) priceNode = <PriceDelta cents={field.additionalPriceCents} />;
           }
           return (
             <li key={field.id}>
               <span className="order-summary__axis">{field.name}</span>
               <span className="order-summary__item">{valueLabel}</span>
-              <span className="order-summary__item-price">{priceLabel}</span>
+              <span className="order-summary__item-price">{priceNode}</span>
               {!lockedFieldIds.has(field.id) && (
                 <button type="button" className="order-summary__edit" onClick={() => onEditStep(field.id)}>
                   Change

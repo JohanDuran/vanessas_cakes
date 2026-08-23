@@ -24,6 +24,12 @@ export const fields = sqliteTable("fields", {
   // the order wizard, and the matching editable columns in the admin
   // catalog table — independent of which field this is (see field_option_dimensions)
   hasShapeDiagram: integer("has_shape_diagram", { mode: "boolean" }).notNull().default(false),
+  // text/number fields only: customer must answer before continuing/submitting.
+  // Admin's own design-editor form is intentionally exempt — see DesignForm.
+  required: integer("required", { mode: "boolean" }).notNull().default(false),
+  // text/number fields only: flat surcharge added to the order total whenever
+  // the customer actually answers this field (see src/lib/pricing.ts)
+  additionalPriceCents: integer("additional_price_cents").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: integer("created_at")
     .notNull()
@@ -120,6 +126,22 @@ export const tierPresetLevels = sqliteTable(
   (t) => [uniqueIndex("tier_preset_levels_preset_position_idx").on(t.tierPresetId, t.position)]
 );
 
+/** An admin-defined tag like "Tall Cakes" or "Wedding Cakes" — never shown to
+ *  customers by itself, but powers the category filter chips shown above the
+ *  design picker/gallery (see design_categories below). */
+export const cakeCategories = sqliteTable("cake_categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
 export const designs = sqliteTable("designs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
@@ -212,6 +234,23 @@ export const designExcludedOptions = sqliteTable(
   ]
 );
 
+/** Which categories a design belongs to — admin picks zero, one, or many per
+ *  design; drives the customer-facing category filter chips. Never a fixed
+ *  set, so no `is_base` here unlike design_field_values/fields. */
+export const designCategories = sqliteTable(
+  "design_categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => cakeCategories.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("design_categories_design_category_idx").on(t.designId, t.categoryId)]
+);
+
 export const constraintPairs = sqliteTable(
   "constraint_pairs",
   {
@@ -276,6 +315,8 @@ export const pickupSettings = sqliteTable("pickup_settings", {
   leadTimeHours: integer("lead_time_hours").notNull().default(24),
   maxAdvanceDays: integer("max_advance_days").notNull().default(60),
   slotIntervalMinutes: integer("slot_interval_minutes").notNull().default(30),
+  // null means no cap — any number of orders can share a pickup day
+  maxOrdersPerDay: integer("max_orders_per_day"),
   updatedAt: integer("updated_at")
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),

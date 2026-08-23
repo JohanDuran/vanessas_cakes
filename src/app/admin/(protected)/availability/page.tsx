@@ -73,8 +73,9 @@ export default async function AvailabilityPage() {
       <div className="admin-card">
         <h3 style={{ marginBottom: 6 }}>Booking rules</h3>
         <p style={{ color: "var(--text-soft)", fontSize: "0.88rem", marginBottom: 16 }}>
-          How much notice you need, how far out customers can book, and how the pickup day is sliced
-          into selectable time slots.
+          How much notice you need, how far out customers can book, how the pickup day is sliced into
+          selectable time slots, and how many orders a single pickup day can hold before it closes to
+          new orders automatically.
         </p>
         <form action={savePickupSettings} className="admin-form-row">
           <div className="admin-field">
@@ -109,6 +110,17 @@ export default async function AvailabilityPage() {
               step={5}
               defaultValue={settings.slotIntervalMinutes}
               required
+            />
+          </div>
+          <div className="admin-field">
+            <label>Max orders per pickup day</label>
+            <input
+              type="number"
+              name="maxOrdersPerDay"
+              min={1}
+              max={1000}
+              defaultValue={settings.maxOrdersPerDay ?? ""}
+              placeholder="No limit"
             />
           </div>
           <button type="submit" className="btn btn-primary" style={{ padding: "10px 22px" }}>

@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
@@ -9,6 +8,7 @@ import {
   designExcludedOptions,
   designFieldValues,
   designLockedFields,
+  designCategories,
   designPhotos,
   designs,
   fieldOptions,
@@ -23,6 +23,7 @@ import { computeStandardPriceCents, type Answers } from "../../../../lib/pricing
 import { isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../lib/fields";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
 import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../../../lib/order-types";
+import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -35,215 +36,251 @@ const saveSchema = z.object({
 });
 
 export async function saveDesign(formData: FormData) {
-  const parsed = saveSchema.parse(Object.fromEntries(formData));
+  const rawId = formData.get("id");
+  const backPath = rawId ? `/admin/designs/${rawId}/edit` : "/admin/designs/new";
+  let designId: number | undefined;
 
-  const allFields = db.select().from(fields).all();
-  const allOptions = db.select().from(fieldOptions).all();
+  try {
+    const parsed = saveSchema.parse(Object.fromEntries(formData));
 
-  const allTierPresetRows = db.select().from(tierPresets).all();
-  const allTierPresetLevelRows = db.select().from(tierPresetLevels).all();
-  const optionByIdRaw = new Map(allOptions.map((o) => [o.id, o]));
-  const tierPresetDTOs: TierPresetDTO[] = allTierPresetRows.map((preset) => ({
-    fieldOptionId: preset.fieldOptionId,
-    levelCount: preset.levelCount,
-    levels: allTierPresetLevelRows
-      .filter((lvl) => lvl.tierPresetId === preset.id)
-      .sort((a, b) => a.position - b.position)
-      .map((lvl) => ({
-        position: lvl.position,
-        moldOptionId: lvl.moldOptionId,
-        moldName: optionByIdRaw.get(lvl.moldOptionId)?.name ?? "Unknown",
-        diameterIn: null,
-        shape: null,
-        servesMin: null,
-        servesMax: null,
-      })),
-  }));
+    const allFields = db.select().from(fields).all();
+    const allOptions = db.select().from(fieldOptions).all();
 
-  const fieldDTOs: FieldDTO[] = allFields
-    .filter((f) => isFieldType(f.type))
-    .map((f) => ({
-      id: f.id,
-      slug: f.slug,
-      name: f.name,
-      type: f.type as FieldType,
-      isBase: f.isBase,
-      sortOrder: f.sortOrder,
-      hasShapeDiagram: f.hasShapeDiagram,
+    const allTierPresetRows = db.select().from(tierPresets).all();
+    const allTierPresetLevelRows = db.select().from(tierPresetLevels).all();
+    const optionByIdRaw = new Map(allOptions.map((o) => [o.id, o]));
+    const tierPresetDTOs: TierPresetDTO[] = allTierPresetRows.map((preset) => ({
+      fieldOptionId: preset.fieldOptionId,
+      levelCount: preset.levelCount,
+      levels: allTierPresetLevelRows
+        .filter((lvl) => lvl.tierPresetId === preset.id)
+        .sort((a, b) => a.position - b.position)
+        .map((lvl) => ({
+          position: lvl.position,
+          moldOptionId: lvl.moldOptionId,
+          moldName: optionByIdRaw.get(lvl.moldOptionId)?.name ?? "Unknown",
+          diameterIn: null,
+          shape: null,
+          servesMin: null,
+          servesMax: null,
+        })),
     }));
-  const optionDTOs: FieldOptionDTO[] = allOptions.map((o) => ({
-    id: o.id,
-    fieldId: o.fieldId,
-    name: o.name,
-    priceCents: o.priceCents,
-    dimensions: null,
-    styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
-    tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
-  }));
-  const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
 
-  const includedCustomFieldIds = new Set(
-    formData
-      .getAll("includedFieldIds")
-      .map((v) => Number(v))
-      .filter((n) => Number.isInteger(n))
-  );
+    const fieldDTOs: FieldDTO[] = allFields
+      .filter((f) => isFieldType(f.type))
+      .map((f) => ({
+        id: f.id,
+        slug: f.slug,
+        name: f.name,
+        type: f.type as FieldType,
+        isBase: f.isBase,
+        sortOrder: f.sortOrder,
+        hasShapeDiagram: f.hasShapeDiagram,
+        required: f.required,
+        additionalPriceCents: f.additionalPriceCents,
+      }));
+    const optionDTOs: FieldOptionDTO[] = allOptions.map((o) => ({
+      id: o.id,
+      fieldId: o.fieldId,
+      name: o.name,
+      priceCents: o.priceCents,
+      dimensions: null,
+      styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+      tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
+    }));
+    const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
 
-  const answers: Answers = {};
-  for (const field of allFields) {
-    const isIncluded = field.isBase || includedCustomFieldIds.has(field.id);
-    if (!isIncluded) continue;
-
-    if (field.type === "single_select") {
-      const raw = formData.get(`option_${field.id}`);
-      const optionId = raw != null ? Number(raw) : NaN;
-      if (!Number.isInteger(optionId)) {
-        if (field.isBase) throw new Error(`${field.name} is required.`);
-        continue;
-      }
-      answers[field.id] = { type: "options", optionIds: [optionId] };
-    } else if (field.type === "multi_select") {
-      const ids = formData
-        .getAll(`options_${field.id}`)
+    const includedCustomFieldIds = new Set(
+      formData
+        .getAll("includedFieldIds")
         .map((v) => Number(v))
-        .filter((n) => Number.isInteger(n));
-      if (ids.length > 0) answers[field.id] = { type: "options", optionIds: ids };
-    } else if (field.type === "text") {
-      const value = String(formData.get(`text_${field.id}`) ?? "").trim();
-      if (value) answers[field.id] = { type: "text", value };
-    } else if (field.type === "number") {
-      const raw = formData.get(`number_${field.id}`);
-      if (raw != null && raw !== "") answers[field.id] = { type: "number", value: Number(raw) };
-    }
-  }
+        .filter((n) => Number.isInteger(n))
+    );
 
-  for (const field of allFields) {
-    if (field.isBase && !answers[field.id]) {
-      throw new Error(`${field.name} is required.`);
-    }
-  }
+    const answers: Answers = {};
+    for (const field of allFields) {
+      const isIncluded = field.isBase || includedCustomFieldIds.has(field.id);
+      if (!isIncluded) continue;
 
-  // the submitted `size` option must belong to the submitted cake_style —
-  // catches a stale size pick left over from a different style in the form
-  if (cakeStyleCtx) {
-    const styleAnswer = answers[cakeStyleCtx.styleFieldId];
-    const styleOptionId = styleAnswer?.type === "options" ? styleAnswer.optionIds[0] : undefined;
-    const styleKind = styleOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(styleOptionId) : undefined;
-
-    const sizeAnswer = answers[cakeStyleCtx.sizeFieldId];
-    const sizeOptionId = sizeAnswer?.type === "options" ? sizeAnswer.optionIds[0] : undefined;
-    const sizeOptionStyle = sizeOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(sizeOptionId) : undefined;
-    if (sizeOptionId != null && sizeOptionStyle !== styleKind) {
-      throw new Error("Size doesn't match the selected Cake Style.");
-    }
-  }
-
-  const pairs = db
-    .select()
-    .from(constraintPairs)
-    .all()
-    .map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
-
-  if (selectionsViolateConstraints(answers, pairs)) {
-    const backPath = parsed.id ? `/admin/designs/${parsed.id}/edit` : "/admin/designs/new";
-    redirect(`${backPath}?error=constraint`);
-  }
-
-  const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-  const standardPriceCents = computeStandardPriceCents(answers, flatOptions);
-  const chargedPriceCents = dollarsToCents(parsed.chargedPriceDollars);
-  const premiumCents = chargedPriceCents - standardPriceCents;
-
-  const lockedFieldIds = formData
-    .getAll("lockedFieldIds")
-    .map((v) => Number(v))
-    .filter((n) => Number.isInteger(n));
-  const lockedFieldIdSet = new Set(lockedFieldIds);
-
-  const excludedOptionIdsRaw = formData
-    .getAll("excludedOptionIds")
-    .map((v) => Number(v))
-    .filter((n) => Number.isInteger(n));
-
-  // an option can't be excluded from its own field if it's also that
-  // field's current default, or if the whole field is locked (moot)
-  const defaultOptionIds = new Set(
-    Object.values(answers).flatMap((a) => (a.type === "options" ? a.optionIds : []))
-  );
-  const excludedOptionIds = excludedOptionIdsRaw.filter((id) => {
-    if (defaultOptionIds.has(id)) return false;
-    const opt = allOptions.find((o) => o.id === id);
-    return opt ? !lockedFieldIdSet.has(opt.fieldId) : true;
-  });
-
-  let designId = parsed.id;
-
-  db.transaction((tx) => {
-    if (designId) {
-      tx.update(designs)
-        .set({
-          name: parsed.name,
-          description: parsed.description || null,
-          chargedPriceCents,
-          premiumCents,
-          published: Boolean(parsed.published),
-          updatedAt: Date.now(),
-        })
-        .where(eq(designs.id, designId!))
-        .run();
-
-      tx.delete(designFieldValues).where(eq(designFieldValues.designId, designId!)).run();
-    } else {
-      const inserted = tx
-        .insert(designs)
-        .values({
-          name: parsed.name,
-          description: parsed.description || null,
-          chargedPriceCents,
-          premiumCents,
-          published: Boolean(parsed.published),
-          updatedAt: Date.now(),
-        })
-        .returning({ id: designs.id })
-        .get();
-      designId = inserted.id;
-    }
-
-    for (const [fieldIdStr, answer] of Object.entries(answers)) {
-      const fieldId = Number(fieldIdStr);
-      if (answer.type === "options") {
-        for (const optionId of answer.optionIds) {
-          tx.insert(designFieldValues).values({ designId: designId!, fieldId, fieldOptionId: optionId }).run();
+      if (field.type === "single_select") {
+        const raw = formData.get(`option_${field.id}`);
+        const optionId = raw != null ? Number(raw) : NaN;
+        if (!Number.isInteger(optionId)) {
+          if (field.isBase) throw new Error(`${field.name} is required.`);
+          continue;
         }
-      } else if (answer.type === "text") {
-        tx.insert(designFieldValues).values({ designId: designId!, fieldId, textValue: answer.value }).run();
-      } else if (answer.type === "number") {
-        tx.insert(designFieldValues).values({ designId: designId!, fieldId, numberValue: answer.value }).run();
+        answers[field.id] = { type: "options", optionIds: [optionId] };
+      } else if (field.type === "multi_select") {
+        const ids = formData
+          .getAll(`options_${field.id}`)
+          .map((v) => Number(v))
+          .filter((n) => Number.isInteger(n));
+        if (ids.length > 0) answers[field.id] = { type: "options", optionIds: ids };
+      } else if (field.type === "text") {
+        const value = String(formData.get(`text_${field.id}`) ?? "").trim();
+        if (value) answers[field.id] = { type: "text", value };
+      } else if (field.type === "number") {
+        const raw = formData.get(`number_${field.id}`);
+        if (raw != null && raw !== "") answers[field.id] = { type: "number", value: Number(raw) };
       }
     }
 
-    tx.delete(designLockedFields).where(eq(designLockedFields.designId, designId!)).run();
-    lockedFieldIds.forEach((fieldId) => {
-      tx.insert(designLockedFields).values({ designId: designId!, fieldId }).run();
+    for (const field of allFields) {
+      if (field.isBase && !answers[field.id]) {
+        throw new Error(`${field.name} is required.`);
+      }
+    }
+
+    // the submitted `size` option must belong to the submitted cake_style —
+    // catches a stale size pick left over from a different style in the form
+    if (cakeStyleCtx) {
+      const styleAnswer = answers[cakeStyleCtx.styleFieldId];
+      const styleOptionId = styleAnswer?.type === "options" ? styleAnswer.optionIds[0] : undefined;
+      const styleKind = styleOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(styleOptionId) : undefined;
+
+      const sizeAnswer = answers[cakeStyleCtx.sizeFieldId];
+      const sizeOptionId = sizeAnswer?.type === "options" ? sizeAnswer.optionIds[0] : undefined;
+      const sizeOptionStyle = sizeOptionId != null ? cakeStyleCtx.styleKindByOptionId.get(sizeOptionId) : undefined;
+      if (sizeOptionId != null && sizeOptionStyle !== styleKind) {
+        throw new Error("Size doesn't match the selected Cake Style.");
+      }
+    }
+
+    const pairs = db
+      .select()
+      .from(constraintPairs)
+      .all()
+      .map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
+
+    if (selectionsViolateConstraints(answers, pairs)) {
+      throw new Error(
+        "This recipe combines two options marked incompatible in Constraints — fix it or remove that constraint first."
+      );
+    }
+
+    const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
+    const flatFields = allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
+    const standardPriceCents = computeStandardPriceCents(answers, flatOptions, flatFields);
+    const chargedPriceCents = dollarsToCents(parsed.chargedPriceDollars);
+    const premiumCents = chargedPriceCents - standardPriceCents;
+
+    const lockedFieldIds = formData
+      .getAll("lockedFieldIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n));
+    const lockedFieldIdSet = new Set(lockedFieldIds);
+
+    const excludedOptionIdsRaw = formData
+      .getAll("excludedOptionIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n));
+
+    const categoryIds = formData
+      .getAll("categoryIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n));
+
+    // an option can't be excluded from its own field if it's also that
+    // field's current default, or if the whole field is locked (moot)
+    const defaultOptionIds = new Set(
+      Object.values(answers).flatMap((a) => (a.type === "options" ? a.optionIds : []))
+    );
+    const excludedOptionIds = excludedOptionIdsRaw.filter((id) => {
+      if (defaultOptionIds.has(id)) return false;
+      const opt = allOptions.find((o) => o.id === id);
+      return opt ? !lockedFieldIdSet.has(opt.fieldId) : true;
     });
 
-    tx.delete(designExcludedOptions).where(eq(designExcludedOptions.designId, designId!)).run();
-    excludedOptionIds.forEach((fieldOptionId) => {
-      tx.insert(designExcludedOptions).values({ designId: designId!, fieldOptionId }).run();
+    designId = parsed.id;
+
+    db.transaction((tx) => {
+      if (designId) {
+        tx.update(designs)
+          .set({
+            name: parsed.name,
+            description: parsed.description || null,
+            chargedPriceCents,
+            premiumCents,
+            published: Boolean(parsed.published),
+            updatedAt: Date.now(),
+          })
+          .where(eq(designs.id, designId!))
+          .run();
+
+        tx.delete(designFieldValues).where(eq(designFieldValues.designId, designId!)).run();
+      } else {
+        const inserted = tx
+          .insert(designs)
+          .values({
+            name: parsed.name,
+            description: parsed.description || null,
+            chargedPriceCents,
+            premiumCents,
+            published: Boolean(parsed.published),
+            updatedAt: Date.now(),
+          })
+          .returning({ id: designs.id })
+          .get();
+        designId = inserted.id;
+      }
+
+      for (const [fieldIdStr, answer] of Object.entries(answers)) {
+        const fieldId = Number(fieldIdStr);
+        if (answer.type === "options") {
+          for (const optionId of answer.optionIds) {
+            tx.insert(designFieldValues).values({ designId: designId!, fieldId, fieldOptionId: optionId }).run();
+          }
+        } else if (answer.type === "text") {
+          tx.insert(designFieldValues).values({ designId: designId!, fieldId, textValue: answer.value }).run();
+        } else if (answer.type === "number") {
+          tx.insert(designFieldValues).values({ designId: designId!, fieldId, numberValue: answer.value }).run();
+        }
+      }
+
+      // an included text/number field with no default value still needs a
+      // row to stay "included" (admin may leave a required field's default
+      // empty) — insert a bare marker row for it
+      for (const field of allFields) {
+        if (
+          (field.type === "text" || field.type === "number") &&
+          includedCustomFieldIds.has(field.id) &&
+          !answers[field.id]
+        ) {
+          tx.insert(designFieldValues).values({ designId: designId!, fieldId: field.id }).run();
+        }
+      }
+
+      tx.delete(designLockedFields).where(eq(designLockedFields.designId, designId!)).run();
+      lockedFieldIds.forEach((fieldId) => {
+        tx.insert(designLockedFields).values({ designId: designId!, fieldId }).run();
+      });
+
+      tx.delete(designExcludedOptions).where(eq(designExcludedOptions.designId, designId!)).run();
+      excludedOptionIds.forEach((fieldOptionId) => {
+        tx.insert(designExcludedOptions).values({ designId: designId!, fieldOptionId }).run();
+      });
+
+      tx.delete(designCategories).where(eq(designCategories.designId, designId!)).run();
+      categoryIds.forEach((categoryId) => {
+        tx.insert(designCategories).values({ designId: designId!, categoryId }).run();
+      });
     });
-  });
 
-  const photoFiles = formData
-    .getAll("photos")
-    .filter((f): f is File => f instanceof File && f.size > 0);
+    const photoFiles = formData
+      .getAll("photos")
+      .filter((f): f is File => f instanceof File && f.size > 0);
 
-  for (const file of photoFiles) {
-    const relPath = await saveUploadedPhoto(file);
-    db.insert(designPhotos).values({ designId: designId!, path: relPath }).run();
+    for (const file of photoFiles) {
+      const relPath = await saveUploadedPhoto(file);
+      db.insert(designPhotos).values({ designId: designId!, path: relPath }).run();
+    }
+
+    revalidatePath("/admin/designs");
+  } catch (err) {
+    toastRedirect(backPath, "error", toastMessage(err, "Couldn't save this design."));
   }
 
-  revalidatePath("/admin/designs");
-  redirect(`/admin/designs/${designId}/edit`);
+  toastRedirect(`/admin/designs/${designId}/edit`, "success", "Design saved successfully!");
 }
 
 const deletePhotoSchema = z.object({

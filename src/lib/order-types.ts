@@ -9,6 +9,10 @@ export type FieldDTO = {
   isBase: boolean;
   sortOrder: number;
   hasShapeDiagram: boolean;
+  /** text/number fields only: customer must answer before continuing/submitting */
+  required: boolean;
+  /** text/number fields only: flat surcharge added when the customer answers this field */
+  additionalPriceCents: number;
 };
 
 export type FieldOptionDimensionsDTO = {
@@ -53,6 +57,13 @@ export type TierPresetDTO = {
   levels: TierPresetLevelDTO[];
 };
 
+/** An admin-defined tag like "Tall Cakes" or "Wedding Cakes" — never shown on
+ *  its own, only used as a filter chip above the design picker/gallery. */
+export type CategoryDTO = {
+  id: number;
+  name: string;
+};
+
 export type DesignSummaryDTO = {
   id: number;
   name: string;
@@ -66,6 +77,13 @@ export type DesignSummaryDTO = {
   fieldValues: Answers;
   /** fields the customer can't change for this design — fixed at fieldValues' answer */
   lockedFieldIds: number[];
+  /** every field this design actually uses — base fields always, custom fields
+   *  the admin included (whether or not a default value was given). Distinct
+   *  from `fieldValues`' keys, since a custom field can be included with no
+   *  default answer at all. */
+  includedFieldIds: number[];
   /** options hidden from the customer for this design specifically */
   excludedOptionIds: number[];
+  /** cake categories this design belongs to — empty if the admin picked none */
+  categoryIds: number[];
 };

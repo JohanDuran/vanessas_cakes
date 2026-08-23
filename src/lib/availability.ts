@@ -24,6 +24,7 @@ export type PickupSettings = {
   leadTimeHours: number;
   maxAdvanceDays: number;
   slotIntervalMinutes: number;
+  maxOrdersPerDay: number | null; // null means no cap
 };
 
 export function toDateKey(date: Date): string {
@@ -98,16 +99,31 @@ export function isDateInWindow(dateKey: string, settings: PickupSettings, now: D
   return dateKey <= toDateKey(maxDate);
 }
 
-/** All bookable HH:MM slots for a date, after applying hours, lead time, and
- *  the advance-booking window. Empty means the date has no pickup availability. */
+/** Whether a date has already hit the admin-configured max-orders-per-day cap
+ *  (a null/unset cap means unlimited). Once reached, the day closes to new
+ *  bookings automatically, on top of whatever the day's hours allow. */
+export function isDayAtCapacity(
+  dateKey: string,
+  settings: PickupSettings,
+  orderCountsByDate: Record<string, number>
+): boolean {
+  if (!settings.maxOrdersPerDay) return false;
+  return (orderCountsByDate[dateKey] ?? 0) >= settings.maxOrdersPerDay;
+}
+
+/** All bookable HH:MM slots for a date, after applying hours, lead time, the
+ *  advance-booking window, and the per-day order cap. Empty means the date
+ *  has no pickup availability. */
 export function getAvailableSlots(
   dateKey: string,
   weeklyHours: WeeklyHour[],
   overrides: DateOverride[],
   settings: PickupSettings,
-  now: Date
+  now: Date,
+  orderCountsByDate: Record<string, number> = {}
 ): string[] {
   if (!isDateInWindow(dateKey, settings, now)) return [];
+  if (isDayAtCapacity(dateKey, settings, orderCountsByDate)) return [];
 
   const hours = getDayHours(dateKey, weeklyHours, overrides);
   if (!hours.open) return [];
@@ -129,9 +145,12 @@ export function isSlotAvailable(
   weeklyHours: WeeklyHour[],
   overrides: DateOverride[],
   settings: PickupSettings,
-  now: Date
+  now: Date,
+  orderCountsByDate: Record<string, number> = {}
 ): boolean {
-  return getAvailableSlots(dateKey, weeklyHours, overrides, settings, now).includes(time);
+  return getAvailableSlots(dateKey, weeklyHours, overrides, settings, now, orderCountsByDate).includes(
+    time
+  );
 }
 
 export function formatTimeLabel(time: string): string {

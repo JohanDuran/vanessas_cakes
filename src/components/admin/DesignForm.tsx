@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
-import { computeStandardPriceCents, formatCents, type Answers } from "../../lib/pricing";
+import { computeStandardPriceCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
 import type { DesignTierPresetSummary } from "../../app/admin/(protected)/designs/tierPresetSummary";
 import QuickAddFieldModal from "./QuickAddFieldModal";
@@ -24,14 +24,19 @@ export type FieldSummary = {
   type: FieldType;
   isBase: boolean;
   active: boolean;
+  required: boolean;
+  additionalPriceCents: number;
   options: FieldOptionSummary[];
 };
 
 type Photo = { id: number; path: string; isPrimary: boolean };
 
+export type CategorySummary = { id: number; name: string };
+
 type Props = {
   fields: FieldSummary[];
   tierPresets?: DesignTierPresetSummary[];
+  categories?: CategorySummary[];
   design?: {
     id: number;
     name: string;
@@ -41,6 +46,10 @@ type Props = {
     fieldValues: Answers;
     lockedFieldIds: number[];
     excludedOptionIds: number[];
+    categoryIds: number[];
+    /** every field this design uses, base + included custom fields (whether or
+     *  not a default value was given) — see DesignSummaryDTO.includedFieldIds */
+    includedFieldIds: number[];
     photos: Photo[];
   };
 };
@@ -55,7 +64,7 @@ function draftFromAnswer(answer: Answers[number] | undefined): Draft {
   };
 }
 
-export default function DesignForm({ fields, tierPresets = [], design }: Props) {
+export default function DesignForm({ fields, tierPresets = [], categories = [], design }: Props) {
   const [chargedDollars, setChargedDollars] = useState(
     design ? (design.chargedPriceCents / 100).toFixed(2) : ""
   );
@@ -66,7 +75,7 @@ export default function DesignForm({ fields, tierPresets = [], design }: Props) 
     return init;
   });
   const [includedCustomFieldIds, setIncludedCustomFieldIds] = useState<Set<number>>(
-    () => new Set(fields.filter((f) => !f.isBase && design?.fieldValues[f.id] != null).map((f) => f.id))
+    () => new Set(fields.filter((f) => !f.isBase && design?.includedFieldIds.includes(f.id)).map((f) => f.id))
   );
   const [lockedFieldIds, setLockedFieldIds] = useState<Set<number>>(new Set(design?.lockedFieldIds ?? []));
   const [excludedOptionIds, setExcludedOptionIds] = useState<Set<number>>(
@@ -152,6 +161,8 @@ export default function DesignForm({ fields, tierPresets = [], design }: Props) 
       isBase: f.isBase,
       sortOrder: 0,
       hasShapeDiagram: false,
+      required: f.required,
+      additionalPriceCents: f.additionalPriceCents,
     }));
     const optionDTOs = availableFields.flatMap((f) =>
       f.options.map((o) => ({
@@ -194,20 +205,26 @@ export default function DesignForm({ fields, tierPresets = [], design }: Props) 
 
   const allBaseAnswered = availableFields.filter((f) => f.isBase).every((f) => effectiveAnswers[f.id] != null);
 
-  // custom fields with the "Include" box checked but no actual value: select
-  // fields already force a value via the required <select>, but text/number/
-  // multi_select don't, so a checked-but-empty field would otherwise save
-  // silently with no design_field_values row at all — see currentAnswers above
+  // custom fields with the "Include" box checked but no actual value: a
+  // multi_select field needs at least one default checked or it would save
+  // silently with no design_field_values row at all — see currentAnswers
+  // above. Text/number fields are exempt: admin can leave a required field's
+  // default empty and it still stays included (see saveDesign).
   const includedFieldsMissingValue = availableFields.filter((f) => {
     if (f.isBase || !includedCustomFieldIds.has(f.id)) return false;
-    if (f.type === "single_select") return false; // required <select> already blocks this
+    if (f.type !== "multi_select") return false;
     return currentAnswers[f.id] == null;
   });
   const includedFieldsMissingValueIds = new Set(includedFieldsMissingValue.map((f) => f.id));
 
+  const allFieldsFlat: PriceableField[] = useMemo(
+    () => availableFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents })),
+    [availableFields]
+  );
+
   const standardPriceCents = useMemo(
-    () => computeStandardPriceCents(effectiveAnswers, allOptionsFlat),
-    [effectiveAnswers, allOptionsFlat]
+    () => computeStandardPriceCents(effectiveAnswers, allOptionsFlat, allFieldsFlat),
+    [effectiveAnswers, allOptionsFlat, allFieldsFlat]
   );
 
   const chargedCents = Math.round(Number(chargedDollars || "0") * 100);
@@ -226,6 +243,32 @@ export default function DesignForm({ fields, tierPresets = [], design }: Props) 
           <div className="admin-field" style={{ flex: 2, minWidth: 300 }}>
             <label>Description</label>
             <input name="description" defaultValue={design?.description ?? ""} style={{ width: "100%" }} />
+          </div>
+        </div>
+
+        <div className="admin-field">
+          <label>Cake categories</label>
+          <p style={{ color: "var(--text-soft)", marginTop: 4, marginBottom: 8, fontSize: "0.9rem" }}>
+            Pick zero, one, or many — these power the filter chips customers see above the design
+            picker. Not shown to customers by themselves.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px" }}>
+            {categories.map((category) => (
+              <label key={category.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  name="categoryIds"
+                  value={category.id}
+                  defaultChecked={design?.categoryIds.includes(category.id) ?? false}
+                />
+                {category.name}
+              </label>
+            ))}
+            {categories.length === 0 && (
+              <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
+                No categories yet — add some from Categories.
+              </span>
+            )}
           </div>
         </div>
 
@@ -269,6 +312,12 @@ export default function DesignForm({ fields, tierPresets = [], design }: Props) 
                       {field.name}
                       {!field.isBase && <span className="field-type-tag">{FIELD_TYPE_LABELS[field.type]}</span>}
                       {!field.active && " (inactive)"}
+                      {(field.type === "text" || field.type === "number") && field.required && (
+                        <span className="field-type-tag">Required</span>
+                      )}
+                      {(field.type === "text" || field.type === "number") && field.additionalPriceCents > 0 && (
+                        <span className="field-type-tag">+{formatCents(field.additionalPriceCents)}</span>
+                      )}
                     </label>
 
                     {!field.isBase && (
@@ -337,12 +386,6 @@ export default function DesignForm({ fields, tierPresets = [], design }: Props) 
                       />
                     )}
 
-                    {(field.type === "text" || field.type === "number") &&
-                      includedFieldsMissingValueIds.has(field.id) && (
-                        <p style={{ color: "var(--pink-600)", fontSize: "0.8rem", margin: "4px 0 0" }}>
-                          Needs a default value before this can be saved.
-                        </p>
-                      )}
                   </div>
 
                   {isIncluded && field.type === "multi_select" && (

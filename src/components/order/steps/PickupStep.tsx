@@ -13,7 +13,12 @@ import {
 } from "../../../lib/availability";
 
 type Props = {
-  availability: { settings: PickupSettings; weeklyHours: WeeklyHour[]; overrides: DateOverride[] };
+  availability: {
+    settings: PickupSettings;
+    weeklyHours: WeeklyHour[];
+    overrides: DateOverride[];
+    orderCountsByDate: Record<string, number>;
+  };
   pickupDate: string | null;
   pickupTime: string | null;
   onChange: (date: string, time: string) => void;
@@ -33,7 +38,7 @@ function leadTimeLabel(hours: number): string {
 }
 
 export default function PickupStep({ availability, pickupDate, pickupTime, onChange }: Props) {
-  const { settings, weeklyHours, overrides } = availability;
+  const { settings, weeklyHours, overrides, orderCountsByDate } = availability;
   // computed once per mount — the wizard is a short-lived session, no need to re-derive "now" on every render
   const [now] = useState(() => new Date());
   const todayKey = toDateKey(now);
@@ -66,8 +71,11 @@ export default function PickupStep({ availability, pickupDate, pickupTime, onCha
   }, [visibleMonth]);
 
   const slotsForSelected = useMemo(
-    () => (selectedDate ? getAvailableSlots(selectedDate, weeklyHours, overrides, settings, now) : []),
-    [selectedDate, weeklyHours, overrides, settings, now]
+    () =>
+      selectedDate
+        ? getAvailableSlots(selectedDate, weeklyHours, overrides, settings, now, orderCountsByDate)
+        : [],
+    [selectedDate, weeklyHours, overrides, settings, now, orderCountsByDate]
   );
 
   const monthLabel = visibleMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -112,7 +120,9 @@ export default function PickupStep({ availability, pickupDate, pickupTime, onCha
         <div className="pickup-calendar__grid">
           {cells.map((cell, i) => {
             if (!cell) return <span key={`blank-${i}`} className="pickup-calendar__cell pickup-calendar__cell--blank" />;
-            const available = getAvailableSlots(cell.dateKey, weeklyHours, overrides, settings, now).length > 0;
+            const available =
+              getAvailableSlots(cell.dateKey, weeklyHours, overrides, settings, now, orderCountsByDate)
+                .length > 0;
             const isSelected = cell.dateKey === selectedDate;
             const isToday = cell.dateKey === todayKey;
             return (

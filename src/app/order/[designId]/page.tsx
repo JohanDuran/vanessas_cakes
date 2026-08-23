@@ -19,10 +19,8 @@ export default async function LockedDesignOrderPage({
   const id = Number(designId);
   if (!Number.isInteger(id)) notFound();
 
-  const [{ fields, options, designSummaries, constraintPairsDTO, tierPresets }, availability] = await Promise.all([
-    loadOrderData(),
-    loadPickupAvailability(),
-  ]);
+  const [{ fields, options, designSummaries, constraintPairsDTO, tierPresets, categories }, availability] =
+    await Promise.all([loadOrderData(), loadPickupAvailability()]);
   const lockedDesign = designSummaries.find((d) => d.id === id);
   if (!lockedDesign) notFound();
 
@@ -37,6 +35,7 @@ export default async function LockedDesignOrderPage({
         designs={designSummaries}
         constraintPairs={constraintPairsDTO}
         tierPresets={tierPresets}
+        categories={categories}
         availability={availability}
         lockedDesign={lockedDesign}
         initialSizeId={initialSizeId && Number.isInteger(initialSizeId) ? initialSizeId : undefined}

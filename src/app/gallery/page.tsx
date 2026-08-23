@@ -2,13 +2,18 @@ import { loadOrderData } from "../../db/queries";
 import { priceRangeForDesign } from "../../lib/pricing";
 import Navbar from "../../components/Navbar";
 import Footer from "../../components/Footer";
-import GalleryCard from "../../components/order/GalleryCard";
+import GalleryFilters from "../../components/order/GalleryFilters";
 import "./gallery.css";
 
 export const dynamic = "force-dynamic";
 
 export default async function GalleryPage() {
-  const { fields, options, designSummaries, constraintPairsDTO, tierPresets } = await loadOrderData();
+  const { fields, options, designSummaries, constraintPairsDTO, tierPresets, categories } = await loadOrderData();
+
+  const cards = designSummaries.map((design) => ({
+    design,
+    ...priceRangeForDesign(design, fields, options, constraintPairsDTO, tierPresets),
+  }));
 
   return (
     <>
@@ -23,28 +28,7 @@ export default async function GalleryPage() {
 
       <section className="gallery-section">
         <div className="container">
-          <div className="gallery__grid">
-            {designSummaries.map((design) => {
-              const { minPriceCents, maxPriceCents } = priceRangeForDesign(
-                design,
-                fields,
-                options,
-                constraintPairsDTO,
-                tierPresets
-              );
-              return (
-                <GalleryCard
-                  key={design.id}
-                  design={design}
-                  minPriceCents={minPriceCents}
-                  maxPriceCents={maxPriceCents}
-                />
-              );
-            })}
-            {designSummaries.length === 0 && (
-              <p className="gallery__empty">New designs are on their way — check back soon!</p>
-            )}
-          </div>
+          <GalleryFilters cards={cards} categories={categories} />
         </div>
       </section>
       <Footer />

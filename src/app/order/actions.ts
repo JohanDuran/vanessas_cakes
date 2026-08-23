@@ -72,8 +72,18 @@ export async function submitOrder(formData: FormData) {
   let pickupDate: string | null = null;
   let pickupTime: string | null = null;
   if (hasPickupDate && hasPickupTime) {
-    const { settings, weeklyHours, overrides } = await loadPickupAvailability();
-    if (!isSlotAvailable(parsed.pickupDate!, parsed.pickupTime!, weeklyHours, overrides, settings, new Date())) {
+    const { settings, weeklyHours, overrides, orderCountsByDate } = await loadPickupAvailability();
+    if (
+      !isSlotAvailable(
+        parsed.pickupDate!,
+        parsed.pickupTime!,
+        weeklyHours,
+        overrides,
+        settings,
+        new Date(),
+        orderCountsByDate
+      )
+    ) {
       throw new Error("That pickup time is no longer available — please go back and choose another.");
     }
     pickupDate = parsed.pickupDate!;
@@ -117,7 +127,10 @@ export async function submitOrder(formData: FormData) {
       isBase: f.isBase,
       sortOrder: f.sortOrder,
       hasShapeDiagram: f.hasShapeDiagram,
+      required: f.required,
+      additionalPriceCents: f.additionalPriceCents,
     }));
+  const fieldById = new Map(allFields.map((f) => [f.id, f]));
   const optionDTOs: FieldOptionDTO[] = allOptions.map((o) => ({
     id: o.id,
     fieldId: o.fieldId,
@@ -130,6 +143,7 @@ export async function submitOrder(formData: FormData) {
   const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
 
   const designAnswers: Answers = {};
+  const includedFieldIds = new Set<number>();
   if (!isCustomOrder) {
     const designFieldValueRows = db
       .select()
@@ -137,6 +151,7 @@ export async function submitOrder(formData: FormData) {
       .where(eq(designFieldValues.designId, design!.id))
       .all();
     for (const row of designFieldValueRows) {
+      includedFieldIds.add(row.fieldId);
       if (row.fieldOptionId != null) {
         const existing = designAnswers[row.fieldId];
         if (existing?.type === "options") existing.optionIds.push(row.fieldOptionId);
@@ -150,9 +165,9 @@ export async function submitOrder(formData: FormData) {
   }
 
   // the design's actual fields: every base field, plus whichever custom
-  // fields it included (inclusion is having a default answer for it). A
-  // custom-cake quote has no catalog design, so this is just the base fields.
-  const designFields = allFields.filter((f) => f.isBase || designAnswers[f.id] != null);
+  // fields it included (with or without a default answer). A custom-cake
+  // quote has no catalog design, so this is just the base fields.
+  const designFields = allFields.filter((f) => f.isBase || includedFieldIds.has(f.id));
 
   const lockedFieldIds = new Set(
     isCustomOrder
@@ -213,7 +228,9 @@ export async function submitOrder(formData: FormData) {
 
   if (!isCustomOrder) {
     for (const field of designFields) {
-      if (field.type !== "single_select") continue;
+      const requiresAnswer =
+        field.type === "single_select" || ((field.type === "text" || field.type === "number") && field.required);
+      if (!requiresAnswer) continue;
       if (!answers[field.id]) throw new Error(`${field.name} is required.`);
     }
 
@@ -239,7 +256,8 @@ export async function submitOrder(formData: FormData) {
 
   // total is recomputed here — never trust a client-sent price
   const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-  const totalPriceCents = computeTotalCents(answers, design?.premiumCents ?? 0, flatOptions);
+  const flatFields = allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
+  const totalPriceCents = computeTotalCents(answers, design?.premiumCents ?? 0, flatOptions, flatFields);
 
   const orderId = db.transaction((tx) => {
     const inserted = tx
@@ -286,7 +304,7 @@ export async function submitOrder(formData: FormData) {
             fieldId,
             textValue: answer.value,
             labelSnapshot: answer.value,
-            priceCentsSnapshot: 0,
+            priceCentsSnapshot: fieldById.get(fieldId)?.additionalPriceCents ?? 0,
           })
           .run();
       } else {
@@ -296,7 +314,7 @@ export async function submitOrder(formData: FormData) {
             fieldId,
             numberValue: answer.value,
             labelSnapshot: String(answer.value),
-            priceCentsSnapshot: 0,
+            priceCentsSnapshot: fieldById.get(fieldId)?.additionalPriceCents ?? 0,
           })
           .run();
       }

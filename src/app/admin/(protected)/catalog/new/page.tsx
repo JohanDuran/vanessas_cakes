@@ -32,6 +32,24 @@ export default function NewFieldPage() {
             </select>
           </div>
         </div>
+        <div className="admin-form-row">
+          <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" id="required" name="required" value="1" />
+            <label htmlFor="required" style={{ margin: 0 }}>
+              Required (Text/Number only)
+            </label>
+          </div>
+          <div className="admin-field">
+            <label>Additional price ($, Text/Number only)</label>
+            <input
+              name="additionalPriceDollars"
+              type="number"
+              step="0.01"
+              defaultValue="0"
+              style={{ minWidth: 110 }}
+            />
+          </div>
+        </div>
         <div>
           <button type="submit" className="btn btn-primary">
             Create Field

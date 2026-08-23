@@ -7,6 +7,7 @@ import { db } from "../../../../db";
 import { fields, fieldOptions, tierPresets, tierPresetLevels } from "../../../../db/schema";
 import { SIZE_FIELD_SLUG, isTierLevelCount } from "../../../../lib/fields";
 import { isValidMoldStack, type AtomicMold } from "../../../../lib/cakeStyle";
+import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -64,62 +65,80 @@ function validateLevels(levelCount: number, moldOptionIds: number[], sizeFieldId
 }
 
 export async function createTierPreset(formData: FormData) {
-  const parsed = createPresetSchema.parse(readPresetForm(formData));
-  const sizeField = getSizeField();
-  validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+  let path = "/admin/catalog";
 
-  db.transaction((tx) => {
-    const insertedOption = tx
-      .insert(fieldOptions)
-      .values({
-        fieldId: sizeField.id,
-        name: parsed.name,
-        priceCents: dollarsToCents(parsed.priceDollars),
-        sortOrder: parsed.levelCount,
-        styleKind: "tiered",
-        updatedAt: Date.now(),
-      })
-      .returning({ id: fieldOptions.id })
-      .get();
-    const insertedPreset = tx
-      .insert(tierPresets)
-      .values({ fieldOptionId: insertedOption.id, levelCount: parsed.levelCount, updatedAt: Date.now() })
-      .returning({ id: tierPresets.id })
-      .get();
-    parsed.moldOptionIds.forEach((moldOptionId, index) => {
-      tx.insert(tierPresetLevels)
-        .values({ tierPresetId: insertedPreset.id, position: index + 1, moldOptionId })
-        .run();
+  try {
+    const parsed = createPresetSchema.parse(readPresetForm(formData));
+    const sizeField = getSizeField();
+    path = `/admin/catalog/${sizeField.id}`;
+    validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+
+    db.transaction((tx) => {
+      const insertedOption = tx
+        .insert(fieldOptions)
+        .values({
+          fieldId: sizeField.id,
+          name: parsed.name,
+          priceCents: dollarsToCents(parsed.priceDollars),
+          sortOrder: parsed.levelCount,
+          styleKind: "tiered",
+          updatedAt: Date.now(),
+        })
+        .returning({ id: fieldOptions.id })
+        .get();
+      const insertedPreset = tx
+        .insert(tierPresets)
+        .values({ fieldOptionId: insertedOption.id, levelCount: parsed.levelCount, updatedAt: Date.now() })
+        .returning({ id: tierPresets.id })
+        .get();
+      parsed.moldOptionIds.forEach((moldOptionId, index) => {
+        tx.insert(tierPresetLevels)
+          .values({ tierPresetId: insertedPreset.id, position: index + 1, moldOptionId })
+          .run();
+      });
     });
-  });
 
-  revalidatePath(`/admin/catalog/${sizeField.id}`);
+    revalidatePath(path);
+  } catch (err) {
+    toastRedirect(path, "error", toastMessage(err, "Couldn't add this tier preset."));
+  }
+
+  toastRedirect(path, "success", "Tier preset added successfully!");
 }
 
 export async function updateTierPreset(formData: FormData) {
-  const parsed = updatePresetSchema.parse(readPresetForm(formData));
-  const sizeField = getSizeField();
-  validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+  let path = "/admin/catalog";
 
-  const preset = db.select().from(tierPresets).where(eq(tierPresets.fieldOptionId, parsed.id)).get();
-  if (!preset) throw new Error("Tier preset not found.");
+  try {
+    const parsed = updatePresetSchema.parse(readPresetForm(formData));
+    const sizeField = getSizeField();
+    path = `/admin/catalog/${sizeField.id}`;
+    validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
 
-  db.transaction((tx) => {
-    tx.update(fieldOptions)
-      .set({ name: parsed.name, priceCents: dollarsToCents(parsed.priceDollars), updatedAt: Date.now() })
-      .where(eq(fieldOptions.id, parsed.id))
-      .run();
-    tx.update(tierPresets)
-      .set({ levelCount: parsed.levelCount, updatedAt: Date.now() })
-      .where(eq(tierPresets.id, preset.id))
-      .run();
-    tx.delete(tierPresetLevels).where(eq(tierPresetLevels.tierPresetId, preset.id)).run();
-    parsed.moldOptionIds.forEach((moldOptionId, index) => {
-      tx.insert(tierPresetLevels)
-        .values({ tierPresetId: preset.id, position: index + 1, moldOptionId })
+    const preset = db.select().from(tierPresets).where(eq(tierPresets.fieldOptionId, parsed.id)).get();
+    if (!preset) throw new Error("Tier preset not found.");
+
+    db.transaction((tx) => {
+      tx.update(fieldOptions)
+        .set({ name: parsed.name, priceCents: dollarsToCents(parsed.priceDollars), updatedAt: Date.now() })
+        .where(eq(fieldOptions.id, parsed.id))
         .run();
+      tx.update(tierPresets)
+        .set({ levelCount: parsed.levelCount, updatedAt: Date.now() })
+        .where(eq(tierPresets.id, preset.id))
+        .run();
+      tx.delete(tierPresetLevels).where(eq(tierPresetLevels.tierPresetId, preset.id)).run();
+      parsed.moldOptionIds.forEach((moldOptionId, index) => {
+        tx.insert(tierPresetLevels)
+          .values({ tierPresetId: preset.id, position: index + 1, moldOptionId })
+          .run();
+      });
     });
-  });
 
-  revalidatePath(`/admin/catalog/${sizeField.id}`);
+    revalidatePath(path);
+  } catch (err) {
+    toastRedirect(path, "error", toastMessage(err, "Couldn't save this tier preset."));
+  }
+
+  toastRedirect(path, "success", "Tier preset saved successfully!");
 }

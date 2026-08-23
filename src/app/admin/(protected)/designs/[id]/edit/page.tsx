@@ -1,7 +1,9 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { db } from "../../../../../../db";
 import {
+  cakeCategories,
+  designCategories,
   designExcludedOptions,
   designFieldValues,
   designLockedFields,
@@ -21,30 +23,44 @@ export const dynamic = "force-dynamic";
 
 export default async function EditDesignPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
 }) {
   const { id } = await params;
-  const { error } = await searchParams;
   const designId = Number(id);
   if (!Number.isInteger(designId)) notFound();
 
   const design = db.select().from(designs).where(eq(designs.id, designId)).get();
   if (!design) notFound();
 
-  const [allFields, allOptions, photos, fieldValueRows, lockedRows, excludedRows, allTierPresetRows, allTierPresetLevelRows] =
-    await Promise.all([
-      db.select().from(fields).then((r) => r),
-      db.select().from(fieldOptions).then((r) => r),
-      db.select().from(designPhotos).where(eq(designPhotos.designId, designId)).then((r) => r),
-      db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).then((r) => r),
-      db.select().from(designLockedFields).where(eq(designLockedFields.designId, designId)).then((r) => r),
-      db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, designId)).then((r) => r),
-      db.select().from(tierPresets).then((r) => r),
-      db.select().from(tierPresetLevels).then((r) => r),
-    ]);
+  const [
+    allFields,
+    allOptions,
+    photos,
+    fieldValueRows,
+    lockedRows,
+    excludedRows,
+    allTierPresetRows,
+    allTierPresetLevelRows,
+    categories,
+    designCategoryRows,
+  ] = await Promise.all([
+    db.select().from(fields).then((r) => r),
+    db.select().from(fieldOptions).then((r) => r),
+    db.select().from(designPhotos).where(eq(designPhotos.designId, designId)).then((r) => r),
+    db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).then((r) => r),
+    db.select().from(designLockedFields).where(eq(designLockedFields.designId, designId)).then((r) => r),
+    db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, designId)).then((r) => r),
+    db.select().from(tierPresets).then((r) => r),
+    db.select().from(tierPresetLevels).then((r) => r),
+    db
+      .select()
+      .from(cakeCategories)
+      .where(eq(cakeCategories.active, true))
+      .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
+      .then((r) => r),
+    db.select().from(designCategories).where(eq(designCategories.designId, designId)).then((r) => r),
+  ]);
 
   const optionsByField = new Map<number, typeof allOptions>();
   for (const opt of allOptions) {
@@ -68,6 +84,8 @@ export default async function EditDesignPage({
       type: f.type as FieldType,
       isBase: f.isBase,
       active: f.active,
+      required: f.required,
+      additionalPriceCents: f.additionalPriceCents,
       options: (optionsByField.get(f.id) ?? []).map((o) => ({
         id: o.id,
         name: o.name,
@@ -93,19 +111,18 @@ export default async function EditDesignPage({
     }
   }
 
+  // inclusion is having ANY row here, value or not — distinct from fieldValues
+  // above, since a custom field can be included with no default answer
+  const includedFieldIds = Array.from(new Set(fieldValueRows.map((r) => r.fieldId)));
+
   return (
     <>
       <h1>Edit Design</h1>
       <p className="admin-main__subtitle">{design.name}</p>
-      {error === "constraint" && (
-        <div className="admin-error-banner">
-          This recipe combines two options marked incompatible in Constraints — fix it or remove
-          that constraint first.
-        </div>
-      )}
       <DesignForm
         fields={fieldSummaries}
         tierPresets={tierPresetSummaries}
+        categories={categories}
         design={{
           id: design.id,
           name: design.name,
@@ -115,6 +132,8 @@ export default async function EditDesignPage({
           fieldValues,
           lockedFieldIds: lockedRows.map((r) => r.fieldId),
           excludedOptionIds: excludedRows.map((r) => r.fieldOptionId),
+          categoryIds: designCategoryRows.map((r) => r.categoryId),
+          includedFieldIds,
           photos: photos.map((p) => ({ id: p.id, path: p.path, isPrimary: p.isPrimary })),
         }}
       />

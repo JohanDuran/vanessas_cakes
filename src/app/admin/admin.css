@@ -376,6 +376,169 @@
   cursor: pointer;
 }
 
+/* orders calendar */
+.orders-calendar {
+  max-width: 480px;
+}
+
+.orders-calendar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.orders-calendar__month {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--choco-900);
+}
+
+.orders-calendar__nav {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--cream);
+  color: var(--pink-600);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.orders-calendar__nav:hover {
+  background: var(--pink-100);
+}
+
+.orders-calendar__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 6px;
+}
+
+.orders-calendar__weekdays span {
+  text-align: center;
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.orders-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.orders-calendar__cell {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--choco-900);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.orders-calendar__cell:hover {
+  background: var(--pink-100);
+}
+
+.orders-calendar__cell--blank {
+  background: transparent;
+  cursor: default;
+}
+
+.orders-calendar__cell--blank:hover {
+  background: transparent;
+}
+
+.orders-calendar__cell.is-closed {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--cream),
+    var(--cream) 6px,
+    var(--peach-100) 6px,
+    var(--peach-100) 7px
+  );
+  color: var(--text-soft);
+}
+
+.orders-calendar__cell.is-today {
+  box-shadow: inset 0 0 0 2px var(--pink-300);
+}
+
+.orders-calendar__cell.has-orders {
+  cursor: pointer;
+  background: var(--pink-100);
+  color: var(--pink-600);
+}
+
+.orders-calendar__cell.has-orders:hover {
+  background: var(--pink-200);
+  transform: translateY(-1px);
+}
+
+.orders-calendar__cell.has-new {
+  background: var(--pink-500);
+  color: var(--white);
+}
+
+.orders-calendar__cell.has-new:hover {
+  background: var(--pink-500);
+}
+
+.orders-calendar__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--choco-900);
+  color: var(--white);
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.orders-calendar__order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--pink-100);
+  color: var(--text);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.orders-calendar__order-row:hover {
+  border-color: var(--pink-300);
+  background: var(--pink-50);
+}
+
+@media (max-width: 480px) {
+  .orders-calendar {
+    max-width: 100%;
+  }
+}
+
 @media (max-width: 900px) {
   .admin-shell {
     grid-template-columns: 1fr;

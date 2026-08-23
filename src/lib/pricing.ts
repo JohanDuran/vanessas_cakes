@@ -6,6 +6,9 @@ import type { DesignSummaryDTO, FieldDTO, FieldOptionDTO, TierPresetDTO } from "
 
 export type PriceableOption = { id: number; fieldId: number; priceCents: number };
 
+/** A text/number field's flat surcharge, added whenever the customer answers it. */
+export type PriceableField = { id: number; additionalPriceCents: number };
+
 /** A design's (or the wizard's current) answer for one field, keyed by fieldId. */
 export type FieldAnswer =
   | { type: "options"; optionIds: number[] } // single_select (length 1) or multi_select (0..N)
@@ -23,22 +26,41 @@ function selectedOptionIds(answers: Answers): number[] {
   return ids;
 }
 
-export function computeStandardPriceCents(answers: Answers, options: PriceableOption[]): number {
+/** Sum of every answered text/number field's flat additionalPriceCents — an
+ *  unanswered (empty text, absent number) field never contributes. */
+function fieldSurchargeCents(answers: Answers, fields: PriceableField[]): number {
+  if (fields.length === 0) return 0;
+  const byId = new Map(fields.map((f) => [f.id, f.additionalPriceCents]));
+  let total = 0;
+  for (const [fieldIdStr, answer] of Object.entries(answers)) {
+    if (answer.type === "text" && answer.value.trim() === "") continue;
+    if (answer.type !== "text" && answer.type !== "number") continue;
+    total += byId.get(Number(fieldIdStr)) ?? 0;
+  }
+  return total;
+}
+
+export function computeStandardPriceCents(
+  answers: Answers,
+  options: PriceableOption[],
+  fields: PriceableField[] = []
+): number {
   const byId = new Map(options.map((o) => [o.id, o]));
   let total = 0;
   for (const id of selectedOptionIds(answers)) {
     const opt = byId.get(id);
     if (opt) total += opt.priceCents;
   }
-  return total;
+  return total + fieldSurchargeCents(answers, fields);
 }
 
 export function computeTotalCents(
   answers: Answers,
   premiumCents: number,
-  options: PriceableOption[]
+  options: PriceableOption[],
+  fields: PriceableField[] = []
 ): number {
-  return computeStandardPriceCents(answers, options) + premiumCents;
+  return computeStandardPriceCents(answers, options, fields) + premiumCents;
 }
 
 /** Price difference of switching to `candidateOptionId` within a single_select

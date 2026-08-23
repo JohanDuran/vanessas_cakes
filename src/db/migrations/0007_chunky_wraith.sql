@@ -1,0 +1,1 @@
+ALTER TABLE `pickup_settings` ADD `max_orders_per_day` integer;
