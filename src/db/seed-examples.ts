@@ -14,6 +14,7 @@ import {
   fieldOptions,
   fields,
   orders,
+  orderItems,
   orderSelections,
 } from "./schema";
 import type { BaseFieldSlug, FieldType } from "../lib/fields";
@@ -400,11 +401,16 @@ function main() {
     // apply, e.g. tier_levels/tier_size for a Standard-style design, have no
     // row and are correctly skipped) plus whichever fields this order overrides
     const fieldById = new Map(allFields.map((f) => [f.id, f]));
-    const relevantFieldIds = new Set(designFieldValueRows.map((r) => r.fieldId));
+    // this seed script only models option-backed selections (price snapshot
+    // comes from option.priceCents) — a design's text/number default values
+    // (e.g. a custom "message" field) have no fieldOptionId and are skipped
+    const optionBackedFieldIds = new Set(
+      designFieldValueRows.filter((r) => r.fieldOptionId != null).map((r) => r.fieldId)
+    );
     for (const slug of Object.keys(seed.overrides ?? {}) as BaseFieldSlug[]) {
-      relevantFieldIds.add(requireField(slug).id);
+      optionBackedFieldIds.add(requireField(slug).id);
     }
-    const selections = [...relevantFieldIds].map((fieldId) => {
+    const selections = [...optionBackedFieldIds].map((fieldId) => {
       const field = fieldById.get(fieldId)!;
       const overrideName = seed.overrides?.[field.slug as BaseFieldSlug];
       if (overrideName) return { field, option: lookupOption(field.slug, overrideName) };
@@ -417,10 +423,9 @@ function main() {
     const totalCents = standardCents + design.premiumCents;
 
     db.transaction((tx) => {
-      const inserted = tx
+      const insertedOrder = tx
         .insert(orders)
         .values({
-          designId,
           customerName: seed.customerName,
           customerEmail: seed.customerEmail,
           customerPhone: seed.customerPhone ?? null,
@@ -431,10 +436,21 @@ function main() {
         .returning({ id: orders.id })
         .get();
 
+      const insertedItem = tx
+        .insert(orderItems)
+        .values({
+          orderId: insertedOrder.id,
+          designId,
+          priceCents: totalCents,
+          sortOrder: 0,
+        })
+        .returning({ id: orderItems.id })
+        .get();
+
       for (const { field, option } of selections) {
         tx.insert(orderSelections)
           .values({
-            orderId: inserted.id,
+            orderItemId: insertedItem.id,
             fieldId: field.id,
             fieldOptionId: option.id,
             labelSnapshot: option.name,

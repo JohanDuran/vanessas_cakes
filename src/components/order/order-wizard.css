@@ -570,12 +570,6 @@
   color: var(--choco-900);
 }
 
-.contact-pref-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
-}
-
 .custom-quote__previews {
   display: flex;
   flex-wrap: wrap;
@@ -717,6 +711,26 @@
   margin-top: 16px;
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+ul.order-summary__error {
+  list-style: none;
+  padding-left: 16px;
+}
+
+ul.order-summary__error li {
+  position: relative;
+  padding-left: 14px;
+}
+
+ul.order-summary__error li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+}
+
+ul.order-summary__error li + li {
+  margin-top: 4px;
 }
 
 /* pickup calendar */

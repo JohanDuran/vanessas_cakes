@@ -8,7 +8,9 @@ import { formatCents } from "../../lib/pricing";
 export type CalendarOrder = {
   id: number;
   customerName: string;
-  designName: string | null;
+  /** e.g. "Midnight Choco Drip" or "Midnight Choco Drip +1 more" for a
+   *  multi-cake order — pre-joined by the caller from that order's items. */
+  itemSummary: string;
   pickupTime: string | null;
   totalPriceCents: number;
   status: string;
@@ -175,7 +177,7 @@ export default function OrdersCalendar({
                     <div>
                       <strong>{o.customerName}</strong>
                       <div style={{ fontSize: "0.82rem", color: "var(--text-soft)" }}>
-                        {o.designName ?? "Custom Cake"}
+                        {o.itemSummary}
                         {o.pickupTime && ` · ${formatTimeLabel(o.pickupTime)}`}
                       </div>
                     </div>

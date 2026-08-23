@@ -1,19 +1,37 @@
-import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { db } from "../../../../../db";
-import {
-  designs,
-  fields as fieldsTable,
-  orderReferenceImages,
-  orderSelections,
-  orders,
-} from "../../../../../db/schema";
+import { orders } from "../../../../../db/schema";
+import { loadOrderWithItems, type OrderItemDetailDTO } from "../../../../../db/queries";
+import { eq } from "drizzle-orm";
 import { baseFieldRank, CONTACT_PREFERENCE_LABELS, isContactPreference } from "../../../../../lib/fields";
 import { formatCents } from "../../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../../lib/availability";
 import { setOrderStatus } from "../actions";
 
 export const dynamic = "force-dynamic";
+
+/** Groups one item's flat selection rows by field (so a multi-select field's
+ *  several rows show as one line) in canonical base-field order. */
+function groupSelections(selections: OrderItemDetailDTO["selections"]) {
+  const rowsByField = new Map<number, OrderItemDetailDTO["selections"]>();
+  for (const s of selections) {
+    const list = rowsByField.get(s.fieldId) ?? [];
+    list.push(s);
+    rowsByField.set(s.fieldId, list);
+  }
+  const orderedFieldIds = Array.from(rowsByField.keys()).sort(
+    (a, b) => baseFieldRank(rowsByField.get(a)![0].fieldSlug) - baseFieldRank(rowsByField.get(b)![0].fieldSlug)
+  );
+  return orderedFieldIds.map((fieldId) => {
+    const rows = rowsByField.get(fieldId)!;
+    return {
+      fieldId,
+      fieldName: rows[0].fieldName,
+      label: rows.map((r) => r.labelSnapshot).join(", "),
+      price: rows.reduce((sum, r) => sum + r.priceCentsSnapshot, 0),
+    };
+  });
+}
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,29 +46,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     order.status = "viewed";
   }
 
-  const isCustom = order.designId == null;
-
-  const [design, selections, allFields, referenceImages] = await Promise.all([
-    order.designId ? db.select().from(designs).where(eq(designs.id, order.designId)).get() : undefined,
-    db.select().from(orderSelections).where(eq(orderSelections.orderId, orderId)).then((r) => r),
-    db.select().from(fieldsTable).then((r) => r),
-    isCustom
-      ? db.select().from(orderReferenceImages).where(eq(orderReferenceImages.orderId, orderId)).then((r) => r)
-      : Promise.resolve([]),
-  ]);
-
-  const fieldById = new Map(allFields.map((f) => [f.id, f]));
-
-  // group selections by field so a multi-select field's several rows show as one line
-  const rowsByField = new Map<number, typeof selections>();
-  for (const s of selections) {
-    const list = rowsByField.get(s.fieldId) ?? [];
-    list.push(s);
-    rowsByField.set(s.fieldId, list);
-  }
-  const orderedFieldIds = Array.from(rowsByField.keys()).sort(
-    (a, b) => baseFieldRank(fieldById.get(a)?.slug ?? "") - baseFieldRank(fieldById.get(b)?.slug ?? "")
-  );
+  const result = await loadOrderWithItems(orderId);
+  if (!result) notFound();
+  const { items } = result;
 
   return (
     <>
@@ -78,62 +76,70 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 month: "long",
                 day: "numeric",
               })} at ${formatTimeLabel(order.pickupTime)}`
-            : isCustom
-              ? "No preference given"
-              : "Not scheduled"}
+            : "Not scheduled"}
         </p>
       </div>
 
-      {isCustom && referenceImages.length > 0 && (
-        <div className="admin-card">
-          <h3 style={{ marginBottom: 10 }}>Reference Images</h3>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {referenceImages.map((img) => (
-              <a key={img.id} href={`/uploads/${img.path}`} target="_blank" rel="noopener noreferrer">
-                <img
-                  src={`/uploads/${img.path}`}
-                  alt="Customer reference"
-                  style={{ width: 110, height: 110, objectFit: "cover", borderRadius: 8 }}
-                />
-              </a>
-            ))}
+      {items.map((item, index) => {
+        const isCustom = item.designId == null;
+        const groupedSelections = groupSelections(item.selections);
+        return (
+          <div key={item.id}>
+            {item.referenceImagePaths.length > 0 && (
+              <div className="admin-card">
+                <h3 style={{ marginBottom: 10 }}>Reference Images {items.length > 1 ? `— Cake ${index + 1}` : ""}</h3>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {item.referenceImagePaths.map((path) => (
+                    <a key={path} href={`/uploads/${path}`} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={`/uploads/${path}`}
+                        alt="Customer reference"
+                        style={{ width: 110, height: 110, objectFit: "cover", borderRadius: 8 }}
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="admin-card">
+              <h3 style={{ marginBottom: 10 }}>
+                {items.length > 1 ? `Cake ${index + 1} — ` : ""}
+                {isCustom ? "Custom Cake Quote" : (item.designName ?? "Unknown design")}
+              </h3>
+              {groupedSelections.length === 0 && isCustom ? (
+                <p>No details provided — the customer left every field blank.</p>
+              ) : (
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Selection</th>
+                      <th>Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedSelections.map((row) => (
+                      <tr key={row.fieldId}>
+                        <td>{row.fieldName}</td>
+                        <td>{row.label}</td>
+                        <td>{formatCents(row.price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div style={{ marginTop: 14, fontWeight: 700, fontFamily: "var(--font-heading)" }}>
+                {isCustom ? "Estimated total" : "Total"}: {formatCents(item.priceCents)}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
 
       <div className="admin-card">
-        <h3 style={{ marginBottom: 10 }}>{isCustom ? "Custom Cake Quote" : `Cake — ${design?.name ?? "Unknown design"}`}</h3>
-        {orderedFieldIds.length === 0 && isCustom ? (
-          <p>No details provided — the customer left every field blank.</p>
-        ) : (
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Field</th>
-                <th>Selection</th>
-                <th>Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orderedFieldIds.map((fieldId) => {
-                const rows = rowsByField.get(fieldId)!;
-                const field = fieldById.get(fieldId);
-                const label = rows.map((r) => r.labelSnapshot).join(", ");
-                const price = rows.reduce((sum, r) => sum + r.priceCentsSnapshot, 0);
-                return (
-                  <tr key={fieldId}>
-                    <td>{field?.name ?? "Unknown field"}</td>
-                    <td>{label}</td>
-                    <td>{formatCents(price)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-        <div style={{ marginTop: 14, fontWeight: 700, fontFamily: "var(--font-heading)" }}>
-          {isCustom ? "Estimated total" : "Total"}: {formatCents(order.totalPriceCents)}
-        </div>
+        <h3 style={{ marginBottom: 10, fontFamily: "var(--font-heading)" }}>Order Total</h3>
+        <div style={{ fontWeight: 700 }}>{formatCents(order.totalPriceCents)}</div>
       </div>
 
       {order.comments && (

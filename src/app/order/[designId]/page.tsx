@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { loadOrderData, loadPickupAvailability } from "../../../db/queries";
+import { loadOrderData } from "../../../db/queries";
 import Navbar from "../../../components/Navbar";
 import Footer from "../../../components/Footer";
 import OrderWizard from "../OrderWizard";
@@ -19,8 +19,7 @@ export default async function LockedDesignOrderPage({
   const id = Number(designId);
   if (!Number.isInteger(id)) notFound();
 
-  const [{ fields, options, designSummaries, constraintPairsDTO, tierPresets }, availability] =
-    await Promise.all([loadOrderData(), loadPickupAvailability()]);
+  const { fields, options, designSummaries, constraintPairsDTO, tierPresets } = await loadOrderData();
   const lockedDesign = designSummaries.find((d) => d.id === id);
   if (!lockedDesign) notFound();
 
@@ -35,7 +34,6 @@ export default async function LockedDesignOrderPage({
         designs={designSummaries}
         constraintPairs={constraintPairsDTO}
         tierPresets={tierPresets}
-        availability={availability}
         lockedDesign={lockedDesign}
         initialSizeId={initialSizeId && Number.isInteger(initialSizeId) ? initialSizeId : undefined}
       />

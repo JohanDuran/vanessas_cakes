@@ -1,11 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
 import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
-import { fromDateKey, formatTimeLabel } from "../../lib/availability";
-import { CONTACT_PREFERENCES, CONTACT_PREFERENCE_LABELS, type ContactPreference } from "../../lib/fields";
-import { submitOrder } from "../../app/order/actions";
 import PriceDelta from "./PriceDelta";
 
 type Props = {
@@ -15,14 +12,11 @@ type Props = {
   options: FieldOptionDTO[];
   tierPresets: TierPresetDTO[];
   lockedFieldIds: Set<number>;
-  pickupDate: string | null;
-  pickupTime: string | null;
   isCustom: boolean;
-  contactPreference: ContactPreference | null;
-  onContactPreferenceChange: (value: ContactPreference) => void;
   referenceImages: File[];
+  isEditingCartItem: boolean;
+  onAddToCart: () => void;
   onEditStep: (fieldId: number) => void;
-  onEditPickup: () => void;
   onEditCustom: () => void;
 };
 
@@ -33,90 +27,27 @@ export default function OrderSummaryPanel({
   options,
   tierPresets,
   lockedFieldIds,
-  pickupDate,
-  pickupTime,
   isCustom,
-  contactPreference,
-  onContactPreferenceChange,
   referenceImages,
+  isEditingCartItem,
+  onAddToCart,
   onEditStep,
-  onEditPickup,
   onEditCustom,
 }: Props) {
-  const [submitState, formAction, isSubmitting] = useActionState(submitOrder, undefined);
-
-  // kept as controlled state so a failed submit (e.g. the pickup slot filled
-  // up while reviewing) doesn't wipe what the customer already typed — React
-  // resets an uncontrolled form's fields once its action finishes
-  const [contactFields, setContactFields] = useState({ name: "", email: "", phone: "", comments: "" });
-
   const optionById = new Map(options.map((o) => [o.id, o]));
   const presetsByOptionId = new Map(tierPresets.map((p) => [p.fieldOptionId, p]));
   const flatOptions = options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
   const flatFields = designFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
   const total = computeTotalCents(answers, design.premiumCents, flatOptions, flatFields);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (!fileInputRef.current) return;
-    const dt = new DataTransfer();
-    referenceImages.forEach((file) => dt.items.add(file));
-    fileInputRef.current.files = dt.files;
-  }, [referenceImages]);
-
   return (
-    <form action={formAction} className="wizard-step order-summary">
-      {!isCustom && <input type="hidden" name="designId" value={design.id} />}
-      {contactPreference && <input type="hidden" name="contactPreference" value={contactPreference} />}
-      {isCustom && (
-        <input
-          ref={fileInputRef}
-          type="file"
-          name="referenceImages"
-          multiple
-          style={{ display: "none" }}
-          aria-hidden
-          tabIndex={-1}
-        />
-      )}
-      <input type="hidden" name="pickupDate" value={pickupDate ?? ""} />
-      <input type="hidden" name="pickupTime" value={pickupTime ?? ""} />
-      {designFields.map((field) => {
-        const answer = answers[field.id];
-        if (!answer) return null;
-        if (answer.type === "options") {
-          return answer.optionIds.map((optionId) => (
-            <input key={`${field.id}-${optionId}`} type="hidden" name={`options_${field.id}`} value={optionId} />
-          ));
-        }
-        if (answer.type === "text") {
-          return <input key={field.id} type="hidden" name={`text_${field.id}`} value={answer.value} />;
-        }
-        return <input key={field.id} type="hidden" name={`number_${field.id}`} value={answer.value} />;
-      })}
-
+    <div className="wizard-step order-summary">
       <h2>Review Your Cake</h2>
       <p className="order-summary__design">
         <strong>{design.name}</strong>
       </p>
 
       <ul className="order-summary__list">
-        <li>
-          <span className="order-summary__axis">Pickup</span>
-          <span className="order-summary__item">
-            {pickupDate && pickupTime
-              ? `${fromDateKey(pickupDate).toLocaleDateString(undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })} at ${formatTimeLabel(pickupTime)}`
-              : "—"}
-          </span>
-          <span className="order-summary__item-price" />
-          <button type="button" className="order-summary__edit" onClick={onEditPickup}>
-            Change
-          </button>
-        </li>
         {designFields.map((field) => {
           const answer = answers[field.id];
           let valueLabel = "—";
@@ -180,81 +111,9 @@ export default function OrderSummaryPanel({
         <p className="wizard-step__hint">We'll follow up with your exact quote within 24 hours.</p>
       )}
 
-      <div className="wizard-field">
-        <label>Preferred contact method?</label>
-        <div className="contact-pref-grid">
-          {CONTACT_PREFERENCES.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`option-card ${contactPreference === value ? "option-card--selected" : ""}`}
-              onClick={() => onContactPreferenceChange(value)}
-            >
-              <span className="option-card__name">{CONTACT_PREFERENCE_LABELS[value]}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="wizard-field">
-        <label htmlFor="customerName">Your name</label>
-        <input
-          id="customerName"
-          name="customerName"
-          required
-          value={contactFields.name}
-          onChange={(e) => setContactFields((prev) => ({ ...prev, name: e.target.value }))}
-        />
-      </div>
-      <div className="wizard-field">
-        <label htmlFor="customerEmail">Email</label>
-        <input
-          id="customerEmail"
-          name="customerEmail"
-          type="email"
-          required
-          value={contactFields.email}
-          onChange={(e) => setContactFields((prev) => ({ ...prev, email: e.target.value }))}
-        />
-      </div>
-      <div className="wizard-field">
-        <label htmlFor="customerPhone">Phone</label>
-        <input
-          id="customerPhone"
-          name="customerPhone"
-          type="tel"
-          value={contactFields.phone}
-          onChange={(e) => setContactFields((prev) => ({ ...prev, phone: e.target.value }))}
-        />
-      </div>
-      <div className="wizard-field">
-        <label htmlFor="comments">Comments / special requests</label>
-        <textarea
-          id="comments"
-          name="comments"
-          rows={4}
-          value={contactFields.comments}
-          onChange={(e) => setContactFields((prev) => ({ ...prev, comments: e.target.value }))}
-        />
-      </div>
-
-      {submitState?.error && (
-        <p className="order-summary__error" role="alert">
-          {submitState.error}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        className="btn btn-primary order-summary__submit"
-        disabled={!contactPreference || isSubmitting}
-      >
-        {isSubmitting
-          ? "Sending…"
-          : isCustom
-            ? "Send Custom Quote Request"
-            : "Send Order to the Baker"}
+      <button type="button" className="btn btn-primary order-summary__submit" onClick={onAddToCart}>
+        {isEditingCartItem ? "Save Changes" : isCustom ? "Add Custom Quote to Cart" : "Add to Cart"}
       </button>
-    </form>
+    </div>
   );
 }

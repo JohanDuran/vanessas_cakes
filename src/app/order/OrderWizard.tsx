@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
 import { getHiddenOptionIds, resolveAnswers, type ConstraintPair } from "../../lib/constraints";
 import {
@@ -13,14 +13,13 @@ import {
   type CakeStyleContext,
 } from "../../lib/cakeStyle";
 import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
-import { SIZE_FIELD_SLUG, type ContactPreference } from "../../lib/fields";
-import type { WeeklyHour, DateOverride, PickupSettings } from "../../lib/availability";
+import { SIZE_FIELD_SLUG } from "../../lib/fields";
+import { useCart } from "../../lib/cart/CartContext";
 import DesignPhotoCarousel from "../../components/order/DesignPhotoCarousel";
 import FieldOptionStep from "../../components/order/steps/FieldOptionStep";
 import TierPresetStep from "../../components/order/steps/TierPresetStep";
 import TextFieldStep from "../../components/order/steps/TextFieldStep";
 import NumberFieldStep from "../../components/order/steps/NumberFieldStep";
-import PickupStep from "../../components/order/steps/PickupStep";
 import CustomCakeQuoteStep from "../../components/order/steps/CustomCakeQuoteStep";
 import OrderSummaryPanel from "../../components/order/OrderSummaryPanel";
 
@@ -30,12 +29,6 @@ type Props = {
   designs: DesignSummaryDTO[];
   constraintPairs: ConstraintPair[];
   tierPresets: TierPresetDTO[];
-  availability: {
-    settings: PickupSettings;
-    weeklyHours: WeeklyHour[];
-    overrides: DateOverride[];
-    orderCountsByDate: Record<string, number>;
-  };
   /** When set (gallery entry point), the design step is skipped and locked. */
   lockedDesign?: DesignSummaryDTO;
   /** When set alongside lockedDesign, pre-selects this size before the wizard opens. */
@@ -48,23 +41,18 @@ type Props = {
 type State = {
   designId: number | null;
   isCustom: boolean;
-  contactPreference: ContactPreference | null;
   answers: Answers;
-  pickupDate: string | null;
-  pickupTime: string | null;
-  // 0 = design picker, 1 = custom-cake quote (only when isCustom), then pickup,
-  // then one step per design field, then review — see PICKUP_STEP/REVIEW_STEP below
+  // 0 = design picker, 1 = custom-cake quote (only when isCustom), then one
+  // step per design field, then review — see FIELD_STEP_START/REVIEW_STEP below
   step: number;
 };
 
 type Action =
   | { type: "SELECT_DESIGN"; design: DesignSummaryDTO }
   | { type: "SELECT_CUSTOM" }
-  | { type: "SET_CONTACT_PREFERENCE"; value: ContactPreference }
   | { type: "SET_OPTIONS"; fieldId: number; optionIds: number[] }
   | { type: "SET_TEXT"; fieldId: number; value: string }
   | { type: "SET_NUMBER"; fieldId: number; value: string }
-  | { type: "SET_PICKUP"; date: string; time: string }
   | { type: "GOTO"; step: number };
 
 /** A design's actual fields: every base field (always required), plus
@@ -122,13 +110,12 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
   return function reducer(state: State, action: Action): State {
     switch (action.type) {
       case "SELECT_DESIGN": {
-        const pickupStep = 1;
         return {
           ...state,
           designId: action.design.id,
           isCustom: false,
           answers: resolveAll({ ...action.design.fieldValues }, pairs, cakeStyleCtx),
-          step: pickupStep,
+          step: 1,
         };
       }
       case "SELECT_CUSTOM":
@@ -136,12 +123,9 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
           ...state,
           designId: null,
           isCustom: true,
-          contactPreference: null,
           answers: resolveAll({}, pairs, cakeStyleCtx),
           step: CUSTOM_STEP,
         };
-      case "SET_CONTACT_PREFERENCE":
-        return { ...state, contactPreference: action.value };
       case "SET_OPTIONS":
         return {
           ...state,
@@ -167,8 +151,6 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
           answers: { ...state.answers, [action.fieldId]: { type: "number", value: Number(action.value) } },
         };
       }
-      case "SET_PICKUP":
-        return { ...state, pickupDate: action.date, pickupTime: action.time };
       case "GOTO":
         return { ...state, step: action.step };
       default:
@@ -183,7 +165,6 @@ export default function OrderWizard({
   designs,
   constraintPairs,
   tierPresets,
-  availability,
   lockedDesign,
   initialSizeId,
   startCustom,
@@ -199,25 +180,30 @@ export default function OrderWizard({
 
   const sizeField = useMemo(() => fields.find((f) => f.slug === SIZE_FIELD_SLUG), [fields]);
 
-  const [state, dispatch] = useReducer(reducer, {
-    designId: lockedDesign?.id ?? null,
-    isCustom: !!startCustom,
-    contactPreference: null,
-    answers: lockedDesign
-      ? resolveAll(
-          {
+  const cart = useCart();
+  const searchParams = useSearchParams();
+  const editingClientId = searchParams.get("cartItem");
+  // captured once at mount — editing loads the cart item's own answers instead
+  // of the design's defaults, but shouldn't keep re-reading the cart on every render
+  const [editingItem] = useState(() => (editingClientId ? cart.getItem(editingClientId) : undefined));
+
+  const [state, dispatch] = useReducer(reducer, undefined, (): State => {
+    const answers =
+      editingItem?.answers ??
+      (lockedDesign
+        ? {
             ...lockedDesign.fieldValues,
             ...(initialSizeId && sizeField ? { [sizeField.id]: { type: "options", optionIds: [initialSizeId] } } : {}),
-          },
-          constraintPairs,
-          cakeStyleCtx
-        )
-      : {},
-    pickupDate: null,
-    pickupTime: null,
-    step: lockedDesign ? 1 : startCustom ? CUSTOM_STEP : 0,
+          }
+        : {});
+    return {
+      designId: lockedDesign?.id ?? null,
+      isCustom: editingItem?.isCustom ?? !!startCustom,
+      answers: resolveAll(answers, constraintPairs, cakeStyleCtx),
+      step: lockedDesign ? 1 : startCustom ? CUSTOM_STEP : 0,
+    };
   });
-  const [referenceImages, setReferenceImages] = useState<File[]>([]);
+  const [referenceImages, setReferenceImages] = useState<File[]>(editingItem?.referenceImages ?? []);
   const router = useRouter();
 
   const optionsByField = useMemo(() => {
@@ -235,9 +221,8 @@ export default function OrderWizard({
   );
 
   // step numbering: 0 is design, 1 is the custom-cake quote step (only when
-  // isCustom), then pickup, then one step per design field, then review
-  const PICKUP_STEP = state.isCustom ? CUSTOM_STEP + 1 : 1;
-  const FIELD_STEP_START = PICKUP_STEP + 1;
+  // isCustom), then one step per design field, then review
+  const FIELD_STEP_START = state.isCustom ? CUSTOM_STEP + 1 : 1;
   const REVIEW_STEP = FIELD_STEP_START + designFields.length;
 
   const currentField =
@@ -246,7 +231,6 @@ export default function OrderWizard({
       : null;
   const currentAnswer = currentField ? state.answers[currentField.id] : undefined;
   const isCustomQuoteStep = state.isCustom && state.step === CUSTOM_STEP;
-  const isPickup = state.step === PICKUP_STEP;
   const isReview = state.step === REVIEW_STEP;
 
   const lockedFieldIdSet = useMemo(() => new Set(selectedDesign?.lockedFieldIds ?? []), [selectedDesign]);
@@ -278,20 +262,18 @@ export default function OrderWizard({
     const fieldSteps = designFields
       .map((_, idx) => idx + FIELD_STEP_START)
       .filter((i) => !skippedFieldIdSet.has(designFields[i - FIELD_STEP_START].id));
-    return [...(state.isCustom ? [CUSTOM_STEP] : []), PICKUP_STEP, ...fieldSteps, REVIEW_STEP];
-  }, [designFields, skippedFieldIdSet, FIELD_STEP_START, PICKUP_STEP, REVIEW_STEP, state.isCustom]);
+    return [...(state.isCustom ? [CUSTOM_STEP] : []), ...fieldSteps, REVIEW_STEP];
+  }, [designFields, skippedFieldIdSet, FIELD_STEP_START, REVIEW_STEP, state.isCustom]);
 
   const stepLabels = [
     "Design",
     ...(state.isCustom ? ["Custom Cake Quote"] : []),
-    "Pickup",
     ...designFields.map((f) => f.name),
     "Review",
   ];
   const visibleSteps = stepLabels.map((label, i) => ({ label, i })).filter(({ i }) => {
     if (i === 0) return !lockedDesign;
     if (state.isCustom && i === CUSTOM_STEP) return true;
-    if (i === PICKUP_STEP) return true;
     if (i >= FIELD_STEP_START && i < REVIEW_STEP) return !skippedFieldIdSet.has(designFields[i - FIELD_STEP_START].id);
     return true;
   });
@@ -315,6 +297,21 @@ export default function OrderWizard({
     const idx = navigableSteps.indexOf(state.step);
     const prev = idx > 0 ? navigableSteps[idx - 1] : state.step;
     dispatch({ type: "GOTO", step: prev });
+  };
+
+  const handleAddToCart = () => {
+    const item = {
+      designId: state.isCustom ? null : selectedDesign?.id ?? null,
+      isCustom: state.isCustom,
+      answers: state.answers,
+      referenceImages,
+    };
+    if (editingItem) {
+      cart.updateItem(editingItem.clientId, item);
+    } else {
+      cart.addItem(item);
+    }
+    router.push("/cart");
   };
 
   // Design selection now happens entirely on /gallery — every route that
@@ -451,15 +448,6 @@ export default function OrderWizard({
             <CustomCakeQuoteStep images={referenceImages} onImagesChange={setReferenceImages} />
           )}
 
-          {isPickup && (
-            <PickupStep
-              availability={availability}
-              pickupDate={state.pickupDate}
-              pickupTime={state.pickupTime}
-              onChange={(date, time) => dispatch({ type: "SET_PICKUP", date, time })}
-            />
-          )}
-
           {isReview && (
             <OrderSummaryPanel
               design={selectedDesign}
@@ -468,17 +456,14 @@ export default function OrderWizard({
               options={options}
               tierPresets={tierPresets}
               lockedFieldIds={lockedFieldIdSet}
-              pickupDate={state.pickupDate}
-              pickupTime={state.pickupTime}
               isCustom={state.isCustom}
-              contactPreference={state.contactPreference}
-              onContactPreferenceChange={(value) => dispatch({ type: "SET_CONTACT_PREFERENCE", value })}
               referenceImages={referenceImages}
+              isEditingCartItem={!!editingItem}
+              onAddToCart={handleAddToCart}
               onEditStep={(fieldId) => {
                 const idx = designFields.findIndex((f) => f.id === fieldId);
                 if (idx !== -1) dispatch({ type: "GOTO", step: idx + FIELD_STEP_START });
               }}
-              onEditPickup={() => dispatch({ type: "GOTO", step: PICKUP_STEP })}
               onEditCustom={() => dispatch({ type: "GOTO", step: CUSTOM_STEP })}
             />
           )}
@@ -500,12 +485,11 @@ export default function OrderWizard({
                 className="btn btn-primary"
                 onClick={goNext}
                 disabled={
-                  (!state.isCustom &&
-                    currentField != null &&
-                    (currentField.type === "single_select" ||
-                      ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
-                    !isFieldAnswered(currentField, currentAnswer)) ||
-                  (isPickup && !state.isCustom && !(state.pickupDate && state.pickupTime))
+                  !state.isCustom &&
+                  currentField != null &&
+                  (currentField.type === "single_select" ||
+                    ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
+                  !isFieldAnswered(currentField, currentAnswer)
                 }
               >
                 Next

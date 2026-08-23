@@ -272,10 +272,11 @@ export const constraintPairs = sqliteTable(
   (t) => [uniqueIndex("constraint_pairs_options_idx").on(t.optionAId, t.optionBId)]
 );
 
+/** One checkout — a customer's cart submitted to the baker in one go. May
+ *  contain several cakes (see order_items below); contact info, pickup, and
+ *  the summed total all live here at the checkout level, not per cake. */
 export const orders = sqliteTable("orders", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  // null means this is a custom-cake quote request with no catalog design attached
-  designId: integer("design_id").references(() => designs.id, { onDelete: "restrict" }),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   customerPhone: text("customer_phone"),
@@ -292,12 +293,27 @@ export const orders = sqliteTable("orders", {
     .default(sql`(unixepoch('now','subsec') * 1000)`),
 });
 
-/** Optional reference photos a customer attaches to a custom-cake quote request. */
-export const orderReferenceImages = sqliteTable("order_reference_images", {
+/** One configured cake within a checkout — one row per cart item. Null
+ *  designId means this item is a custom-cake quote request. */
+export const orderItems = sqliteTable("order_items", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   orderId: integer("order_id")
     .notNull()
     .references(() => orders.id, { onDelete: "cascade" }),
+  designId: integer("design_id").references(() => designs.id, { onDelete: "restrict" }),
+  priceCents: integer("price_cents").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** Optional reference photos a customer attaches to a custom-cake cart item. */
+export const orderReferenceImages = sqliteTable("order_reference_images", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  orderItemId: integer("order_item_id")
+    .notNull()
+    .references(() => orderItems.id, { onDelete: "cascade" }),
   path: text("path").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: integer("created_at")
@@ -358,9 +374,9 @@ export const orderSelections = sqliteTable(
   "order_selections",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    orderId: integer("order_id")
+    orderItemId: integer("order_item_id")
       .notNull()
-      .references(() => orders.id, { onDelete: "cascade" }),
+      .references(() => orderItems.id, { onDelete: "cascade" }),
     fieldId: integer("field_id")
       .notNull()
       .references(() => fields.id, { onDelete: "restrict" }),
@@ -373,8 +389,8 @@ export const orderSelections = sqliteTable(
     priceCentsSnapshot: integer("price_cents_snapshot").notNull().default(0),
   },
   (t) => [
-    uniqueIndex("order_selections_order_field_option_idx").on(
-      t.orderId,
+    uniqueIndex("order_selections_item_field_option_idx").on(
+      t.orderItemId,
       t.fieldId,
       t.fieldOptionId
     ),

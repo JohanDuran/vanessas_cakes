@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
-import { designs, orders } from "../../../../db/schema";
+import { designs, orderItems, orders } from "../../../../db/schema";
 import { closePastPickupOrders, loadPickupAvailability } from "../../../../db/queries";
 import { formatCents } from "../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../lib/availability";
@@ -10,10 +10,18 @@ import { closeDayForNewOrders, reopenDay } from "../availability/actions";
 
 export const dynamic = "force-dynamic";
 
+/** "Midnight Choco Drip" for a single-cake order, "Midnight Choco Drip +1
+ *  more" for a multi-cake one — the admin list only has room for one line. */
+function summarizeItemNames(names: string[]): string {
+  if (names.length === 0) return "Custom Cake";
+  if (names.length === 1) return names[0];
+  return `${names[0]} +${names.length - 1} more`;
+}
+
 export default async function OrdersInboxPage() {
   closePastPickupOrders();
 
-  const [allOrders, { settings, overrides }] = await Promise.all([
+  const [allOrders, allItems, { settings, overrides }] = await Promise.all([
     db
       .select({
         id: orders.id,
@@ -22,16 +30,26 @@ export default async function OrdersInboxPage() {
         totalPriceCents: orders.totalPriceCents,
         status: orders.status,
         createdAt: orders.createdAt,
-        designName: designs.name,
         pickupDate: orders.pickupDate,
         pickupTime: orders.pickupTime,
       })
       .from(orders)
-      .leftJoin(designs, eq(orders.designId, designs.id))
       .orderBy(desc(orders.createdAt))
+      .all(),
+    db
+      .select({ orderId: orderItems.orderId, designName: designs.name, sortOrder: orderItems.sortOrder })
+      .from(orderItems)
+      .leftJoin(designs, eq(orderItems.designId, designs.id))
       .all(),
     loadPickupAvailability(),
   ]);
+
+  const itemNamesByOrder = new Map<number, string[]>();
+  for (const item of allItems.sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const list = itemNamesByOrder.get(item.orderId) ?? [];
+    list.push(item.designName ?? "Custom Cake");
+    itemNamesByOrder.set(item.orderId, list);
+  }
 
   const ordersByDate: Record<string, CalendarOrder[]> = {};
   for (const o of allOrders) {
@@ -40,7 +58,7 @@ export default async function OrdersInboxPage() {
     list.push({
       id: o.id,
       customerName: o.customerName,
-      designName: o.designName,
+      itemSummary: summarizeItemNames(itemNamesByOrder.get(o.id) ?? []),
       pickupTime: o.pickupTime,
       totalPriceCents: o.totalPriceCents,
       status: o.status,
@@ -66,7 +84,7 @@ export default async function OrdersInboxPage() {
             <tr>
               <th>Date</th>
               <th>Customer</th>
-              <th>Design</th>
+              <th>Cakes</th>
               <th>Pickup</th>
               <th>Total</th>
               <th>Status</th>
@@ -81,7 +99,7 @@ export default async function OrdersInboxPage() {
                   {o.customerName}
                   <div style={{ fontSize: "0.8rem", color: "var(--text-soft)" }}>{o.customerEmail}</div>
                 </td>
-                <td>{o.designName ?? "Custom Cake"}</td>
+                <td>{summarizeItemNames(itemNamesByOrder.get(o.id) ?? [])}</td>
                 <td>
                   {o.pickupDate && o.pickupTime
                     ? `${fromDateKey(o.pickupDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${formatTimeLabel(o.pickupTime)}`

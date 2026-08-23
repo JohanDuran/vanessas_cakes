@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../../../db";
-import { designs, orders } from "../../../db/schema";
+import { designs, orderItems, orders } from "../../../db/schema";
 import { closePastPickupOrders, loadPickupAvailability } from "../../../db/queries";
 import { formatCents } from "../../../lib/pricing";
 import { fromDateKey, formatTimeLabel, toDateKey, isDayAtCapacity } from "../../../lib/availability";
@@ -11,6 +11,14 @@ export const dynamic = "force-dynamic";
 const UPCOMING_WINDOW_DAYS = 7;
 const RECENT_ORDERS_LIMIT = 6;
 
+/** "Midnight Choco Drip" for a single-cake order, "Midnight Choco Drip +1
+ *  more" for a multi-cake one — dashboard tables only have room for one line. */
+function summarizeItemNames(names: string[]): string {
+  if (names.length === 0) return "Custom Cake";
+  if (names.length === 1) return names[0];
+  return `${names[0]} +${names.length - 1} more`;
+}
+
 export default async function AdminDashboardPage() {
   closePastPickupOrders();
 
@@ -19,7 +27,7 @@ export default async function AdminDashboardPage() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const upcomingEndKey = toDateKey(new Date(now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000));
 
-  const [allOrders, allDesigns, { settings, orderCountsByDate }] = await Promise.all([
+  const [allOrders, allItems, allDesigns, { settings, orderCountsByDate }] = await Promise.all([
     db
       .select({
         id: orders.id,
@@ -29,15 +37,25 @@ export default async function AdminDashboardPage() {
         createdAt: orders.createdAt,
         pickupDate: orders.pickupDate,
         pickupTime: orders.pickupTime,
-        designName: designs.name,
       })
       .from(orders)
-      .leftJoin(designs, eq(orders.designId, designs.id))
       .orderBy(desc(orders.createdAt))
+      .all(),
+    db
+      .select({ orderId: orderItems.orderId, designName: designs.name, sortOrder: orderItems.sortOrder })
+      .from(orderItems)
+      .leftJoin(designs, eq(orderItems.designId, designs.id))
       .all(),
     db.select({ published: designs.published }).from(designs).all(),
     loadPickupAvailability(),
   ]);
+
+  const itemNamesByOrder = new Map<number, string[]>();
+  for (const item of allItems.sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const list = itemNamesByOrder.get(item.orderId) ?? [];
+    list.push(item.designName ?? "Custom Cake");
+    itemNamesByOrder.set(item.orderId, list);
+  }
 
   const newOrders = allOrders.filter((o) => o.status === "new");
   const ordersThisMonth = allOrders.filter((o) => o.createdAt >= monthStart);
@@ -102,7 +120,7 @@ export default async function AdminDashboardPage() {
                 <li key={o.id} className="admin-alert-list__item">
                   <Link href={`/admin/orders/${o.id}`}>
                     <span className="admin-alert-list__badge admin-alert-list__badge--new">New</span>
-                    {o.customerName} · {o.designName ?? "Custom Cake"} · {formatCents(o.totalPriceCents)}
+                    {o.customerName} · {summarizeItemNames(itemNamesByOrder.get(o.id) ?? [])} · {formatCents(o.totalPriceCents)}
                   </Link>
                 </li>
               ))}
@@ -155,7 +173,7 @@ export default async function AdminDashboardPage() {
             <tr>
               <th>Date</th>
               <th>Customer</th>
-              <th>Design</th>
+              <th>Cakes</th>
               <th>Total</th>
               <th>Status</th>
               <th></th>
@@ -166,7 +184,7 @@ export default async function AdminDashboardPage() {
               <tr key={o.id} className={o.status === "archived" ? "is-inactive" : ""}>
                 <td>{new Date(o.createdAt).toLocaleDateString()}</td>
                 <td>{o.customerName}</td>
-                <td>{o.designName ?? "Custom Cake"}</td>
+                <td>{summarizeItemNames(itemNamesByOrder.get(o.id) ?? [])}</td>
                 <td>{formatCents(o.totalPriceCents)}</td>
                 <td style={{ textTransform: "capitalize" }}>{o.status}</td>
                 <td>

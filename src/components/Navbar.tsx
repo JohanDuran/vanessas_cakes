@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Donut from "./Donut";
+import { useCart } from "../lib/cart/CartContext";
 import "./Navbar.css";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const { items } = useCart();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -41,6 +43,10 @@ export default function Navbar() {
           )}
           <Link href="/gallery">Gallery</Link>
           <Link href="/order/custom">Custom Cake</Link>
+          <Link href="/cart" className="navbar__cart">
+            Cart
+            {items.length > 0 && <span className="navbar__cart-badge">{items.length}</span>}
+          </Link>
           <Link href="/gallery" className="btn btn-primary navbar__cta">
             Design Your Cake
           </Link>

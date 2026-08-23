@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fredoka, Quicksand } from "next/font/google";
+import { CartProvider } from "../lib/cart/CartContext";
 import "./globals.css";
 
 const fredoka = Fredoka({
@@ -30,7 +31,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${fredoka.variable} ${quicksand.variable}`}>
-      <body>{children}</body>
+      <body>
+        <CartProvider>{children}</CartProvider>
+      </body>
     </html>
   );
 }

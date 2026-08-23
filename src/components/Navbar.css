@@ -49,6 +49,27 @@
   font-size: 0.9rem;
 }
 
+.navbar__cart {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.navbar__cart-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--pink-500);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
 .navbar__burger {
   display: none;
   flex-direction: column;

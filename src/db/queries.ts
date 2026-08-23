@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNotNull, lt, ne } from "drizzle-orm";
 import { db } from "./index";
 import {
   fields,
@@ -18,6 +18,9 @@ import {
   pickupWeeklyHours,
   pickupDateOverrides,
   orders,
+  orderItems,
+  orderSelections,
+  orderReferenceImages,
 } from "./schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
 import type { Answers } from "../lib/pricing";
@@ -52,8 +55,8 @@ export function closePastPickupOrders(): void {
     .run();
 }
 
-/** Everything the order wizard's pickup calendar needs to compute available
- *  dates/slots client-side, and everything submitOrder needs to re-validate
+/** Everything the cart's pickup calendar needs to compute available
+ *  dates/slots client-side, and everything submitCart needs to re-validate
  *  a submitted slot server-side. Weekly hours always has all 7 days (closed
  *  default for any day the admin hasn't configured yet); overrides are
  *  limited to today-or-later since past ones can no longer affect booking.
@@ -341,4 +344,72 @@ export async function loadOrderData() {
     tierPresets: tierPresetDTOs,
     categories,
   };
+}
+
+export type OrderItemDetailDTO = {
+  id: number;
+  designId: number | null;
+  designName: string | null;
+  priceCents: number;
+  selections: {
+    fieldId: number;
+    fieldSlug: string;
+    fieldName: string;
+    labelSnapshot: string;
+    priceCentsSnapshot: number;
+  }[];
+  referenceImagePaths: string[];
+};
+
+/** One checkout with every cake in it, fully expanded for display — used by
+ *  the admin order detail page and the thank-you page. Returns null if no
+ *  order with this id exists. */
+export async function loadOrderWithItems(orderId: number) {
+  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  if (!order) return null;
+
+  const items = db
+    .select()
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId))
+    .orderBy(asc(orderItems.sortOrder))
+    .all();
+  const itemIds = items.map((i) => i.id);
+
+  const [selections, referenceImages, allFieldRows, designRows] = await Promise.all([
+    itemIds.length > 0
+      ? db.select().from(orderSelections).where(inArray(orderSelections.orderItemId, itemIds)).then((r) => r)
+      : Promise.resolve([]),
+    itemIds.length > 0
+      ? db
+          .select()
+          .from(orderReferenceImages)
+          .where(inArray(orderReferenceImages.orderItemId, itemIds))
+          .then((r) => r)
+      : Promise.resolve([]),
+    db.select().from(fields).then((r) => r),
+    db.select().from(designs).then((r) => r),
+  ]);
+
+  const fieldById = new Map(allFieldRows.map((f) => [f.id, f]));
+  const designById = new Map(designRows.map((d) => [d.id, d]));
+
+  const itemDetails: OrderItemDetailDTO[] = items.map((item) => ({
+    id: item.id,
+    designId: item.designId,
+    designName: item.designId ? (designById.get(item.designId)?.name ?? "Unknown design") : null,
+    priceCents: item.priceCents,
+    selections: selections
+      .filter((s) => s.orderItemId === item.id)
+      .map((s) => ({
+        fieldId: s.fieldId,
+        fieldSlug: fieldById.get(s.fieldId)?.slug ?? "",
+        fieldName: fieldById.get(s.fieldId)?.name ?? "Unknown field",
+        labelSnapshot: s.labelSnapshot,
+        priceCentsSnapshot: s.priceCentsSnapshot,
+      })),
+    referenceImagePaths: referenceImages.filter((img) => img.orderItemId === item.id).map((img) => img.path),
+  }));
+
+  return { order, items: itemDetails };
 }
