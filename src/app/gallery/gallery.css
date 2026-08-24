@@ -96,6 +96,7 @@
   display: block;
   aspect-ratio: 4 / 3;
   background: var(--pink-100);
+  overflow: hidden;
 }
 
 .gallery-card__art img {
