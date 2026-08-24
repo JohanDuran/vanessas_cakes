@@ -1,14 +1,23 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Answers } from "../pricing";
+import { useUser } from "../user/UserContext";
+import { addCartItemAction, updateCartItemAction, removeCartItemAction, mergeGuestCartAction, loadCartItemsAction } from "./dbActions";
+import type { CartItemDTO } from "../../db/queries";
 
 export type CartItem = {
   clientId: string;
+  /** set once this item is persisted server-side — its DB primary key */
+  dbId?: number;
   designId: number | null;
   isCustom: boolean;
   answers: Answers;
+  /** newly attached files not yet uploaded — always [] for an item loaded
+   *  from the DB (its images already live on disk, see referenceImagePaths) */
   referenceImages: File[];
+  /** already-uploaded reference photos, set only for DB-backed custom items */
+  referenceImagePaths?: string[];
 };
 
 export type ContactFields = { name: string; email: string; phone: string; comments: string };
@@ -31,35 +40,229 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 const EMPTY_CONTACT: ContactFields = { name: "", email: "", phone: "", comments: "" };
 
+/** Browser-only storage key for a guest's cart — never written to while
+ *  signed in, so a stale guest cart can never bleed into someone's account. */
+const GUEST_CART_KEY = "vanessa_guest_cart";
+
+type StoredGuestItem = { clientId: string; designId: number | null; isCustom: boolean; answers: Answers };
+
 function makeClientId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** In-memory, browser-only cart — provided once at the root layout so it
- *  survives client-side navigation between /gallery, /order/*, and /cart
- *  (the root layout stays mounted across route changes), but resets on a
- *  real page reload. Nothing here ever touches the database — the whole
- *  cart is only written to the server on final checkout submit. */
-export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([]);
+function dtoToCartItem(dto: CartItemDTO): CartItem {
+  return {
+    clientId: `db-${dto.id}`,
+    dbId: dto.id,
+    designId: dto.designId,
+    isCustom: dto.isCustom,
+    answers: dto.answers,
+    referenceImages: [],
+    referenceImagePaths: dto.referenceImagePaths,
+  };
+}
+
+function readGuestCartFromStorage(): CartItem[] {
+  try {
+    const raw = localStorage.getItem(GUEST_CART_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredGuestItem[];
+    return parsed.map((p) => ({ ...p, referenceImages: [] }));
+  } catch {
+    return [];
+  }
+}
+
+function writeGuestCartToStorage(items: CartItem[]) {
+  try {
+    const payload: StoredGuestItem[] = items.map(({ clientId, designId, isCustom, answers }) => ({
+      clientId,
+      designId,
+      isCustom,
+      answers,
+    }));
+    localStorage.setItem(GUEST_CART_KEY, JSON.stringify(payload));
+  } catch {
+    // localStorage unavailable (private browsing, quota, etc.) — cart just
+    // stays in-memory for the rest of this tab's session
+  }
+}
+
+function clearGuestCartStorage() {
+  try {
+    localStorage.removeItem(GUEST_CART_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+async function mergeGuestCartIntoDb(guestItems: CartItem[]): Promise<CartItem[]> {
+  if (guestItems.length === 0) {
+    const loaded = await loadCartItemsAction();
+    return loaded.map(dtoToCartItem);
+  }
+  const formData = new FormData();
+  formData.set(
+    "items",
+    JSON.stringify(
+      guestItems.map((i) => ({ localId: i.clientId, designId: i.designId, isCustom: i.isCustom, answers: i.answers }))
+    )
+  );
+  for (const item of guestItems) {
+    for (const file of item.referenceImages) formData.append(`files_${item.clientId}`, file);
+  }
+  const merged = await mergeGuestCartAction(formData);
+  return merged.map(dtoToCartItem);
+}
+
+/** The customer's cart — persisted in the database while signed in (so it
+ *  follows them across devices and survives a logout/login) and in
+ *  localStorage while a guest (so it survives a reload, but never leaks
+ *  between accounts). Provided once at the root layout so it survives
+ *  client-side navigation between /gallery, /order/*, and /cart.
+ *
+ *  On login/signup, whatever was in the guest's browser cart is merged into
+ *  their DB cart and the browser copy is dropped — the DB becomes the sole
+ *  source of truth from then on. On logout, the DB rows are left completely
+ *  untouched; only the in-memory/UI state is cleared, so the cart picks back
+ *  up right where it was the next time that customer logs back in. */
+export function CartProvider({
+  initialItems = [],
+  children,
+}: {
+  initialItems?: CartItemDTO[];
+  children: ReactNode;
+}) {
+  const user = useUser();
+  const [items, setItems] = useState<CartItem[]>(() => initialItems.map(dtoToCartItem));
   const [contact, setContactState] = useState<ContactFields>(EMPTY_CONTACT);
   const [pickupDate, setPickupDate] = useState<string | null>(null);
   const [pickupTime, setPickupTime] = useState<string | null>(null);
 
-  const addItem = useCallback((item: Omit<CartItem, "clientId">) => {
-    const clientId = makeClientId();
-    setItems((prev) => [...prev, { ...item, clientId }]);
-    return clientId;
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  const clearCart = useCallback(() => {
+    setItems([]);
+    setContactState(EMPTY_CONTACT);
+    setPickupDate(null);
+    setPickupTime(null);
+    clearGuestCartStorage();
   }, []);
 
-  const updateItem = useCallback((clientId: string, patch: Partial<Omit<CartItem, "clientId">>) => {
-    setItems((prev) => prev.map((i) => (i.clientId === clientId ? { ...i, ...patch } : i)));
+  // Guests: hydrate once from localStorage on mount (logged-in customers
+  // already got their cart from the server via `initialItems`). Every
+  // mutation below writes straight back to storage at its own call site —
+  // deliberately not a reactive `items`-watching effect, since that raced
+  // with this hydration on mount (StrictMode's double effect invocation
+  // could fire the write with the pre-hydration `[]` and clobber storage
+  // right after this read).
+  useEffect(() => {
+    if (user) return;
+    setItems(readGuestCartFromStorage());
+    // run once, at mount, before any login/logout transition could fire
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const removeItem = useCallback((clientId: string) => {
-    setItems((prev) => prev.filter((i) => i.clientId !== clientId));
-  }, []);
+  // Reacts to the signed-in user changing — login/signup, logout, or (rare)
+  // switching accounts. clearCart() only ever touches local state; nothing
+  // here ever deletes a DB row.
+  const previousUserId = useRef(user?.id ?? null);
+  useEffect(() => {
+    const currentUserId = user?.id ?? null;
+    if (previousUserId.current === currentUserId) return;
+    const wasGuest = previousUserId.current === null;
+    previousUserId.current = currentUserId;
+
+    if (currentUserId === null) {
+      clearCart();
+      return;
+    }
+
+    if (wasGuest) {
+      const guestItems = itemsRef.current;
+      clearGuestCartStorage();
+      mergeGuestCartIntoDb(guestItems).then(setItems);
+    } else {
+      loadCartItemsAction().then((loaded) => setItems(loaded.map(dtoToCartItem)));
+    }
+  }, [user, clearCart]);
+
+  const addItem = useCallback(
+    (item: Omit<CartItem, "clientId">) => {
+      const clientId = makeClientId();
+      setItems((prev) => {
+        const next = [...prev, { ...item, clientId }];
+        if (!user) writeGuestCartToStorage(next);
+        return next;
+      });
+
+      if (user) {
+        const formData = new FormData();
+        formData.set("designId", item.designId != null ? String(item.designId) : "");
+        formData.set("isCustom", String(item.isCustom));
+        formData.set("answers", JSON.stringify(item.answers));
+        item.referenceImages.forEach((f) => formData.append("referenceImages", f));
+        addCartItemAction(formData).then(({ id, referenceImagePaths }) => {
+          setItems((prev) =>
+            prev.map((i) =>
+              i.clientId === clientId
+                ? { ...i, clientId: `db-${id}`, dbId: id, referenceImages: [], referenceImagePaths }
+                : i
+            )
+          );
+        });
+      }
+
+      return clientId;
+    },
+    [user]
+  );
+
+  const updateItem = useCallback(
+    (clientId: string, patch: Partial<Omit<CartItem, "clientId">>) => {
+      setItems((prev) => {
+        const next = prev.map((i) => (i.clientId === clientId ? { ...i, ...patch } : i));
+        if (!user) writeGuestCartToStorage(next);
+        return next;
+      });
+
+      if (user) {
+        const current = itemsRef.current.find((i) => i.clientId === clientId);
+        if (current?.dbId) {
+          const merged = { ...current, ...patch };
+          const formData = new FormData();
+          formData.set("id", String(current.dbId));
+          formData.set("designId", merged.designId != null ? String(merged.designId) : "");
+          formData.set("isCustom", String(merged.isCustom));
+          formData.set("answers", JSON.stringify(merged.answers));
+          (patch.referenceImages ?? []).forEach((f) => formData.append("referenceImages", f));
+          updateCartItemAction(formData).then(({ referenceImagePaths }) => {
+            setItems((prev) =>
+              prev.map((i) => (i.clientId === clientId ? { ...i, referenceImages: [], referenceImagePaths } : i))
+            );
+          });
+        }
+      }
+    },
+    [user]
+  );
+
+  const removeItem = useCallback(
+    (clientId: string) => {
+      const current = itemsRef.current.find((i) => i.clientId === clientId);
+      setItems((prev) => {
+        const next = prev.filter((i) => i.clientId !== clientId);
+        if (!user) writeGuestCartToStorage(next);
+        return next;
+      });
+      if (user && current?.dbId) removeCartItemAction(current.dbId);
+    },
+    [user]
+  );
 
   const getItem = useCallback((clientId: string) => items.find((i) => i.clientId === clientId), [items]);
 
@@ -70,13 +273,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const setPickup = useCallback((date: string, time: string) => {
     setPickupDate(date);
     setPickupTime(time);
-  }, []);
-
-  const clearCart = useCallback(() => {
-    setItems([]);
-    setContactState(EMPTY_CONTACT);
-    setPickupDate(null);
-    setPickupTime(null);
   }, []);
 
   const value = useMemo<CartContextValue>(

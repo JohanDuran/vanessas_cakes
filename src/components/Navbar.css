@@ -40,19 +40,84 @@
   color: var(--choco-700);
 }
 
-.navbar__links a:not(.navbar__cta):hover {
+.navbar__links a:hover {
   color: var(--pink-500);
 }
 
-.navbar__cta {
-  padding: 10px 22px;
-  font-size: 0.9rem;
+.navbar__icon-link {
+  display: inline-flex;
+  align-items: center;
 }
 
 .navbar__cart {
   position: relative;
+}
+
+.navbar__account {
+  position: relative;
   display: inline-flex;
-  align-items: center;
+}
+
+.navbar__account::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  height: 14px;
+}
+
+.navbar__account-menu {
+  position: absolute;
+  top: 100%;
+  right: -12px;
+  margin-top: 14px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 28px rgba(107, 66, 38, 0.16);
+  padding: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  z-index: 210;
+}
+
+.navbar__account:hover .navbar__account-menu,
+.navbar__account:focus-within .navbar__account-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.navbar__account-menu a,
+.navbar__account-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--choco-700);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.navbar__account-menu a:hover,
+.navbar__account-menu button:hover {
+  background: var(--pink-100);
+  color: var(--pink-500);
+}
+
+.navbar__account-menu form {
+  display: block;
 }
 
 .navbar__cart-badge {
@@ -107,10 +172,5 @@
 
   .navbar__links--open {
     display: flex;
-  }
-
-  .navbar__cta {
-    width: 100%;
-    justify-content: center;
   }
 }

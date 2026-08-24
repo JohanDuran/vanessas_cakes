@@ -4,7 +4,7 @@ import { fromDateKey, formatTimeLabel } from "../../lib/availability";
 import { formatCents } from "../../lib/pricing";
 import Navbar from "../../components/Navbar";
 import Footer from "../../components/Footer";
-import { logout } from "./actions";
+import { updateMarketingOptIn } from "./actions";
 import "./account.css";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +26,23 @@ export default async function AccountPage() {
               <h1>Hi, {user.name}</h1>
               <p>{user.email}</p>
             </div>
-            <form action={logout}>
-              <button type="submit" className="btn btn-outline">
-                Log Out
-              </button>
-            </form>
           </div>
+
+          <h2>Preferences</h2>
+          <form className="account-prefs" action={updateMarketingOptIn}>
+            <label className="account-auth__checkbox" htmlFor="marketingOptIn">
+              <input
+                id="marketingOptIn"
+                name="marketingOptIn"
+                type="checkbox"
+                defaultChecked={user.marketingOptIn}
+              />
+              I&apos;d like to receive promotional emails and texts from Vanessa&apos;s Cakes.
+            </label>
+            <button type="submit" className="btn btn-outline">
+              Save Preference
+            </button>
+          </form>
 
           <h2>Order History</h2>
           {orders.length === 0 ? (

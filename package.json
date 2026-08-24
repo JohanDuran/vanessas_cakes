@@ -12,7 +12,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:seed-examples": "tsx src/db/seed-examples.ts",
-    "admin:hash-password": "tsx src/db/hash-password.ts"
+    "admin:create": "tsx src/db/create-admin.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

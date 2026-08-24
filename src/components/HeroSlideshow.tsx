@@ -72,9 +72,6 @@ export default function HeroSlideshow({ featured = [] }: Props) {
             <Link href="/gallery" className="btn btn-primary">
               🎂 Design Your Cake
             </Link>
-            <Link href="/gallery" className="btn btn-outline">
-              View Gallery
-            </Link>
           </div>
         </div>
 

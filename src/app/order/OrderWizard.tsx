@@ -299,6 +299,19 @@ export default function OrderWizard({
     dispatch({ type: "GOTO", step: prev });
   };
 
+  const subtotalCents = computeTotalCents(
+    state.answers,
+    selectedDesign?.premiumCents ?? 0,
+    options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+    fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+  );
+  const nextDisabled =
+    !state.isCustom &&
+    currentField != null &&
+    (currentField.type === "single_select" ||
+      ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
+    !isFieldAnswered(currentField, currentAnswer);
+
   const handleAddToCart = () => {
     const item = {
       designId: state.isCustom ? null : selectedDesign?.id ?? null,
@@ -480,18 +493,7 @@ export default function OrderWizard({
                   Change Design
                 </button>
               )}
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={goNext}
-                disabled={
-                  !state.isCustom &&
-                  currentField != null &&
-                  (currentField.type === "single_select" ||
-                    ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
-                  !isFieldAnswered(currentField, currentAnswer)
-                }
-              >
+              <button type="button" className="btn btn-primary" onClick={goNext} disabled={nextDisabled}>
                 Next
               </button>
             </div>
@@ -503,16 +505,36 @@ export default function OrderWizard({
         <div className="order-subtotal-bar">
           <div className="container order-subtotal-bar__inner">
             <span className="order-subtotal-bar__label">Subtotal</span>
-            <span className="order-subtotal-bar__value">
-              {formatCents(
-                computeTotalCents(
-                  state.answers,
-                  selectedDesign.premiumCents,
-                  options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
-                  fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
-                )
-              )}
-            </span>
+            <span className="order-subtotal-bar__value">{formatCents(subtotalCents)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* mobile only (see order-wizard.css) — combines Back/Next and the
+         running subtotal into one compact bar fixed to the bottom of the
+         screen, so a customer never has to scroll a tall step to find them */}
+      {!isReview && (
+        <div className="order-mobile-bar">
+          {!state.isCustom && (
+            <div className="order-mobile-bar__subtotal">
+              <span>Subtotal</span>
+              <span>{formatCents(subtotalCents)}</span>
+            </div>
+          )}
+          <div className="order-mobile-bar__nav">
+            {navigableSteps.indexOf(state.step) > 0 && (
+              <button type="button" className="btn btn-outline" onClick={goBack}>
+                Back
+              </button>
+            )}
+            {!lockedDesign && state.step === navigableSteps[0] && (
+              <button type="button" className="btn btn-outline" onClick={() => router.push("/gallery")}>
+                Change Design
+              </button>
+            )}
+            <button type="button" className="btn btn-primary" onClick={goNext} disabled={nextDisabled}>
+              Next
+            </button>
           </div>
         </div>
       )}

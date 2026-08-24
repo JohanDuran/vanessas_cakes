@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { logout } from "../../app/admin/actions";
+import { logout } from "../../app/account/actions";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard" },
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/admin/catalog", label: "Catalog" },
   { href: "/admin/constraints", label: "Constraints" },
   { href: "/admin/availability", label: "Availability" },
+  { href: "/admin/admins", label: "Admins" },
 ];
 
 export default function AdminSidebar() {

@@ -6,7 +6,8 @@ import "../account.css";
 
 const ERROR_MESSAGES: Record<string, string> = {
   taken: "An account with that email already exists.",
-  invalid: "Please check the form — name, a valid email, and an 8+ character password are required.",
+  invalid: "Please check the form — all fields are required, including a valid email, a valid phone number, and an 8+ character password.",
+  mismatch: "Passwords do not match.",
 };
 
 export default async function AccountSignupPage({
@@ -29,14 +30,36 @@ export default async function AccountSignupPage({
 
           {next && <input type="hidden" name="next" value={next} />}
 
-          <label htmlFor="name">Name</label>
-          <input id="name" name="name" type="text" autoFocus required />
+          <label htmlFor="firstName">First Name</label>
+          <input id="firstName" name="firstName" type="text" autoFocus required />
+
+          <label htmlFor="lastName">Last Name</label>
+          <input id="lastName" name="lastName" type="text" required />
 
           <label htmlFor="email">Email</label>
           <input id="email" name="email" type="email" required />
 
+          <label htmlFor="phone">Phone Number</label>
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            autoComplete="tel"
+            pattern="\+?[0-9\s().-]{7,20}"
+            title="Enter a valid phone number"
+            required
+          />
+
           <label htmlFor="password">Password</label>
           <input id="password" name="password" type="password" minLength={8} required />
+
+          <label htmlFor="confirmPassword">Verify Password</label>
+          <input id="confirmPassword" name="confirmPassword" type="password" minLength={8} required />
+
+          <label className="account-auth__checkbox" htmlFor="marketingOptIn">
+            <input id="marketingOptIn" name="marketingOptIn" type="checkbox" defaultChecked />
+            I&apos;d like to receive promotional emails and texts from Vanessa&apos;s Cakes.
+          </label>
 
           <button type="submit" className="btn btn-primary">
             Sign Up

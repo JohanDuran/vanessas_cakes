@@ -56,6 +56,26 @@
   width: 100%;
 }
 
+.account-auth__checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text-soft);
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+
+.account-auth__checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--pink-400);
+}
+
 .account-auth__error {
   background: #ffe4e4;
   color: #c0392b;
@@ -96,6 +116,24 @@
 
 .account-page__empty {
   color: var(--text-soft);
+}
+
+.account-prefs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  background: var(--white);
+  border-radius: var(--radius-md);
+  padding: 18px 24px;
+  box-shadow: 0 8px 24px rgba(107, 66, 38, 0.08);
+  margin-bottom: 40px;
+}
+
+.account-prefs .account-auth__checkbox {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 240px;
 }
 
 .account-orders {

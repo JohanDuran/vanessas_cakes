@@ -18,6 +18,8 @@ import {
   orderItems,
   tierPresets as tierPresetsTable,
   tierPresetLevels,
+  cartItems,
+  cartItemReferenceImages,
 } from "../../db/schema";
 import { getCurrentUser, loadPickupAvailability } from "../../db/queries";
 import { selectionsViolateConstraints } from "../../lib/constraints";
@@ -39,6 +41,10 @@ const cartItemSchema = z.object({
   designId: z.number().nullable(),
   isCustom: z.boolean(),
   answers: z.record(z.string(), answerSchema),
+  // set when this item was already persisted to the customer's DB cart
+  // (see src/lib/cart/dbActions.ts) — its reference images, if any, already
+  // live on disk and are copied over below instead of being re-uploaded.
+  dbId: z.number().nullable().optional(),
 });
 
 const submitCartSchema = z.object({
@@ -396,6 +402,30 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     if (!item.isCustom) continue;
     const orderItemId = itemIdByClientId.get(item.clientId);
     if (!orderItemId) continue;
+
+    // an item already persisted to the customer's DB cart has its reference
+    // images saved on disk already — copy the rows over instead of expecting
+    // (client-impossible-to-resend) File objects in this submission. Only
+    // trust dbId when it actually belongs to the submitting customer.
+    if (item.dbId && currentUser) {
+      const ownedCartItem = db
+        .select()
+        .from(cartItems)
+        .where(eq(cartItems.id, item.dbId))
+        .get();
+      if (ownedCartItem && ownedCartItem.userId === currentUser.id) {
+        const savedImages = db
+          .select()
+          .from(cartItemReferenceImages)
+          .where(eq(cartItemReferenceImages.cartItemId, item.dbId))
+          .all();
+        for (const image of savedImages) {
+          db.insert(orderReferenceImages).values({ orderItemId, path: image.path }).run();
+        }
+        continue;
+      }
+    }
+
     const referenceImageFiles = formData
       .getAll(`referenceImages_${item.clientId}`)
       .filter((f): f is File => f instanceof File && f.size > 0);
@@ -403,6 +433,12 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
       const relPath = await saveUploadedPhoto(file);
       db.insert(orderReferenceImages).values({ orderItemId, path: relPath }).run();
     }
+  }
+
+  // the checkout above is the definitive record now — drop whatever's left
+  // of the customer's saved cart so it doesn't linger and get resubmitted
+  if (currentUser) {
+    db.delete(cartItems).where(eq(cartItems.userId, currentUser.id)).run();
   }
 
   redirect(`/order/thank-you?id=${orderId}`);

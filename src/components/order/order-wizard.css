@@ -37,6 +37,13 @@
   color: var(--pink-600);
 }
 
+/* mobile-only combined bar (Back/Next + Subtotal) — hidden on desktop,
+   where .order-nav and .order-subtotal-bar above already handle this.
+   See the max-width: 760px block below for its actual layout. */
+.order-mobile-bar {
+  display: none;
+}
+
 .order-hero {
   background: linear-gradient(160deg, var(--pink-100), var(--cream) 70%);
   /* top padding clears the fixed navbar (74px tall) with room to spare —
@@ -981,14 +988,64 @@ ul.order-summary__error li + li {
     padding: 22px 18px;
   }
 
-  .order-nav {
-    flex-wrap: wrap;
+  /* replaced by .order-mobile-bar, a fixed bar combining these with the
+     subtotal so neither requires scrolling a tall step to reach */
+  .order-nav,
+  .order-subtotal-bar {
+    display: none;
   }
 
-  .order-nav .btn {
+  .order-page {
+    /* clears the fixed .order-mobile-bar so it never covers the last bit
+       of a step's content */
+    padding-bottom: 128px;
+  }
+
+  .order-mobile-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    background: var(--white);
+    border-top: 2px solid var(--pink-100);
+    box-shadow: 0 -8px 24px rgba(107, 66, 38, 0.1);
+  }
+
+  .order-mobile-bar__subtotal {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 18px;
+    border-bottom: 1px solid var(--pink-50);
+  }
+
+  .order-mobile-bar__subtotal span:first-child {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: var(--text-soft);
+  }
+
+  .order-mobile-bar__subtotal span:last-child {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--pink-600);
+  }
+
+  .order-mobile-bar__nav {
+    display: flex;
+    gap: 8px;
+    padding: 8px 18px;
+  }
+
+  .order-mobile-bar__nav .btn {
     flex: 1 1 auto;
-    padding-left: 18px;
-    padding-right: 18px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
     white-space: nowrap;
   }
 

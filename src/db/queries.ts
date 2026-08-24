@@ -23,6 +23,9 @@ import {
   orderSelections,
   orderReferenceImages,
   users,
+  cartItems,
+  cartItemSelections,
+  cartItemReferenceImages,
 } from "./schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
 import { USER_SESSION_COOKIE, verifyUserSessionToken } from "../lib/auth";
@@ -417,11 +420,19 @@ export async function loadOrderWithItems(orderId: number) {
   return { order, items: itemDetails };
 }
 
-export type CurrentUserDTO = { id: number; name: string; email: string };
+export type CurrentUserDTO = {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  isAdmin: boolean;
+  marketingOptIn: boolean;
+};
 
-/** The logged-in customer for this request, or null if there's no valid
+/** The logged-in user for this request, or null if there's no valid
  *  session — reads the same signed cookie proxy.ts checks for route
- *  protection, but this is for using the identity within a page/action. */
+ *  protection, but this is for using the identity within a page/action.
+ *  Covers both customers and admins — isAdmin is just a flag on the row. */
 export async function getCurrentUser(): Promise<CurrentUserDTO | null> {
   const store = await cookies();
   const userId = await verifyUserSessionToken(store.get(USER_SESSION_COOKIE)?.value);
@@ -430,7 +441,83 @@ export async function getCurrentUser(): Promise<CurrentUserDTO | null> {
   const user = db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) return null;
 
-  return { id: user.id, name: user.name, email: user.email };
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    isAdmin: user.isAdmin,
+    marketingOptIn: user.marketingOptIn,
+  };
+}
+
+export type CartItemDTO = {
+  id: number;
+  designId: number | null;
+  isCustom: boolean;
+  answers: Answers;
+  /** already-uploaded reference photos for a custom-cake item, primary
+   *  first — carried through to order_reference_images at checkout instead
+   *  of being re-uploaded (see submitCart). */
+  referenceImagePaths: string[];
+};
+
+/** A logged-in customer's saved cart, in wizard-answer shape — the DB-backed
+ *  counterpart to CartContext's in-memory guest cart. Empty for anyone who
+ *  isn't signed in (guests never get rows here). */
+export async function getCartItemsForUser(userId: number): Promise<CartItemDTO[]> {
+  const items = db
+    .select()
+    .from(cartItems)
+    .where(eq(cartItems.userId, userId))
+    .orderBy(asc(cartItems.sortOrder), asc(cartItems.id))
+    .all();
+  if (items.length === 0) return [];
+
+  const itemIds = items.map((i) => i.id);
+  const selections = db
+    .select()
+    .from(cartItemSelections)
+    .where(inArray(cartItemSelections.cartItemId, itemIds))
+    .all();
+  const images = db
+    .select()
+    .from(cartItemReferenceImages)
+    .where(inArray(cartItemReferenceImages.cartItemId, itemIds))
+    .orderBy(asc(cartItemReferenceImages.sortOrder))
+    .all();
+
+  return items.map((item) => {
+    const answers: Answers = {};
+    for (const sel of selections) {
+      if (sel.cartItemId !== item.id) continue;
+      if (sel.fieldOptionId != null) {
+        const existing = answers[sel.fieldId];
+        if (existing?.type === "options") existing.optionIds.push(sel.fieldOptionId);
+        else answers[sel.fieldId] = { type: "options", optionIds: [sel.fieldOptionId] };
+      } else if (sel.textValue != null) {
+        answers[sel.fieldId] = { type: "text", value: sel.textValue };
+      } else if (sel.numberValue != null) {
+        answers[sel.fieldId] = { type: "number", value: sel.numberValue };
+      }
+    }
+
+    return {
+      id: item.id,
+      designId: item.designId,
+      isCustom: item.isCustom,
+      answers,
+      referenceImagePaths: images.filter((im) => im.cartItemId === item.id).map((im) => im.path),
+    };
+  });
+}
+
+export type UserSummaryDTO = { id: number; name: string; email: string; isAdmin: boolean; createdAt: number };
+
+/** Every registered account, for the admin section's Admins page — lets an
+ *  admin grant or revoke admin access on any user. */
+export async function loadAllUsers(): Promise<UserSummaryDTO[]> {
+  return db.select().from(users).orderBy(asc(users.name)).all();
 }
 
 export type OrderSummaryDTO = {

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import Donut from "./Donut";
 import { useCart } from "../lib/cart/CartContext";
 import { useUser } from "../lib/user/UserContext";
+import { logout } from "../app/account/actions";
 import "./Navbar.css";
 
 export default function Navbar() {
@@ -24,8 +25,6 @@ export default function Navbar() {
 
   useEffect(() => setOpen(false), [pathname]);
 
-  const isHome = pathname === "/";
-
   return (
     <header className={`navbar ${scrolled ? "navbar--scrolled" : ""}`}>
       <div className="container navbar__inner">
@@ -35,23 +34,49 @@ export default function Navbar() {
         </Link>
 
         <nav className={`navbar__links ${open ? "navbar__links--open" : ""}`}>
-          {isHome ? (
-            <>
-              <a href="#story" onClick={() => setOpen(false)}>Our Story</a>
-              <a href="#reviews" onClick={() => setOpen(false)}>Reviews</a>
-            </>
-          ) : (
-            <Link href="/">Home</Link>
-          )}
           <Link href="/gallery">Gallery</Link>
           <Link href="/order/custom">Custom Cake</Link>
-          <Link href={user ? "/account" : "/account/login"}>{user ? "My Account" : "Log In"}</Link>
-          <Link href="/cart" className="navbar__cart">
-            Cart
+          {user?.isAdmin && <Link href="/admin">Admin</Link>}
+          {user ? (
+            <div className="navbar__account">
+              <Link
+                href="/account"
+                className="navbar__icon-link"
+                aria-label="My Account"
+                title="My Account"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                </svg>
+              </Link>
+              <div className="navbar__account-menu">
+                <Link href="/account">My Profile</Link>
+                <form action={logout}>
+                  <button type="submit">Log Out</button>
+                </form>
+              </div>
+            </div>
+          ) : (
+            <Link
+              href="/account/login"
+              className="navbar__icon-link"
+              aria-label="Log In"
+              title="Log In"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+              </svg>
+            </Link>
+          )}
+          <Link href="/cart" className="navbar__cart navbar__icon-link" aria-label="Cart" title="Cart">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="19" cy="21" r="1" />
+              <path d="M2.5 2.5h2l2.6 12.6a2 2 0 0 0 2 1.6h8.4a2 2 0 0 0 2-1.6l1.3-7.1H6" />
+            </svg>
             {items.length > 0 && <span className="navbar__cart-badge">{items.length}</span>}
-          </Link>
-          <Link href="/gallery" className="btn btn-primary navbar__cta">
-            Design Your Cake
           </Link>
         </nav>
 

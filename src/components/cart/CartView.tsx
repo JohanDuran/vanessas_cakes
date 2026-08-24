@@ -153,6 +153,7 @@ export default function CartView({ fields, options, designs, tierPresets, availa
       designId: item.designId,
       isCustom: item.isCustom,
       answers: item.answers,
+      dbId: item.dbId ?? null,
     }))
   );
 
@@ -195,7 +196,7 @@ export default function CartView({ fields, options, designs, tierPresets, availa
               <div key={item.clientId} className="cart-item">
                 {summary.photo && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="cart-item__photo" src={summary.photo} alt={summary.name} />
+                  <img className="cart-item__photo" src={`/uploads/${summary.photo}`} alt={summary.name} />
                 )}
                 <div className="cart-item__body">
                   <h3>{summary.name}</h3>

@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db";
 import { users, authAccounts } from "../../db/schema";
+import { getCurrentUser } from "../../db/queries";
 import {
   createUserSessionToken,
   hashPassword,
@@ -14,12 +15,29 @@ import {
   USER_SESSION_TTL_MS,
 } from "../../lib/auth";
 
-const signupSchema = z.object({
-  name: z.string().trim().min(1),
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(8),
-  next: z.string().optional(),
-});
+// Accepts digits with optional +, spaces, dashes, dots, and parentheses;
+// the digit count (7-15) follows the E.164 range so both local and
+// international numbers pass while junk input doesn't.
+function isValidPhone(value: string): boolean {
+  if (!/^\+?[\d\s().-]+$/.test(value)) return false;
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+const signupSchema = z
+  .object({
+    firstName: z.string().trim().min(1),
+    lastName: z.string().trim().min(1),
+    email: z.string().trim().toLowerCase().email(),
+    phone: z.string().trim().refine(isValidPhone),
+    password: z.string().min(8),
+    confirmPassword: z.string().min(1),
+    marketingOptIn: z.boolean(),
+    next: z.string().optional(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    path: ["confirmPassword"],
+  });
 
 const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -28,7 +46,7 @@ const loginSchema = z.object({
 });
 
 function safeNext(next: string | undefined): string {
-  return next && next.startsWith("/account") ? next : "/account";
+  return next && (next.startsWith("/account") || next.startsWith("/admin")) ? next : "/account";
 }
 
 async function startSession(userId: number) {
@@ -45,17 +63,25 @@ async function startSession(userId: number) {
 
 export async function signup(formData: FormData) {
   const parsed = signupSchema.safeParse({
-    name: formData.get("name"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     email: formData.get("email"),
+    phone: formData.get("phone"),
     password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
+    marketingOptIn: formData.get("marketingOptIn") === "on",
     next: formData.get("next") ?? undefined,
   });
 
   if (!parsed.success) {
-    redirect(`/account/signup?error=invalid`);
+    const error = parsed.error.issues.some((issue) => issue.path[0] === "confirmPassword")
+      ? "mismatch"
+      : "invalid";
+    redirect(`/account/signup?error=${error}`);
   }
 
-  const { name, email, password, next } = parsed.data;
+  const { firstName, lastName, email, phone, password, marketingOptIn, next } = parsed.data;
+  const name = `${firstName} ${lastName}`;
   const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
 
   const existing = db
@@ -69,7 +95,11 @@ export async function signup(formData: FormData) {
 
   const passwordHash = await hashPassword(password);
   const userId = db.transaction((tx) => {
-    const user = tx.insert(users).values({ name, email }).returning({ id: users.id }).get();
+    const user = tx
+      .insert(users)
+      .values({ name, email, phone, marketingOptIn })
+      .returning({ id: users.id })
+      .get();
     tx.insert(authAccounts)
       .values({ userId: user.id, provider: "local", providerAccountId: email, passwordHash })
       .run();
@@ -113,4 +143,14 @@ export async function logout() {
   const store = await cookies();
   store.delete(USER_SESSION_COOKIE);
   redirect("/");
+}
+
+export async function updateMarketingOptIn(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/account/login?next=/account");
+
+  const marketingOptIn = formData.get("marketingOptIn") === "on";
+  db.update(users).set({ marketingOptIn }).where(eq(users.id, user.id)).run();
+
+  redirect("/account");
 }

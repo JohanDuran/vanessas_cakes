@@ -378,6 +378,14 @@ export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
+  phone: text("phone"),
+  // grants access to /admin — managed from the admin section's own Admins
+  // page (see src/app/admin/(protected)/admins); at least one must exist,
+  // enforced in that page's demote action, not at the schema level.
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  // opt-in to promotional email/text from Vanessa's Cakes — checked by
+  // default at signup, editable any time from the account page
+  marketingOptIn: integer("marketing_opt_in", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),
@@ -409,6 +417,55 @@ export const authAccounts = sqliteTable(
   },
   (t) => [uniqueIndex("auth_accounts_provider_account_idx").on(t.provider, t.providerAccountId)]
 );
+
+/** A logged-in customer's saved cart — one row per configured cake, written
+ *  the moment they add/edit/remove it in the wizard so it survives across
+ *  devices/sessions until checkout. Guests never get a row here; their cart
+ *  lives in the browser only (see CartContext) until they log in, at which
+ *  point it's merged in here and the browser copy is dropped. Cleared for a
+ *  user the moment their cart is submitted as a real order (see submitCart) —
+ *  never touched on logout, only hidden from the UI. */
+export const cartItems = sqliteTable("cart_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  designId: integer("design_id").references(() => designs.id, { onDelete: "cascade" }),
+  isCustom: integer("is_custom", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** One answered field for a cart item — same shape as order_selections, but
+ *  without the price/label snapshot since nothing is final until checkout. */
+export const cartItemSelections = sqliteTable("cart_item_selections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cartItemId: integer("cart_item_id")
+    .notNull()
+    .references(() => cartItems.id, { onDelete: "cascade" }),
+  fieldId: integer("field_id")
+    .notNull()
+    .references(() => fields.id, { onDelete: "cascade" }),
+  fieldOptionId: integer("field_option_id").references(() => fieldOptions.id, { onDelete: "cascade" }),
+  textValue: text("text_value"),
+  numberValue: integer("number_value"),
+});
+
+/** Reference photos already uploaded for a custom-cake cart item — copied
+ *  into order_reference_images at checkout rather than re-uploaded. */
+export const cartItemReferenceImages = sqliteTable("cart_item_reference_images", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cartItemId: integer("cart_item_id")
+    .notNull()
+    .references(() => cartItems.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
 
 export const orderSelections = sqliteTable(
   "order_selections",
