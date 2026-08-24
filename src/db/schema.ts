@@ -277,6 +277,10 @@ export const constraintPairs = sqliteTable(
  *  the summed total all live here at the checkout level, not per cake. */
 export const orders = sqliteTable("orders", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  // set when the customer was logged in at checkout; null for guest orders.
+  // "set null" on delete since an order is a business record that should
+  // outlive the account that placed it.
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   customerPhone: text("customer_phone"),
@@ -369,6 +373,42 @@ export const pickupDateOverrides = sqliteTable("pickup_date_overrides", {
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),
 });
+
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
+/** One row per way a user can sign in. provider "local" today (passwordHash
+ *  set, providerAccountId = email); a future "google" row would set
+ *  providerAccountId to Google's sub and leave passwordHash null — no change
+ *  to users or orders needed to add it. */
+export const authAccounts = sqliteTable(
+  "auth_accounts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(), // "local" | "google" (future)
+    providerAccountId: text("provider_account_id").notNull(),
+    passwordHash: text("password_hash"), // local provider only
+    createdAt: integer("created_at")
+      .notNull()
+      .default(sql`(unixepoch('now','subsec') * 1000)`),
+    updatedAt: integer("updated_at")
+      .notNull()
+      .default(sql`(unixepoch('now','subsec') * 1000)`),
+  },
+  (t) => [uniqueIndex("auth_accounts_provider_account_idx").on(t.provider, t.providerAccountId)]
+);
 
 export const orderSelections = sqliteTable(
   "order_selections",

@@ -1,4 +1,5 @@
-import { and, asc, count, eq, gte, inArray, isNotNull, lt, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, lt, ne } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { db } from "./index";
 import {
   fields,
@@ -21,8 +22,10 @@ import {
   orderItems,
   orderSelections,
   orderReferenceImages,
+  users,
 } from "./schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
+import { USER_SESSION_COOKIE, verifyUserSessionToken } from "../lib/auth";
 import type { Answers } from "../lib/pricing";
 import type {
   CategoryDTO,
@@ -412,4 +415,60 @@ export async function loadOrderWithItems(orderId: number) {
   }));
 
   return { order, items: itemDetails };
+}
+
+export type CurrentUserDTO = { id: number; name: string; email: string };
+
+/** The logged-in customer for this request, or null if there's no valid
+ *  session — reads the same signed cookie proxy.ts checks for route
+ *  protection, but this is for using the identity within a page/action. */
+export async function getCurrentUser(): Promise<CurrentUserDTO | null> {
+  const store = await cookies();
+  const userId = await verifyUserSessionToken(store.get(USER_SESSION_COOKIE)?.value);
+  if (userId == null) return null;
+
+  const user = db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) return null;
+
+  return { id: user.id, name: user.name, email: user.email };
+}
+
+export type OrderSummaryDTO = {
+  id: number;
+  createdAt: number;
+  totalPriceCents: number;
+  status: string;
+  pickupDate: string | null;
+  pickupTime: string | null;
+  cakeNames: string[];
+};
+
+/** Order history for a logged-in customer's account page — newest first. */
+export async function loadOrdersForUser(userId: number): Promise<OrderSummaryDTO[]> {
+  const userOrders = db
+    .select()
+    .from(orders)
+    .where(eq(orders.userId, userId))
+    .orderBy(desc(orders.createdAt))
+    .all();
+  if (userOrders.length === 0) return [];
+
+  const orderIds = userOrders.map((o) => o.id);
+  const items = db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds)).all();
+  const designIds = items.map((i) => i.designId).filter((id): id is number => id != null);
+  const designRows =
+    designIds.length > 0 ? db.select().from(designs).where(inArray(designs.id, designIds)).all() : [];
+  const designNameById = new Map(designRows.map((d) => [d.id, d.name]));
+
+  return userOrders.map((order) => ({
+    id: order.id,
+    createdAt: order.createdAt,
+    totalPriceCents: order.totalPriceCents,
+    status: order.status,
+    pickupDate: order.pickupDate,
+    pickupTime: order.pickupTime,
+    cakeNames: items
+      .filter((i) => i.orderId === order.id)
+      .map((i) => (i.designId ? (designNameById.get(i.designId) ?? "Unknown design") : "Custom Cake Quote")),
+  }));
 }

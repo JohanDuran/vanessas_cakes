@@ -71,6 +71,13 @@
       "when": 1787591940000,
       "tag": "0009_cart_order_items",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787591941000,
+      "tag": "0010_complex_chronomancer",
+      "breakpoints": true
     }
   ]
 }

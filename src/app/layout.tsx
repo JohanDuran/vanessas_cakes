@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Fredoka, Quicksand } from "next/font/google";
 import { CartProvider } from "../lib/cart/CartContext";
+import { UserProvider } from "../lib/user/UserContext";
+import { getCurrentUser } from "../db/queries";
 import "./globals.css";
 
 const fredoka = Fredoka({
@@ -26,13 +28,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const user = await getCurrentUser();
+
   return (
     <html lang="en" className={`${fredoka.variable} ${quicksand.variable}`}>
       <body>
-        <CartProvider>{children}</CartProvider>
+        <UserProvider initialUser={user}>
+          <CartProvider>{children}</CartProvider>
+        </UserProvider>
       </body>
     </html>
   );

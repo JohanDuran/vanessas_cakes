@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Donut from "./Donut";
 import { useCart } from "../lib/cart/CartContext";
+import { useUser } from "../lib/user/UserContext";
 import "./Navbar.css";
 
 export default function Navbar() {
@@ -12,6 +13,7 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const { items } = useCart();
+  const user = useUser();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -43,6 +45,7 @@ export default function Navbar() {
           )}
           <Link href="/gallery">Gallery</Link>
           <Link href="/order/custom">Custom Cake</Link>
+          <Link href={user ? "/account" : "/account/login"}>{user ? "My Account" : "Log In"}</Link>
           <Link href="/cart" className="navbar__cart">
             Cart
             {items.length > 0 && <span className="navbar__cart-badge">{items.length}</span>}

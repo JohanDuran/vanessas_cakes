@@ -19,7 +19,7 @@ import {
   tierPresets as tierPresetsTable,
   tierPresetLevels,
 } from "../../db/schema";
-import { loadPickupAvailability } from "../../db/queries";
+import { getCurrentUser, loadPickupAvailability } from "../../db/queries";
 import { selectionsViolateConstraints } from "../../lib/constraints";
 import { buildCakeStyleContext } from "../../lib/cakeStyle";
 import { computeTotalCents, type Answers } from "../../lib/pricing";
@@ -316,11 +316,13 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   }
 
   const totalPriceCents = resolvedItems.reduce((sum, i) => sum + i.priceCents, 0);
+  const currentUser = await getCurrentUser();
 
   const { orderId, itemIdByClientId } = db.transaction((tx) => {
     const insertedOrder = tx
       .insert(orders)
       .values({
+        userId: currentUser?.id ?? null,
         customerName: parsed.customerName,
         customerEmail: parsed.customerEmail,
         customerPhone: parsed.customerPhone || null,

@@ -78,4 +78,51 @@ export async function verifyAdminPassword(password: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
 
-export { SESSION_COOKIE, SESSION_TTL_MS };
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 12);
+}
+
+export function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
+}
+
+const USER_SESSION_COOKIE = "customer_session";
+const USER_SESSION_TTL_MS = SESSION_TTL_MS;
+
+/** Signed "logged in as this user" token — unlike the admin session (a single
+ *  shared password with no per-user identity), this carries a userId. */
+export async function createUserSessionToken(userId: number): Promise<string> {
+  const payload = JSON.stringify({ userId, exp: Date.now() + USER_SESSION_TTL_MS });
+  const payloadB64 = base64url(new TextEncoder().encode(payload));
+  const key = await hmacKey();
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payloadB64));
+  return `${payloadB64}.${base64url(sig)}`;
+}
+
+export async function verifyUserSessionToken(token: string | undefined | null): Promise<number | null> {
+  if (!token) return null;
+  const [payloadB64, sigB64] = token.split(".");
+  if (!payloadB64 || !sigB64) return null;
+
+  try {
+    const key = await hmacKey();
+    const valid = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      base64urlToBytes(sigB64),
+      new TextEncoder().encode(payloadB64)
+    );
+    if (!valid) return null;
+
+    const payload = JSON.parse(new TextDecoder().decode(base64urlToBytes(payloadB64))) as {
+      userId: number;
+      exp: number;
+    };
+    if (payload.exp <= Date.now()) return null;
+    return payload.userId;
+  } catch {
+    return null;
+  }
+}
+
+export { SESSION_COOKIE, SESSION_TTL_MS, USER_SESSION_COOKIE, USER_SESSION_TTL_MS };
