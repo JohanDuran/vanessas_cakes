@@ -35,14 +35,9 @@ export default function GalleryCard({ design, minPriceCents, maxPriceCents }: Pr
           <span className="gallery-card__price-label">Price</span>
           <span className="gallery-card__price-value">{priceLabel}</span>
         </div>
-        <div className="gallery-card__actions">
-          <Link href={`/gallery/${design.id}`} className="btn btn-outline gallery-card__cta">
-            Learn More
-          </Link>
-          <Link href={href} className="btn btn-primary gallery-card__cta">
-            Order This
-          </Link>
-        </div>
+        <Link href={href} className="btn btn-primary gallery-card__cta">
+          Order This
+        </Link>
       </div>
     </div>
   );

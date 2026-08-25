@@ -133,15 +133,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 12px;
   margin: 18px 22px 22px;
-}
-
-.gallery-card__actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .gallery-card__price {
@@ -167,8 +160,8 @@
 }
 
 .gallery-card__cta {
-  padding: 9px 16px;
-  font-size: 0.86rem;
+  padding: 9px 20px;
+  font-size: 0.9rem;
   white-space: nowrap;
 }
 
