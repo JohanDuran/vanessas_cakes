@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { db } from "../db";
 import { orders, cartItems } from "../db/schema";
 import { getStripe, getSiteUrl } from "./stripe";
+import { formatCents } from "./pricing";
 
 /** How long a customer has to complete Stripe Checkout before the session
  *  (and the pickup slot the pending order is holding) is released. Stripe
@@ -11,34 +12,57 @@ import { getStripe, getSiteUrl } from "./stripe";
 const CHECKOUT_SESSION_TTL_SECONDS = 60 * 60;
 
 export type PaymentLineItem = { name: string; priceCents: number };
+export type PaymentPlan = "full" | "deposit";
 
 /** Creates a Stripe Checkout Session for an already-created, already-priced
  *  order (see submitCart) and records the session id on it. The order's own
- *  totalPriceCents — computed server-side from trusted catalog data, never
- *  from client input — is what's actually charged; `items` only controls how
- *  the charge is itemized on Stripe's page and receipt. */
+ *  totalPriceCents/amountDueCents — computed server-side from trusted catalog
+ *  data, never from client input — are what's actually charged; `items` only
+ *  controls how a full-payment charge is itemized on Stripe's page and
+ *  receipt. A deposit charge can't be itemized per cake (each cake's full
+ *  price would overstate what's being charged today), so it collapses to one
+ *  line item for the deposit amount instead. */
 export async function createCheckoutSessionForOrder(params: {
   orderId: number;
   customerEmail: string;
   items: PaymentLineItem[];
+  paymentPlan: PaymentPlan;
+  amountDueCents: number;
+  totalPriceCents: number;
 }): Promise<Stripe.Checkout.Session> {
-  const { orderId, customerEmail, items } = params;
+  const { orderId, customerEmail, items, paymentPlan, amountDueCents, totalPriceCents } = params;
   const stripe = getStripe();
   const siteUrl = getSiteUrl();
+
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
+    paymentPlan === "deposit"
+      ? [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "usd",
+              unit_amount: amountDueCents,
+              product_data: {
+                name: `50% Deposit — Order #${orderId} (total ${formatCents(totalPriceCents)})`,
+              },
+            },
+          },
+        ]
+      : items.map((item) => ({
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: item.priceCents,
+            product_data: { name: item.name },
+          },
+        }));
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: customerEmail,
     client_reference_id: String(orderId),
-    metadata: { orderId: String(orderId) },
-    line_items: items.map((item) => ({
-      quantity: 1,
-      price_data: {
-        currency: "usd",
-        unit_amount: item.priceCents,
-        product_data: { name: item.name },
-      },
-    })),
+    metadata: { orderId: String(orderId), paymentPlan, amountDueCents: String(amountDueCents) },
+    line_items: lineItems,
     success_url: `${siteUrl}/order/thank-you?id=${orderId}`,
     cancel_url: `${siteUrl}/cart?payment=cancelled`,
     expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_TTL_SECONDS,
@@ -75,7 +99,7 @@ export function finalizeOrderPaymentFromSession(session: Stripe.Checkout.Session
   // no_payment_required case a $0 session would report.
   if (session.payment_status === "unpaid") return;
 
-  if (session.amount_total !== order.totalPriceCents) {
+  if (session.amount_total !== order.amountDueCents) {
     db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId)).run();
     return;
   }

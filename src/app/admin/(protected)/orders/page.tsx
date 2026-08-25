@@ -31,6 +31,9 @@ export default async function OrdersInboxPage() {
         totalPriceCents: orders.totalPriceCents,
         status: orders.status,
         paymentStatus: orders.paymentStatus,
+        paymentPlan: orders.paymentPlan,
+        amountDueCents: orders.amountDueCents,
+        balanceCollectedAt: orders.balanceCollectedAt,
         createdAt: orders.createdAt,
         pickupDate: orders.pickupDate,
         pickupTime: orders.pickupTime,
@@ -111,7 +114,12 @@ export default async function OrdersInboxPage() {
                 <td>{formatCents(o.totalPriceCents)}</td>
                 <td style={{ textTransform: "capitalize" }}>{o.status}</td>
                 <td>
-                  <PaymentBadge status={o.paymentStatus} />
+                  <PaymentBadge
+                    status={o.paymentStatus}
+                    paymentPlan={o.paymentPlan}
+                    balanceCents={o.totalPriceCents - o.amountDueCents}
+                    balanceCollectedAt={o.balanceCollectedAt}
+                  />
                 </td>
                 <td>
                   <Link href={`/admin/orders/${o.id}`} className="admin-btn-sm admin-btn-sm--ghost">

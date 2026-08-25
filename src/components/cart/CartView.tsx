@@ -7,6 +7,7 @@ import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "
 import { computeTotalCents, formatCents } from "../../lib/pricing";
 import type { WeeklyHour, DateOverride, PickupSettings } from "../../lib/availability";
 import { useCart, type CartItem } from "../../lib/cart/CartContext";
+import { useUser } from "../../lib/user/UserContext";
 import { submitCart } from "../../app/order/actions";
 import PickupStep from "../order/steps/PickupStep";
 import "./cart.css";
@@ -87,15 +88,21 @@ function summarizeItem(
 
 export default function CartView({ fields, options, designs, tierPresets, availability }: Props) {
   const cart = useCart();
+  const user = useUser();
   const router = useRouter();
   const [submitState, formAction, isSubmitting] = useActionState(submitCart, undefined);
   const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [paymentPlan, setPaymentPlan] = useState<"full" | "deposit">("full");
 
   const hasCatalogItem = cart.items.some((i) => !i.isCustom);
   const subtotalCents = cart.items.reduce(
     (sum, item) => sum + summarizeItem(item, fields, options, tierPresets, designs).priceCents,
     0
   );
+  // mirrors the server's requiresPayment check in submitCart — a deposit only
+  // makes sense when the whole cart is a known-price online charge
+  const canChoosePaymentPlan = !cart.items.some((i) => i.isCustom) && subtotalCents > 0;
+  const depositCents = Math.round(subtotalCents / 2);
 
   const fileInputsRef = useRef<Record<string, HTMLInputElement | null>>({});
   useEffect(() => {
@@ -170,6 +177,7 @@ export default function CartView({ fields, options, designs, tierPresets, availa
         <input type="hidden" name="cart" value={cartPayload} />
         <input type="hidden" name="pickupDate" value={cart.pickupDate ?? ""} />
         <input type="hidden" name="pickupTime" value={cart.pickupTime ?? ""} />
+        <input type="hidden" name="paymentPlan" value={canChoosePaymentPlan ? paymentPlan : "full"} />
         {cart.items.map(
           (item) =>
             item.isCustom &&
@@ -228,6 +236,38 @@ export default function CartView({ fields, options, designs, tierPresets, availa
           <strong>{formatCents(subtotalCents)}</strong>
         </div>
 
+        {canChoosePaymentPlan && (
+          <div className="cart-payment-plan">
+            <p className="cart-payment-plan__title">How would you like to pay?</p>
+            <label className="cart-payment-plan__option">
+              <input
+                type="radio"
+                name="paymentPlanChoice"
+                checked={paymentPlan === "full"}
+                onChange={() => setPaymentPlan("full")}
+              />
+              <span>
+                Pay in full — {formatCents(subtotalCents)}
+              </span>
+            </label>
+            <label className="cart-payment-plan__option">
+              <input
+                type="radio"
+                name="paymentPlanChoice"
+                checked={paymentPlan === "deposit"}
+                onChange={() => setPaymentPlan("deposit")}
+              />
+              <span>
+                Pay 50% deposit now — {formatCents(depositCents)}
+                <span className="cart-payment-plan__option-text">
+                  {" "}
+                  · {formatCents(subtotalCents - depositCents)} due at pickup
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
+
         {hasCatalogItem && (
           <PickupStep
             availability={availability}
@@ -235,6 +275,16 @@ export default function CartView({ fields, options, designs, tierPresets, availa
             pickupTime={cart.pickupTime}
             onChange={cart.setPickup}
           />
+        )}
+
+        {!user && (
+          <div className="cart-guest-note">
+            <p>
+              <strong>Checking out as a guest.</strong> Want to track this order and save your info for next
+              time? <Link href="/account/login?next=/cart">Log in</Link> or{" "}
+              <Link href="/account/signup?next=/cart">sign up</Link> — it&apos;s not required to place your order.
+            </p>
+          </div>
         )}
 
         <div className="wizard-field">
@@ -276,6 +326,10 @@ export default function CartView({ fields, options, designs, tierPresets, availa
             onChange={(e) => cart.setContact({ comments: e.target.value })}
           />
         </div>
+
+        <p className="cart-confirmation-note">
+          You&apos;ll receive a confirmation email at the address above once your order is submitted.
+        </p>
 
         {formErrors.length > 0 && (
           <ul className="order-summary__error" role="alert">

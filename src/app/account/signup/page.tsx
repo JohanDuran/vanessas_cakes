@@ -30,11 +30,8 @@ export default async function AccountSignupPage({
 
           {next && <input type="hidden" name="next" value={next} />}
 
-          <label htmlFor="firstName">First Name</label>
-          <input id="firstName" name="firstName" type="text" autoFocus required />
-
-          <label htmlFor="lastName">Last Name</label>
-          <input id="lastName" name="lastName" type="text" required />
+          <label htmlFor="name">Name</label>
+          <input id="name" name="name" type="text" autoFocus required />
 
           <label htmlFor="email">Email</label>
           <input id="email" name="email" type="email" required />

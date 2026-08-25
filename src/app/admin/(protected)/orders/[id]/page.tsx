@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { baseFieldRank, CONTACT_PREFERENCE_LABELS, isContactPreference } from "../../../../../lib/fields";
 import { formatCents } from "../../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../../lib/availability";
-import { setOrderStatus } from "../actions";
+import { setOrderStatus, markBalanceCollected } from "../actions";
 import PaymentBadge from "../../../../../components/admin/PaymentBadge";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +66,32 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       )}
       {order.stripePaymentIntentId && (
         <p className="admin-main__subtitle">Stripe payment: <code>{order.stripePaymentIntentId}</code></p>
+      )}
+
+      {order.paymentStatus !== "not_required" && (
+        <div className="admin-card">
+          <h3 style={{ marginBottom: 10 }}>Payment</h3>
+          <p>Plan: {order.paymentPlan === "deposit" ? "50% deposit" : "Full payment"}</p>
+          <p>Charged: {formatCents(order.amountDueCents)}</p>
+          {order.paymentPlan === "deposit" && (
+            <>
+              <p>Balance due: {formatCents(order.totalPriceCents - order.amountDueCents)}</p>
+              <p>
+                {order.balanceCollectedAt
+                  ? `Balance collected ${new Date(order.balanceCollectedAt).toLocaleString()}`
+                  : "Balance not yet collected"}
+              </p>
+              {order.paymentStatus === "paid" && !order.balanceCollectedAt && (
+                <form action={markBalanceCollected}>
+                  <input type="hidden" name="id" value={order.id} />
+                  <button type="submit" className="admin-btn-sm admin-btn-sm--ghost">
+                    Mark balance as collected
+                  </button>
+                </form>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       <div className="admin-card">

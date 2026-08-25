@@ -101,3 +101,57 @@
   font-family: var(--font-heading);
   font-size: 1.1rem;
 }
+
+.cart-guest-note {
+  background: var(--pink-50, #fdf1f6);
+  border: 1px solid var(--pink-100, #f3d9e4);
+  border-radius: var(--radius-md, 12px);
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 0.9rem;
+  color: var(--text-soft);
+}
+
+.cart-guest-note p {
+  margin: 0;
+}
+
+.cart-guest-note a {
+  color: var(--pink-600, #c2185b);
+  font-weight: 600;
+}
+
+.cart-payment-plan {
+  border: 1px solid var(--pink-100, #f3d9e4);
+  border-radius: var(--radius-md, 12px);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+
+.cart-payment-plan__title {
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.cart-payment-plan__option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.cart-payment-plan__option + .cart-payment-plan__option {
+  margin-top: 4px;
+}
+
+.cart-payment-plan__option-text {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+.cart-confirmation-note {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  margin: 4px 0 16px;
+}

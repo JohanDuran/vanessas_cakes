@@ -67,7 +67,9 @@ export default async function ThankYouPage({
               : paymentFailed
                 ? "Your card wasn't charged and this order hasn't been sent to the baker. Please return to your cart and try again, or contact us if you were charged."
                 : order?.paymentStatus === "paid"
-                  ? `${id ? `Order #${id}` : "Your order"} is paid in full and on its way to the baker.`
+                  ? order.paymentPlan === "deposit"
+                    ? `${id ? `Order #${id}'s` : "Your order's"} deposit is paid and it's on its way to the baker — the remaining balance is due at pickup.`
+                    : `${id ? `Order #${id}` : "Your order"} is paid in full and on its way to the baker.`
                   : `${id ? `Order #${id} has` : "Your order has"} been received. We’ll reach out at the email you provided to confirm details and pricing.`}
           </p>
           {paymentFailed && (
@@ -77,7 +79,14 @@ export default async function ThankYouPage({
           )}
           {order?.paymentStatus === "paid" && (
             <p className="order-thankyou__pickup">
-              Amount charged: <strong>{formatCents(order.totalPriceCents)}</strong>
+              Amount charged: <strong>{formatCents(order.amountDueCents)}</strong>
+              {order.paymentPlan === "deposit" && (
+                <>
+                  {" "}
+                  (50% deposit) · Balance due at pickup:{" "}
+                  <strong>{formatCents(order.totalPriceCents - order.amountDueCents)}</strong>
+                </>
+              )}
             </p>
           )}
           {result && result.items.length > 0 && (

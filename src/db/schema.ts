@@ -299,6 +299,22 @@ export const orders = sqliteTable("orders", {
   // failed/expired: card declined, checkout abandoned, or amount mismatch —
   // see src/lib/payments.ts, the only code allowed to move an order to "paid".
   paymentStatus: text("payment_status").notNull().default("not_required"),
+  // full: charged totalPriceCents up front (the default, and the only option
+  // before deposits existed). deposit: charged amountDueCents (~half of
+  // totalPriceCents) up front, remainder collected in person at pickup —
+  // see src/lib/payments.ts for how each plan is charged via Stripe.
+  paymentPlan: text("payment_plan").notNull().default("full"),
+  // The amount actually charged (or being charged) through this order's
+  // Stripe Checkout Session — equals totalPriceCents for plan "full" and for
+  // orders with no online charge at all (paymentStatus "not_required"), or
+  // roughly half of it for plan "deposit". totalPriceCents - amountDueCents
+  // is always the outstanding balance; never stored separately to avoid a
+  // second value that can drift out of sync.
+  amountDueCents: integer("amount_due_cents").notNull().default(0),
+  // Set when an admin manually confirms the remaining deposit balance was
+  // collected (cash/card at pickup) — there's no automatic follow-up charge
+  // for it yet, so this is the only record that it was paid.
+  balanceCollectedAt: integer("balance_collected_at"),
   stripeCheckoutSessionId: text("stripe_checkout_session_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   createdAt: integer("created_at")

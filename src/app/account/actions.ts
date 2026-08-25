@@ -26,8 +26,7 @@ function isValidPhone(value: string): boolean {
 
 const signupSchema = z
   .object({
-    firstName: z.string().trim().min(1),
-    lastName: z.string().trim().min(1),
+    name: z.string().trim().min(1),
     email: z.string().trim().toLowerCase().email(),
     phone: z.string().trim().refine(isValidPhone),
     password: z.string().min(8),
@@ -46,7 +45,9 @@ const loginSchema = z.object({
 });
 
 function safeNext(next: string | undefined): string {
-  return next && (next.startsWith("/account") || next.startsWith("/admin")) ? next : "/account";
+  return next && (next.startsWith("/account") || next.startsWith("/admin") || next.startsWith("/cart"))
+    ? next
+    : "/account";
 }
 
 async function startSession(userId: number) {
@@ -63,8 +64,7 @@ async function startSession(userId: number) {
 
 export async function signup(formData: FormData) {
   const parsed = signupSchema.safeParse({
-    firstName: formData.get("firstName"),
-    lastName: formData.get("lastName"),
+    name: formData.get("name"),
     email: formData.get("email"),
     phone: formData.get("phone"),
     password: formData.get("password"),
@@ -80,8 +80,7 @@ export async function signup(formData: FormData) {
     redirect(`/account/signup?error=${error}`);
   }
 
-  const { firstName, lastName, email, phone, password, marketingOptIn, next } = parsed.data;
-  const name = `${firstName} ${lastName}`;
+  const { name, email, phone, password, marketingOptIn, next } = parsed.data;
   const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
 
   const existing = db

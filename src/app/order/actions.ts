@@ -56,6 +56,7 @@ const submitCartSchema = z.object({
   customerEmail: z.string().trim().email("Enter a valid email"),
   customerPhone: z.string().trim().optional(),
   comments: z.string().trim().optional(),
+  paymentPlan: z.enum(["full", "deposit"]).optional(),
 });
 
 /** Result shape for useActionState in the cart page — a thrown error inside
@@ -338,6 +339,16 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   // contact you to confirm pricing" flow, unchanged.
   const requiresPayment = totalPriceCents > 0 && resolvedItems.every((i) => i.designId != null);
 
+  // deposits only make sense when there's a real online charge to split —
+  // otherwise (custom quotes / $0 carts) always treat as "full" with nothing
+  // due today, ignoring whatever the client sent.
+  const paymentPlan = requiresPayment && parsed.paymentPlan === "deposit" ? "deposit" : "full";
+  const amountDueCents = requiresPayment
+    ? paymentPlan === "deposit"
+      ? Math.round(totalPriceCents / 2)
+      : totalPriceCents
+    : totalPriceCents;
+
   const { orderId, itemIdByClientId } = db.transaction((tx) => {
     const insertedOrder = tx
       .insert(orders)
@@ -352,6 +363,8 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         pickupDate,
         pickupTime,
         paymentStatus: requiresPayment ? "pending" : "not_required",
+        paymentPlan,
+        amountDueCents,
       })
       .returning({ id: orders.id })
       .get();
@@ -463,6 +476,9 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
           name: item.designName ?? "Cake",
           priceCents: item.priceCents,
         })),
+        paymentPlan,
+        amountDueCents,
+        totalPriceCents,
       });
     } catch {
       db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId)).run();
