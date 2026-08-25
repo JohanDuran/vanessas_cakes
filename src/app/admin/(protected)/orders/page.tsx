@@ -7,6 +7,7 @@ import { formatCents } from "../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../lib/availability";
 import OrdersCalendar, { type CalendarOrder } from "../../../../components/admin/OrdersCalendar";
 import { closeDayForNewOrders, reopenDay } from "../availability/actions";
+import PaymentBadge from "../../../../components/admin/PaymentBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function OrdersInboxPage() {
         customerEmail: orders.customerEmail,
         totalPriceCents: orders.totalPriceCents,
         status: orders.status,
+        paymentStatus: orders.paymentStatus,
         createdAt: orders.createdAt,
         pickupDate: orders.pickupDate,
         pickupTime: orders.pickupTime,
@@ -88,6 +90,7 @@ export default async function OrdersInboxPage() {
               <th>Pickup</th>
               <th>Total</th>
               <th>Status</th>
+              <th>Payment</th>
               <th></th>
             </tr>
           </thead>
@@ -108,6 +111,9 @@ export default async function OrdersInboxPage() {
                 <td>{formatCents(o.totalPriceCents)}</td>
                 <td style={{ textTransform: "capitalize" }}>{o.status}</td>
                 <td>
+                  <PaymentBadge status={o.paymentStatus} />
+                </td>
+                <td>
                   <Link href={`/admin/orders/${o.id}`} className="admin-btn-sm admin-btn-sm--ghost">
                     View
                   </Link>
@@ -116,7 +122,7 @@ export default async function OrdersInboxPage() {
             ))}
             {allOrders.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ color: "var(--text-soft)" }}>
+                <td colSpan={8} style={{ color: "var(--text-soft)" }}>
                   No orders yet.
                 </td>
               </tr>

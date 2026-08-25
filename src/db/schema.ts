@@ -292,10 +292,21 @@ export const orders = sqliteTable("orders", {
   pickupTime: text("pickup_time"), // HH:MM, 24h
   // only set on custom-cake quote requests: call | sms | whatsapp | email
   contactPreference: text("contact_preference"),
+  // not_required: cart had a custom-quote item or totaled $0, no online charge
+  // is collected — the pre-Stripe "we'll contact you" flow. pending: a Stripe
+  // Checkout Session was created and we're waiting on its webhook. paid: the
+  // webhook (or the thank-you page's fallback check) confirmed payment.
+  // failed/expired: card declined, checkout abandoned, or amount mismatch —
+  // see src/lib/payments.ts, the only code allowed to move an order to "paid".
+  paymentStatus: text("payment_status").notNull().default("not_required"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('now','subsec') * 1000)`),
-});
+},
+  (t) => [uniqueIndex("orders_stripe_checkout_session_idx").on(t.stripeCheckoutSessionId)]
+);
 
 /** One configured cake within a checkout — one row per cart item. Null
  *  designId means this item is a custom-cake quote request. */

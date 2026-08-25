@@ -83,7 +83,9 @@ export async function loadPickupAvailability(): Promise<{
     db
       .select({ pickupDate: orders.pickupDate, count: count() })
       .from(orders)
-      .where(gte(orders.pickupDate, todayKey))
+      // an order whose Stripe Checkout was never completed never actually
+      // happened — don't let it hold a pickup slot hostage against the cap
+      .where(and(gte(orders.pickupDate, todayKey), ne(orders.paymentStatus, "failed"), ne(orders.paymentStatus, "expired")))
       .groupBy(orders.pickupDate)
       .then((r) => r),
   ]);

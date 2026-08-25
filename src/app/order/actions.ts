@@ -28,6 +28,7 @@ import { computeTotalCents, type Answers } from "../../lib/pricing";
 import { isSlotAvailable } from "../../lib/availability";
 import { isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../lib/fields";
 import { saveUploadedPhoto } from "../../lib/uploads";
+import { createCheckoutSessionForOrder } from "../../lib/payments";
 import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../lib/order-types";
 
 const answerSchema = z.union([
@@ -67,6 +68,7 @@ export type SubmitCartState = { error: string } | undefined;
 type ResolvedItem = {
   clientId: string;
   designId: number | null;
+  designName: string | null;
   answers: Answers;
   priceCents: number;
 };
@@ -212,7 +214,13 @@ function resolveCartItem(
 
   return {
     ok: true,
-    item: { clientId: item.clientId, designId: isCustomItem ? null : design!.id, answers, priceCents },
+    item: {
+      clientId: item.clientId,
+      designId: isCustomItem ? null : design!.id,
+      designName: isCustomItem ? null : design!.name,
+      answers,
+      priceCents,
+    },
   };
 }
 
@@ -324,6 +332,12 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   const totalPriceCents = resolvedItems.reduce((sum, i) => sum + i.priceCents, 0);
   const currentUser = await getCurrentUser();
 
+  // custom-cake quotes have no fixed price yet (the baker prices them by
+  // hand) — only a cart made up entirely of catalog cakes has a known total
+  // to actually charge online. Anything else keeps the pre-Stripe "we'll
+  // contact you to confirm pricing" flow, unchanged.
+  const requiresPayment = totalPriceCents > 0 && resolvedItems.every((i) => i.designId != null);
+
   const { orderId, itemIdByClientId } = db.transaction((tx) => {
     const insertedOrder = tx
       .insert(orders)
@@ -337,6 +351,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         status: "new",
         pickupDate,
         pickupTime,
+        paymentStatus: requiresPayment ? "pending" : "not_required",
       })
       .returning({ id: orders.id })
       .get();
@@ -435,8 +450,30 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     }
   }
 
-  // the checkout above is the definitive record now — drop whatever's left
-  // of the customer's saved cart so it doesn't linger and get resubmitted
+  if (requiresPayment) {
+    // leave the customer's saved DB cart intact until payment is actually
+    // confirmed (see src/lib/payments.ts) — if they abandon Stripe Checkout,
+    // their configured cakes are still waiting for them in the cart
+    let session;
+    try {
+      session = await createCheckoutSessionForOrder({
+        orderId,
+        customerEmail: parsed.customerEmail,
+        items: resolvedItems.map((item) => ({
+          name: item.designName ?? "Cake",
+          priceCents: item.priceCents,
+        })),
+      });
+    } catch {
+      db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId)).run();
+      return { error: "We couldn't start checkout. Please try again in a moment." };
+    }
+    redirect(session.url!);
+  }
+
+  // no payment to collect — the checkout above is the definitive record now,
+  // drop whatever's left of the customer's saved cart so it doesn't linger
+  // and get resubmitted
   if (currentUser) {
     db.delete(cartItems).where(eq(cartItems.userId, currentUser.id)).run();
   }

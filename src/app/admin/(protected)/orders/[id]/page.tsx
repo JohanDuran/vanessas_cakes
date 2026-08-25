@@ -7,6 +7,7 @@ import { baseFieldRank, CONTACT_PREFERENCE_LABELS, isContactPreference } from ".
 import { formatCents } from "../../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../../lib/availability";
 import { setOrderStatus } from "../actions";
+import PaymentBadge from "../../../../../components/admin/PaymentBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -54,8 +55,18 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     <>
       <h1>Order #{order.id}</h1>
       <p className="admin-main__subtitle">
-        Submitted {new Date(order.createdAt).toLocaleString()} · Status: {order.status}
+        Submitted {new Date(order.createdAt).toLocaleString()} · Status: {order.status} · Payment:{" "}
+        <PaymentBadge status={order.paymentStatus} />
       </p>
+      {order.paymentStatus === "pending" && (
+        <p className="admin-main__subtitle" style={{ color: "#b8860b" }}>
+          This order hasn&apos;t been paid yet — the customer may still be completing (or may have abandoned)
+          Stripe Checkout. Don&apos;t start on it until payment shows as Paid.
+        </p>
+      )}
+      {order.stripePaymentIntentId && (
+        <p className="admin-main__subtitle">Stripe payment: <code>{order.stripePaymentIntentId}</code></p>
+      )}
 
       <div className="admin-card">
         <h3 style={{ marginBottom: 10 }}>Customer</h3>
