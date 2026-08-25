@@ -26,6 +26,7 @@ import {
   cartItems,
   cartItemSelections,
   cartItemReferenceImages,
+  designReviews,
 } from "./schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
 import { USER_SESSION_COOKIE, verifyUserSessionToken } from "../lib/auth";
@@ -558,4 +559,67 @@ export async function loadOrdersForUser(userId: number): Promise<OrderSummaryDTO
       .filter((i) => i.orderId === order.id)
       .map((i) => (i.designId ? (designNameById.get(i.designId) ?? "Unknown design") : "Custom Cake Quote")),
   }));
+}
+
+export type ReviewDTO = {
+  id: number;
+  designId: number;
+  userId: number;
+  userName: string;
+  rating: number;
+  comment: string | null;
+  adminReply: string | null;
+  adminReplyAt: number | null;
+  createdAt: number;
+};
+
+/** All reviews for one design's public page, newest first, with the
+ *  reviewer's current display name joined in — the review row itself never
+ *  stores a name snapshot, it's read live off users.name. */
+export async function loadReviewsForDesign(designId: number): Promise<ReviewDTO[]> {
+  const rows = await db
+    .select({
+      id: designReviews.id,
+      designId: designReviews.designId,
+      userId: designReviews.userId,
+      userName: users.name,
+      rating: designReviews.rating,
+      comment: designReviews.comment,
+      adminReply: designReviews.adminReply,
+      adminReplyAt: designReviews.adminReplyAt,
+      createdAt: designReviews.createdAt,
+    })
+    .from(designReviews)
+    .innerJoin(users, eq(designReviews.userId, users.id))
+    .where(eq(designReviews.designId, designId))
+    .orderBy(desc(designReviews.createdAt))
+    .then((r) => r);
+  return rows;
+}
+
+export type AdminReviewDTO = ReviewDTO & { userEmail: string; designName: string };
+
+/** Every review across every design, for the admin section's Reviews page —
+ *  newest first so unanswered reviews naturally surface near the top. */
+export async function loadAllReviewsForAdmin(): Promise<AdminReviewDTO[]> {
+  const rows = await db
+    .select({
+      id: designReviews.id,
+      designId: designReviews.designId,
+      userId: designReviews.userId,
+      userName: users.name,
+      userEmail: users.email,
+      designName: designs.name,
+      rating: designReviews.rating,
+      comment: designReviews.comment,
+      adminReply: designReviews.adminReply,
+      adminReplyAt: designReviews.adminReplyAt,
+      createdAt: designReviews.createdAt,
+    })
+    .from(designReviews)
+    .innerJoin(users, eq(designReviews.userId, users.id))
+    .innerJoin(designs, eq(designReviews.designId, designs.id))
+    .orderBy(desc(designReviews.createdAt))
+    .then((r) => r);
+  return rows;
 }

@@ -493,3 +493,32 @@ export const orderSelections = sqliteTable(
     ),
   ]
 );
+
+/** One customer's star rating + optional comment for a design — at most one
+ *  per (design, user), enforced below; re-reviewing the same cake edits this
+ *  row rather than adding another. adminReply/adminReplyAt are set from the
+ *  admin section's Reviews page (see src/app/admin/(protected)/reviews) and
+ *  left null until a reply is posted. */
+export const designReviews = sqliteTable(
+  "design_reviews",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(), // 1-5
+    comment: text("comment"),
+    adminReply: text("admin_reply"),
+    adminReplyAt: integer("admin_reply_at"),
+    createdAt: integer("created_at")
+      .notNull()
+      .default(sql`(unixepoch('now','subsec') * 1000)`),
+    updatedAt: integer("updated_at")
+      .notNull()
+      .default(sql`(unixepoch('now','subsec') * 1000)`),
+  },
+  (t) => [uniqueIndex("design_reviews_design_user_idx").on(t.designId, t.userId)]
+);

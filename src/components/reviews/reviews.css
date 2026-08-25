@@ -1,0 +1,185 @@
+/* --- star rating (read-only) --- */
+
+.star-rating {
+  display: inline-flex;
+  gap: 2px;
+  line-height: 1;
+}
+
+.star-rating__star {
+  color: var(--pink-100);
+  font-size: 1.1rem;
+}
+
+.star-rating__star.is-filled {
+  color: var(--yellow-300);
+}
+
+.star-rating--sm .star-rating__star {
+  font-size: 0.9rem;
+}
+
+/* --- star rating (interactive input) --- */
+
+.star-rating-input {
+  display: inline-flex;
+  gap: 4px;
+  margin: 6px 0 18px;
+}
+
+.star-rating-input__star {
+  cursor: pointer;
+  position: relative;
+}
+
+.star-rating-input__star input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.star-rating-input__glyph {
+  font-size: 1.8rem;
+  color: var(--pink-100);
+  transition: color 0.12s ease, transform 0.12s ease;
+  display: inline-block;
+}
+
+.star-rating-input__glyph.is-filled {
+  color: var(--yellow-300);
+}
+
+.star-rating-input__star:hover .star-rating-input__glyph {
+  transform: scale(1.1);
+}
+
+/* --- review list --- */
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 24px 0 40px;
+  list-style: none;
+  padding: 0;
+}
+
+.review-list__empty {
+  color: var(--text-soft);
+  margin: 24px 0 40px;
+}
+
+.review-list__item {
+  background: var(--white);
+  border-radius: var(--radius-md);
+  padding: 18px 24px;
+  box-shadow: 0 8px 24px rgba(107, 66, 38, 0.08);
+}
+
+.review-list__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 8px;
+}
+
+.review-list__name {
+  font-family: var(--font-heading);
+  color: var(--choco-900);
+}
+
+.review-list__date {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  margin-left: auto;
+}
+
+.review-list__comment {
+  color: var(--text);
+  margin: 0;
+}
+
+.review-list__reply {
+  margin-top: 14px;
+  padding: 12px 16px;
+  background: var(--pink-50);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--pink-400);
+}
+
+.review-list__reply strong {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 0.82rem;
+  color: var(--pink-600);
+  margin-bottom: 4px;
+}
+
+.review-list__reply p {
+  margin: 0;
+  color: var(--text);
+}
+
+/* --- review form --- */
+
+.review-form__wrap h3 {
+  margin-bottom: 10px;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.review-form label {
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--choco-900);
+  margin-bottom: 4px;
+}
+
+.review-form textarea {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--pink-100);
+  margin-bottom: 16px;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s ease;
+}
+
+.review-form textarea:focus {
+  border-color: var(--pink-400);
+}
+
+.review-form button {
+  align-self: flex-start;
+}
+
+.review-form__error {
+  background: #ffe4e4;
+  color: #c0392b;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.review-form__success {
+  background: var(--mint-100);
+  color: #1c7a4d;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.review-form__login-prompt {
+  color: var(--text-soft);
+}
