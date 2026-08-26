@@ -401,6 +401,17 @@ export const pickupDateOverrides = sqliteTable("pickup_date_overrides", {
     .default(sql`(unixepoch('now','subsec') * 1000)`),
 });
 
+/** Singleton row (id=1) of site-wide feature toggles — currently just
+ *  maintenance mode, switched from the admin Settings page (see
+ *  src/app/admin/(protected)/settings). src/proxy.ts is the only reader. */
+export const siteSettings = sqliteTable("site_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  maintenanceMode: integer("maintenance_mode", { mode: "boolean" }).notNull().default(false),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`(unixepoch('now','subsec') * 1000)`),
+});
+
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").notNull().unique(),

@@ -191,6 +191,20 @@ export function CartProvider({
     }
   }, [user, clearCart]);
 
+  // Prefill contact fields from the signed-in user's profile — fires on
+  // mount for an already-logged-in customer and again right after a
+  // guest logs in mid-checkout. Uses `||` so it never clobbers anything
+  // the customer already typed themselves.
+  useEffect(() => {
+    if (!user) return;
+    setContactState((prev) => ({
+      name: prev.name || user.name,
+      email: prev.email || user.email,
+      phone: prev.phone || user.phone || "",
+      comments: prev.comments,
+    }));
+  }, [user]);
+
   const addItem = useCallback(
     (item: Omit<CartItem, "clientId">) => {
       const clientId = makeClientId();

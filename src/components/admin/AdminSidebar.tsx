@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/admin/constraints", label: "Constraints" },
   { href: "/admin/availability", label: "Availability" },
   { href: "/admin/admins", label: "Admins" },
+  { href: "/admin/settings", label: "Settings" },
 ];
 
 export default function AdminSidebar() {
