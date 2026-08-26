@@ -51,4 +51,23 @@ DROP TABLE `order_reference_images`;
 --> statement-breakpoint
 ALTER TABLE `order_reference_images_new` RENAME TO `order_reference_images`;
 --> statement-breakpoint
-ALTER TABLE `orders` DROP COLUMN `design_id`;
+CREATE TABLE `orders_new` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`customer_name` text NOT NULL,
+	`customer_email` text NOT NULL,
+	`customer_phone` text,
+	`comments` text,
+	`total_price_cents` integer NOT NULL,
+	`status` text DEFAULT 'new' NOT NULL,
+	`pickup_date` text,
+	`pickup_time` text,
+	`contact_preference` text,
+	`created_at` integer DEFAULT (unixepoch('now','subsec') * 1000) NOT NULL
+);
+--> statement-breakpoint
+INSERT INTO `orders_new` (`id`, `customer_name`, `customer_email`, `customer_phone`, `comments`, `total_price_cents`, `status`, `pickup_date`, `pickup_time`, `contact_preference`, `created_at`)
+SELECT `id`, `customer_name`, `customer_email`, `customer_phone`, `comments`, `total_price_cents`, `status`, `pickup_date`, `pickup_time`, `contact_preference`, `created_at` FROM `orders`;
+--> statement-breakpoint
+DROP TABLE `orders`;
+--> statement-breakpoint
+ALTER TABLE `orders_new` RENAME TO `orders`;
