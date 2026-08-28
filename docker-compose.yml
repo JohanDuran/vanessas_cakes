@@ -19,7 +19,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: vanessas-cakes-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token eyJhIjoiOTljMjk1ZjM1OTZmZjQ0YTQzOGE5NGE0Zjg5NmQ0YTQiLCJ0IjoiNDE1NThkMzEtZDcxMC00NDMxLTk3OWMtZDJlMDMxYmM1OTgyIiwicyI6IlptRmlaV0ZoTnpRdE9UbGlOUzAwTW1Wa0xXSTBNMkl0TURCaU5XWXdOVGcwT0dRdyJ9
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - web
     networks:

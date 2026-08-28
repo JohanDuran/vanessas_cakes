@@ -91,6 +91,23 @@
   text-align: center;
 }
 
+.account-auth__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  margin: 4px 0 18px;
+}
+
+.account-auth__divider::before,
+.account-auth__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--pink-100);
+}
+
 .account-page {
   padding: 48px 0 80px;
   min-height: 60vh;

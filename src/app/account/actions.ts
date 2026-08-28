@@ -7,6 +7,7 @@ import { db } from "../../db";
 import { profiles } from "../../db/schema";
 import { getCurrentUser } from "../../db/queries";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { getSiteUrl } from "../../lib/stripe";
 
 // Accepts digits with optional +, spaces, dashes, dots, and parentheses;
 // the digit count (7-15) follows the E.164 range so both local and
@@ -110,6 +111,23 @@ export async function login(formData: FormData) {
   }
 
   redirect(safeNext(next));
+}
+
+export async function loginWithGoogle(formData: FormData) {
+  const next = (formData.get("next") as string | null) ?? undefined;
+  const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${getSiteUrl()}/auth/callback${nextParam}` },
+  });
+
+  if (error || !data.url) {
+    redirect(`/account/login?error=1${next ? `&next=${encodeURIComponent(next)}` : ""}`);
+  }
+
+  redirect(data.url);
 }
 
 export async function logout() {

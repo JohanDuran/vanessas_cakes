@@ -19,7 +19,7 @@ async function isAdminUser(userId: string | undefined): Promise<boolean> {
 // the login page they need to get there) pass through untouched. Toggled at
 // runtime from the admin Settings page (site_settings row); MAINTENANCE_MODE
 // env var is an extra force-on switch for use before that row/DB is reachable.
-const MAINTENANCE_BYPASS_PATHS = new Set(["/maintenance", "/account/login"]);
+const MAINTENANCE_BYPASS_PATHS = new Set(["/maintenance", "/account/login", "/auth/callback"]);
 
 async function isMaintenanceModeOn(): Promise<boolean> {
   if (process.env.MAINTENANCE_MODE === "true") return true;
