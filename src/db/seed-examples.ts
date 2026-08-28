@@ -1,9 +1,7 @@
 import zlib from "node:zlib";
-import fs from "node:fs";
-import path from "node:path";
-import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
-import { db, dataDir } from "./index";
+import { db } from "./index";
+import { saveUploadedPhoto } from "../lib/uploads";
 import {
   constraintPairs,
   designExcludedOptions,
@@ -72,12 +70,9 @@ function solidColorPng(size: number, [r, g, b]: [number, number, number]): Buffe
   ]);
 }
 
-function savePlaceholderPhoto(color: [number, number, number]): string {
-  const uploadsDir = path.join(dataDir, "uploads");
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}.png`;
-  fs.writeFileSync(path.join(uploadsDir, filename), solidColorPng(600, color));
-  return filename;
+async function savePlaceholderPhoto(color: [number, number, number]): Promise<string> {
+  const file = new File([new Uint8Array(solidColorPng(600, color))], "placeholder.png", { type: "image/png" });
+  return saveUploadedPhoto(file);
 }
 
 // --- custom fields ----------------------------------------------------------
@@ -246,28 +241,32 @@ const orderSeeds: OrderSeed[] = [
   },
 ];
 
-function main() {
+async function main() {
   // ensure the custom fields (and their options) exist before anything below
   // looks them up — idempotent, same pattern as the design/constraint/order loops
-  const existingFieldsBySlug = new Map(db.select().from(fields).all().map((f) => [f.slug, f]));
+  const existingFieldsBySlug = new Map((await db.select().from(fields)).map((f) => [f.slug, f]));
   for (const cf of customFieldSeeds) {
     if (existingFieldsBySlug.has(cf.slug)) continue;
-    const insertedField = db
+    const insertedField = await db
       .insert(fields)
       .values({ slug: cf.slug, name: cf.name, type: cf.type, isBase: false, updatedAt: Date.now() })
       .returning()
-      .get();
-    cf.options.forEach((opt, index) => {
-      db.insert(fieldOptions)
-        .values({ fieldId: insertedField.id, name: opt.name, priceCents: opt.priceCents, sortOrder: index, updatedAt: Date.now() })
-        .run();
-    });
+      .then((r) => r[0]);
+    for (const [index, opt] of cf.options.entries()) {
+      await db.insert(fieldOptions).values({
+        fieldId: insertedField.id,
+        name: opt.name,
+        priceCents: opt.priceCents,
+        sortOrder: index,
+        updatedAt: Date.now(),
+      });
+    }
     console.log(`Created custom field "${cf.name}".`);
   }
 
-  const allFields = db.select().from(fields).all();
+  const allFields = await db.select().from(fields);
   const fieldBySlug = new Map(allFields.map((f) => [f.slug, f]));
-  const allOptions = db.select().from(fieldOptions).all();
+  const allOptions = await db.select().from(fieldOptions);
   const optionByFieldIdName = new Map<string, (typeof allOptions)[number]>();
   for (const opt of allOptions) optionByFieldIdName.set(`${opt.fieldId}:${opt.name}`, opt);
 
@@ -283,7 +282,7 @@ function main() {
     return opt;
   };
 
-  const existingDesigns = db.select().from(designs).all();
+  const existingDesigns = await db.select().from(designs);
   const existingNames = new Set(existingDesigns.map((d) => d.name));
   const designIdByName = new Map<string, number>(existingDesigns.map((d) => [d.name, d.id]));
 
@@ -314,8 +313,8 @@ function main() {
     const chargedCents = Math.round(seed.chargedDollars * 100);
     const premiumCents = chargedCents - standardCents;
 
-    const designId = db.transaction((tx) => {
-      const inserted = tx
+    const designId = await db.transaction(async (tx) => {
+      const inserted = await tx
         .insert(designs)
         .values({
           name: seed.name,
@@ -326,48 +325,48 @@ function main() {
           updatedAt: Date.now(),
         })
         .returning({ id: designs.id })
-        .get();
+        .then((r) => r[0]);
 
       for (const { field, option } of baseSelections) {
-        tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: field.id, fieldOptionId: option.id }).run();
+        await tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: field.id, fieldOptionId: option.id });
       }
 
       for (const cs of customSelections) {
         if (cs.kind === "options") {
           for (const option of cs.options) {
-            tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, fieldOptionId: option.id }).run();
+            await tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, fieldOptionId: option.id });
           }
         } else if (cs.kind === "text") {
-          tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, textValue: cs.value }).run();
+          await tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, textValue: cs.value });
         } else {
-          tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, numberValue: cs.value }).run();
+          await tx.insert(designFieldValues).values({ designId: inserted.id, fieldId: cs.field.id, numberValue: cs.value });
         }
       }
 
       for (const slug of seed.lockedBaseFields ?? []) {
-        tx.insert(designLockedFields).values({ designId: inserted.id, fieldId: requireField(slug).id }).run();
+        await tx.insert(designLockedFields).values({ designId: inserted.id, fieldId: requireField(slug).id });
       }
       for (const cs of customSelections) {
-        if (cs.locked) tx.insert(designLockedFields).values({ designId: inserted.id, fieldId: cs.field.id }).run();
+        if (cs.locked) await tx.insert(designLockedFields).values({ designId: inserted.id, fieldId: cs.field.id });
       }
 
       for (const excl of seed.excludedOptions ?? []) {
-        tx.insert(designExcludedOptions)
+        await tx.insert(designExcludedOptions)
           .values({ designId: inserted.id, fieldOptionId: lookupOption(excl.fieldSlug, excl.name).id })
-          .run();
+          ;
       }
 
       return inserted.id;
     });
 
-    const photoPath = savePlaceholderPhoto(seed.color);
-    db.insert(designPhotos).values({ designId, path: photoPath, isPrimary: true }).run();
+    const photoPath = await savePlaceholderPhoto(seed.color);
+    await db.insert(designPhotos).values({ designId, path: photoPath, isPrimary: true });
 
     designIdByName.set(seed.name, designId);
     console.log(`Created design "${seed.name}" (id ${designId}, premium ${(premiumCents / 100).toFixed(2)}).`);
   }
 
-  const existingPairs = db.select().from(constraintPairs).all();
+  const existingPairs = await db.select().from(constraintPairs);
   const pairExists = (aId: number, bId: number) =>
     existingPairs.some((p) => (p.optionAId === aId && p.optionBId === bId) || (p.optionAId === bId && p.optionBId === aId));
 
@@ -379,11 +378,11 @@ function main() {
       continue;
     }
     const [first, second] = a.id < b.id ? [a, b] : [b, a];
-    db.insert(constraintPairs).values({ optionAId: first.id, optionBId: second.id }).run();
+    await db.insert(constraintPairs).values({ optionAId: first.id, optionBId: second.id });
     console.log(`Created constraint: ${seed.a[1]} x ${seed.b[1]}.`);
   }
 
-  const existingOrders = db.select().from(orders).all();
+  const existingOrders = await db.select().from(orders);
   const existingCustomers = new Set(existingOrders.map((o) => o.customerEmail));
 
   for (const seed of orderSeeds) {
@@ -394,8 +393,8 @@ function main() {
     const designId = designIdByName.get(seed.designName);
     if (!designId) throw new Error(`Design not found for order seed: ${seed.designName}`);
 
-    const designFieldValueRows = db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId)).all();
-    const design = db.select().from(designs).all().find((d) => d.id === designId)!;
+    const designFieldValueRows = await db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId));
+    const design = (await db.select().from(designs)).find((d) => d.id === designId)!;
 
     // only the fields this design actually answered (base fields that don't
     // apply, e.g. tier_levels/tier_size for a Standard-style design, have no
@@ -422,8 +421,8 @@ function main() {
     const standardCents = selections.reduce((sum, s) => sum + s.option.priceCents, 0);
     const totalCents = standardCents + design.premiumCents;
 
-    db.transaction((tx) => {
-      const insertedOrder = tx
+    await db.transaction(async (tx) => {
+      const insertedOrder = await tx
         .insert(orders)
         .values({
           customerName: seed.customerName,
@@ -434,9 +433,9 @@ function main() {
           status: seed.status,
         })
         .returning({ id: orders.id })
-        .get();
+        .then((r) => r[0]);
 
-      const insertedItem = tx
+      const insertedItem = await tx
         .insert(orderItems)
         .values({
           orderId: insertedOrder.id,
@@ -445,10 +444,10 @@ function main() {
           sortOrder: 0,
         })
         .returning({ id: orderItems.id })
-        .get();
+        .then((r) => r[0]);
 
       for (const { field, option } of selections) {
-        tx.insert(orderSelections)
+        await tx.insert(orderSelections)
           .values({
             orderItemId: insertedItem.id,
             fieldId: field.id,
@@ -456,7 +455,7 @@ function main() {
             labelSnapshot: option.name,
             priceCentsSnapshot: option.priceCents,
           })
-          .run();
+          ;
       }
     });
 
@@ -466,4 +465,4 @@ function main() {
   console.log("Done.");
 }
 
-main();
+await main();

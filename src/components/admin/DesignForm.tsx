@@ -553,7 +553,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               {design.photos.map((photo) => (
                 <div key={photo.id} style={{ textAlign: "center" }}>
                   <img
-                    src={`/uploads/${photo.path}`}
+                    src={photo.path}
                     alt=""
                     width={120}
                     height={120}

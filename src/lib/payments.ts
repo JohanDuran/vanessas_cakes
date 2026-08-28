@@ -68,7 +68,7 @@ export async function createCheckoutSessionForOrder(params: {
     expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_TTL_SECONDS,
   });
 
-  db.update(orders).set({ stripeCheckoutSessionId: session.id }).where(eq(orders.id, orderId)).run();
+  await db.update(orders).set({ stripeCheckoutSessionId: session.id }).where(eq(orders.id, orderId));
 
   return session;
 }
@@ -85,11 +85,11 @@ function paymentIntentId(session: Stripe.Checkout.Session): string | null {
  *  actually paid yet, or was already recorded as paid is a no-op. Also
  *  re-checks the charged amount against the order's own trusted total before
  *  accepting it, as a last line of defense against a mismatched session. */
-export function finalizeOrderPaymentFromSession(session: Stripe.Checkout.Session): void {
+export async function finalizeOrderPaymentFromSession(session: Stripe.Checkout.Session): Promise<void> {
   const orderId = Number(session.client_reference_id ?? session.metadata?.orderId);
   if (!Number.isInteger(orderId)) return;
 
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const order = await db.select().from(orders).where(eq(orders.id, orderId)).then((r) => r[0]);
   if (!order || order.stripeCheckoutSessionId !== session.id) return;
   if (order.paymentStatus === "paid") return;
   // Stripe's fulfillment guidance: treat anything other than "unpaid" as
@@ -100,37 +100,37 @@ export function finalizeOrderPaymentFromSession(session: Stripe.Checkout.Session
   if (session.payment_status === "unpaid") return;
 
   if (session.amount_total !== order.amountDueCents) {
-    db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId)).run();
+    await db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId));
     return;
   }
 
-  db.update(orders)
+  await db.update(orders)
     .set({ paymentStatus: "paid", stripePaymentIntentId: paymentIntentId(session) })
     .where(eq(orders.id, orderId))
-    .run();
+    ;
 
   // only now — payment confirmed — drop whatever's left of the customer's
   // saved DB cart, mirroring the no-payment submitCart path
   if (order.userId) {
-    db.delete(cartItems).where(eq(cartItems.userId, order.userId)).run();
+    await db.delete(cartItems).where(eq(cartItems.userId, order.userId));
   }
 }
 
 /** A Checkout Session's expiry (default ~1h, see above) fired without the
  *  customer completing payment — free up the pickup slot the pending order
  *  was holding. Never touches an order that's already paid. */
-export function markOrderPaymentExpired(sessionId: string): void {
-  db.update(orders)
+export async function markOrderPaymentExpired(sessionId: string): Promise<void> {
+  await db.update(orders)
     .set({ paymentStatus: "expired" })
     .where(and(eq(orders.stripeCheckoutSessionId, sessionId), eq(orders.paymentStatus, "pending")))
-    .run();
+    ;
 }
 
 /** An async payment method (e.g. a bank debit) ended up failing after the
  *  customer left Checkout having seemingly succeeded. */
-export function markOrderPaymentFailed(sessionId: string): void {
-  db.update(orders)
+export async function markOrderPaymentFailed(sessionId: string): Promise<void> {
+  await db.update(orders)
     .set({ paymentStatus: "failed" })
     .where(and(eq(orders.stripeCheckoutSessionId, sessionId), eq(orders.paymentStatus, "pending")))
-    .run();
+    ;
 }

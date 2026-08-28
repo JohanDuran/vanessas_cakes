@@ -34,29 +34,29 @@ export default async function FieldDetailPage({
   const fieldId = Number(fieldIdParam);
   if (!Number.isInteger(fieldId)) notFound();
 
-  const field = db.select().from(fields).where(eq(fields.id, fieldId)).get();
+  const field = await db.select().from(fields).where(eq(fields.id, fieldId)).then((r) => r[0]);
   if (!field || !isFieldType(field.type)) notFound();
 
-  const options = db
+  const options = await db
     .select()
     .from(fieldOptions)
     .where(eq(fieldOptions.fieldId, fieldId))
     .orderBy(asc(fieldOptions.sortOrder), asc(fieldOptions.name))
-    .all();
+    ;
 
   const dimsByOptionId = new Map(
     options.length > 0
-      ? db
-          .select()
-          .from(fieldOptionDimensions)
-          .where(
-            inArray(
-              fieldOptionDimensions.fieldOptionId,
-              options.map((o) => o.id)
+      ? (
+          await db
+            .select()
+            .from(fieldOptionDimensions)
+            .where(
+              inArray(
+                fieldOptionDimensions.fieldOptionId,
+                options.map((o) => o.id)
+              )
             )
-          )
-          .all()
-          .map((d) => [d.fieldOptionId, d])
+        ).map((d) => [d.fieldOptionId, d])
       : []
   );
 
@@ -80,16 +80,16 @@ export default async function FieldDetailPage({
     const moldNameById = new Map(atomicMolds.map((m) => [m.id, m.name]));
     const presetRows =
       tieredOptions.length > 0
-        ? db.select().from(tierPresets).where(inArray(tierPresets.fieldOptionId, tieredOptions.map((o) => o.id))).all()
+        ? await db.select().from(tierPresets).where(inArray(tierPresets.fieldOptionId, tieredOptions.map((o) => o.id)))
         : [];
     const levelRows =
       presetRows.length > 0
-        ? db
+        ? await db
             .select()
             .from(tierPresetLevels)
             .where(inArray(tierPresetLevels.tierPresetId, presetRows.map((p) => p.id)))
             .orderBy(asc(tierPresetLevels.position))
-            .all()
+            
         : [];
     const levelsByPresetId = new Map<number, typeof levelRows>();
     for (const row of levelRows) {

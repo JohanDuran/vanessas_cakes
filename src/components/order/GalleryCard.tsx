@@ -20,7 +20,7 @@ export default function GalleryCard({ design, minPriceCents, maxPriceCents }: Pr
     <div className="gallery-card">
       <Link href={href} className="gallery-card__art">
         {design.photos[0] ? (
-          <img src={`/uploads/${design.photos[0]}`} alt={design.name} />
+          <img src={design.photos[0]} alt={design.name} />
         ) : (
           <div className="gallery-card__placeholder">🎂</div>
         )}

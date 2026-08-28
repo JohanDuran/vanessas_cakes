@@ -30,13 +30,13 @@ export async function saveWeeklyHours(formData: FormData) {
         closeTime = closeRaw;
       }
 
-      db.insert(pickupWeeklyHours)
+      await db.insert(pickupWeeklyHours)
         .values({ dayOfWeek: day, isOpen, openTime, closeTime, updatedAt: Date.now() })
         .onConflictDoUpdate({
           target: pickupWeeklyHours.dayOfWeek,
           set: { isOpen, openTime, closeTime, updatedAt: Date.now() },
         })
-        .run();
+        ;
     }
 
     revalidatePath(PATH);
@@ -62,17 +62,17 @@ export async function savePickupSettings(formData: FormData) {
       ...raw,
       maxOrdersPerDay: raw.maxOrdersPerDay ? raw.maxOrdersPerDay : null,
     });
-    const existing = db.select({ id: pickupSettings.id }).from(pickupSettings).limit(1).get();
+    const existing = await db.select({ id: pickupSettings.id }).from(pickupSettings).limit(1).then((r) => r[0]);
 
     if (existing) {
-      db.update(pickupSettings)
+      await db.update(pickupSettings)
         .set({ ...parsed, updatedAt: Date.now() })
         .where(eq(pickupSettings.id, existing.id))
-        .run();
+        ;
     } else {
-      db.insert(pickupSettings)
+      await db.insert(pickupSettings)
         .values({ ...parsed, updatedAt: Date.now() })
-        .run();
+        ;
     }
 
     revalidatePath(PATH);
@@ -112,7 +112,7 @@ export async function addDateOverride(formData: FormData) {
       closeTime = close;
     }
 
-    db.insert(pickupDateOverrides)
+    await db.insert(pickupDateOverrides)
       .values({
         startDate: parsed.startDate,
         endDate: parsed.endDate,
@@ -121,7 +121,7 @@ export async function addDateOverride(formData: FormData) {
         closeTime,
         note: parsed.note || null,
       })
-      .run();
+      ;
 
     revalidatePath(PATH);
   } catch (err) {
@@ -135,7 +135,7 @@ const deleteOverrideSchema = z.object({ id: z.coerce.number().int() });
 
 export async function deleteDateOverride(formData: FormData) {
   const parsed = deleteOverrideSchema.parse(Object.fromEntries(formData));
-  db.delete(pickupDateOverrides).where(eq(pickupDateOverrides.id, parsed.id)).run();
+  await db.delete(pickupDateOverrides).where(eq(pickupDateOverrides.id, parsed.id));
   revalidatePath("/admin/availability");
 }
 
@@ -148,9 +148,9 @@ const dayDateSchema = z.object({ date: dateSchema });
 export async function closeDayForNewOrders(formData: FormData) {
   try {
     const { date } = dayDateSchema.parse(Object.fromEntries(formData));
-    db.insert(pickupDateOverrides)
+    await db.insert(pickupDateOverrides)
       .values({ startDate: date, endDate: date, closed: true, note: "Closed manually by admin" })
-      .run();
+      ;
     revalidatePath(ORDERS_PATH);
     revalidatePath(PATH);
   } catch (err) {
@@ -166,7 +166,7 @@ export async function closeDayForNewOrders(formData: FormData) {
 export async function reopenDay(formData: FormData) {
   try {
     const { date } = dayDateSchema.parse(Object.fromEntries(formData));
-    db.delete(pickupDateOverrides)
+    await db.delete(pickupDateOverrides)
       .where(
         and(
           eq(pickupDateOverrides.startDate, date),
@@ -174,7 +174,7 @@ export async function reopenDay(formData: FormData) {
           eq(pickupDateOverrides.closed, true)
         )
       )
-      .run();
+      ;
     revalidatePath(ORDERS_PATH);
     revalidatePath(PATH);
   } catch (err) {

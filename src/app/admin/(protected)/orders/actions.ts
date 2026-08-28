@@ -18,7 +18,7 @@ export async function setOrderStatus(formData: FormData) {
 
   try {
     const parsed = setStatusSchema.parse(Object.fromEntries(formData));
-    db.update(orders).set({ status: parsed.status }).where(eq(orders.id, parsed.id)).run();
+    await db.update(orders).set({ status: parsed.status }).where(eq(orders.id, parsed.id));
     revalidatePath("/admin/orders");
     revalidatePath(path);
   } catch (err) {
@@ -39,7 +39,7 @@ export async function markBalanceCollected(formData: FormData) {
 
   try {
     const parsed = markBalanceCollectedSchema.parse(Object.fromEntries(formData));
-    db.update(orders).set({ balanceCollectedAt: Date.now() }).where(eq(orders.id, parsed.id)).run();
+    await db.update(orders).set({ balanceCollectedAt: Date.now() }).where(eq(orders.id, parsed.id));
     revalidatePath("/admin/orders");
     revalidatePath(path);
   } catch (err) {

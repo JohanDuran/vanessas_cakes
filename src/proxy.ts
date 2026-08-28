@@ -1,17 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
-import { siteSettings, users } from "./db/schema";
-import { USER_SESSION_COOKIE, verifyUserSessionToken } from "./lib/auth";
+import { siteSettings, profiles } from "./db/schema";
+import { createSupabaseMiddlewareClient } from "./lib/supabase/middleware";
 
-// read fresh from the DB (not the session token) so revoking admin access
-// via the Admins page takes effect immediately, not after the session expires
-async function isAdminRequest(req: NextRequest): Promise<boolean> {
-  const token = req.cookies.get(USER_SESSION_COOKIE)?.value;
-  const userId = await verifyUserSessionToken(token);
-  if (userId == null) return false;
-  const user = db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId)).get();
-  return user?.isAdmin ?? false;
+async function isAdminUser(userId: string | undefined): Promise<boolean> {
+  if (!userId) return false;
+  const profile = await db
+    .select({ isAdmin: profiles.isAdmin })
+    .from(profiles)
+    .where(eq(profiles.id, userId))
+    .then((r) => r[0]);
+  return profile?.isAdmin ?? false;
 }
 
 // Hides the site from everyone except admins while deploying/testing in
@@ -21,55 +21,58 @@ async function isAdminRequest(req: NextRequest): Promise<boolean> {
 // env var is an extra force-on switch for use before that row/DB is reachable.
 const MAINTENANCE_BYPASS_PATHS = new Set(["/maintenance", "/account/login"]);
 
-function isMaintenanceModeOn(): boolean {
+async function isMaintenanceModeOn(): Promise<boolean> {
   if (process.env.MAINTENANCE_MODE === "true") return true;
-  const row = db.select({ maintenanceMode: siteSettings.maintenanceMode }).from(siteSettings).limit(1).get();
+  const row = await db.select({ maintenanceMode: siteSettings.maintenanceMode }).from(siteSettings).limit(1).then((r) => r[0]);
   return row?.maintenanceMode ?? false;
 }
 
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (isMaintenanceModeOn() && !MAINTENANCE_BYPASS_PATHS.has(pathname)) {
-    if (!(await isAdminRequest(req))) {
+  const { supabase, getResponse } = createSupabaseMiddlewareClient(req);
+  // getUser() (not getSession()) — it revalidates the token against Supabase
+  // Auth instead of just trusting whatever's in the cookie.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if ((await isMaintenanceModeOn()) && !MAINTENANCE_BYPASS_PATHS.has(pathname)) {
+    if (!(await isAdminUser(user?.id))) {
       return NextResponse.rewrite(new URL("/maintenance", req.url));
     }
   }
 
   if (pathname.startsWith("/admin")) {
-    const token = req.cookies.get(USER_SESSION_COOKIE)?.value;
-    const userId = await verifyUserSessionToken(token);
-    if (userId == null) {
+    if (!user) {
       const loginUrl = new URL("/account/login", req.url);
       loginUrl.searchParams.set("next", pathname);
       return NextResponse.redirect(loginUrl);
     }
 
-    if (!(await isAdminRequest(req))) {
+    if (!(await isAdminUser(user.id))) {
       return NextResponse.redirect(new URL("/account", req.url));
     }
-    return NextResponse.next();
+    return getResponse();
   }
 
   if (pathname.startsWith("/account")) {
-    if (pathname === "/account/login" || pathname === "/account/signup") return NextResponse.next();
+    if (pathname === "/account/login" || pathname === "/account/signup") return getResponse();
 
-    const token = req.cookies.get(USER_SESSION_COOKIE)?.value;
-    const userId = await verifyUserSessionToken(token);
-    if (userId == null) {
+    if (!user) {
       const loginUrl = new URL("/account/login", req.url);
       loginUrl.searchParams.set("next", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    return NextResponse.next();
+    return getResponse();
   }
 
-  return NextResponse.next();
+  return getResponse();
 }
 
 export const config = {
   // Runs on every page route so maintenance mode can gate the whole app;
   // excludes API routes, Next internals, and any path with a file extension
-  // (favicon.ico, logo.png, robots.txt, uploaded images, etc).
+  // (favicon.ico, logo.png, robots.txt, etc).
   matcher: ["/((?!api|_next/static|_next/image|.*\\..*).*)"],
 };

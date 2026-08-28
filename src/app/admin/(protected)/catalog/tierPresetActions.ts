@@ -12,15 +12,15 @@ import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
 /** Tiered presets are `size` field options tagged styleKind="tiered". */
-function getSizeField() {
-  const field = db.select().from(fields).where(eq(fields.slug, SIZE_FIELD_SLUG)).get();
+async function getSizeField() {
+  const field = await db.select().from(fields).where(eq(fields.slug, SIZE_FIELD_SLUG)).then((r) => r[0]);
   if (!field) throw new Error("size field not found.");
   return field;
 }
 
 /** Active Standard-styled molds — the only options a tier preset is allowed
  *  to reference, ranked by sortOrder for the adjacency/no-skip check. */
-function getAtomicMolds(sizeFieldId: number): AtomicMold[] {
+async function getAtomicMolds(sizeFieldId: number): Promise<AtomicMold[]> {
   return db
     .select({ id: fieldOptions.id, sortOrder: fieldOptions.sortOrder })
     .from(fieldOptions)
@@ -30,8 +30,7 @@ function getAtomicMolds(sizeFieldId: number): AtomicMold[] {
         eq(fieldOptions.active, true),
         eq(fieldOptions.styleKind, "standard")
       )
-    )
-    .all();
+    );
 }
 
 const presetShape = {
@@ -54,10 +53,10 @@ function readPresetForm(formData: FormData) {
   };
 }
 
-function validateLevels(levelCount: number, moldOptionIds: number[], sizeFieldId: number) {
+async function validateLevels(levelCount: number, moldOptionIds: number[], sizeFieldId: number) {
   if (!isTierLevelCount(levelCount)) throw new Error("Invalid number of tiers.");
   if (moldOptionIds.length !== levelCount) throw new Error("Pick a mold for every tier level.");
-  if (!isValidMoldStack(moldOptionIds, getAtomicMolds(sizeFieldId))) {
+  if (!isValidMoldStack(moldOptionIds, await getAtomicMolds(sizeFieldId))) {
     throw new Error(
       "Molds must run base (widest) to top (narrowest) through adjacent sizes, with no size skipped."
     );
@@ -69,12 +68,12 @@ export async function createTierPreset(formData: FormData) {
 
   try {
     const parsed = createPresetSchema.parse(readPresetForm(formData));
-    const sizeField = getSizeField();
+    const sizeField = await getSizeField();
     path = `/admin/catalog/${sizeField.id}`;
-    validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+    await validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
 
-    db.transaction((tx) => {
-      const insertedOption = tx
+    await db.transaction(async (tx) => {
+      const insertedOption = await tx
         .insert(fieldOptions)
         .values({
           fieldId: sizeField.id,
@@ -85,17 +84,15 @@ export async function createTierPreset(formData: FormData) {
           updatedAt: Date.now(),
         })
         .returning({ id: fieldOptions.id })
-        .get();
-      const insertedPreset = tx
+        .then((r) => r[0]);
+      const insertedPreset = await tx
         .insert(tierPresets)
         .values({ fieldOptionId: insertedOption.id, levelCount: parsed.levelCount, updatedAt: Date.now() })
         .returning({ id: tierPresets.id })
-        .get();
-      parsed.moldOptionIds.forEach((moldOptionId, index) => {
-        tx.insert(tierPresetLevels)
-          .values({ tierPresetId: insertedPreset.id, position: index + 1, moldOptionId })
-          .run();
-      });
+        .then((r) => r[0]);
+      for (const [index, moldOptionId] of parsed.moldOptionIds.entries()) {
+        await tx.insert(tierPresetLevels).values({ tierPresetId: insertedPreset.id, position: index + 1, moldOptionId });
+      }
     });
 
     revalidatePath(path);
@@ -111,28 +108,26 @@ export async function updateTierPreset(formData: FormData) {
 
   try {
     const parsed = updatePresetSchema.parse(readPresetForm(formData));
-    const sizeField = getSizeField();
+    const sizeField = await getSizeField();
     path = `/admin/catalog/${sizeField.id}`;
-    validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
+    await validateLevels(parsed.levelCount, parsed.moldOptionIds, sizeField.id);
 
-    const preset = db.select().from(tierPresets).where(eq(tierPresets.fieldOptionId, parsed.id)).get();
+    const preset = await db.select().from(tierPresets).where(eq(tierPresets.fieldOptionId, parsed.id)).then((r) => r[0]);
     if (!preset) throw new Error("Tier preset not found.");
 
-    db.transaction((tx) => {
-      tx.update(fieldOptions)
+    await db.transaction(async (tx) => {
+      await tx.update(fieldOptions)
         .set({ name: parsed.name, priceCents: dollarsToCents(parsed.priceDollars), updatedAt: Date.now() })
         .where(eq(fieldOptions.id, parsed.id))
-        .run();
-      tx.update(tierPresets)
+        ;
+      await tx.update(tierPresets)
         .set({ levelCount: parsed.levelCount, updatedAt: Date.now() })
         .where(eq(tierPresets.id, preset.id))
-        .run();
-      tx.delete(tierPresetLevels).where(eq(tierPresetLevels.tierPresetId, preset.id)).run();
-      parsed.moldOptionIds.forEach((moldOptionId, index) => {
-        tx.insert(tierPresetLevels)
-          .values({ tierPresetId: preset.id, position: index + 1, moldOptionId })
-          .run();
-      });
+        ;
+      await tx.delete(tierPresetLevels).where(eq(tierPresetLevels.tierPresetId, preset.id));
+      for (const [index, moldOptionId] of parsed.moldOptionIds.entries()) {
+        await tx.insert(tierPresetLevels).values({ tierPresetId: preset.id, position: index + 1, moldOptionId });
+      }
     });
 
     revalidatePath(path);

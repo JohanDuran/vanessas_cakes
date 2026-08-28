@@ -11,8 +11,8 @@ export default async function ConstraintsPage() {
     db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
     // all options (including inactive) so already-existing pairs stay legible
     // if an option is later deactivated; the pickers below filter to active only
-    db.select().from(fieldOptions).then((r) => r),
-    db.select().from(constraintPairs).all(),
+    await db.select().from(fieldOptions).then((r) => r),
+    db.select().from(constraintPairs),
   ]);
 
   const sortedFields = [...allFields].sort(

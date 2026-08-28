@@ -30,17 +30,17 @@ function filesFrom(formData: FormData, field: string): File[] {
 
 /** Mirrors submitCart's order_selections insert, minus the price/label
  *  snapshot — nothing is final until checkout. */
-function insertSelections(cartItemId: number, answers: Answers) {
+async function insertSelections(cartItemId: number, answers: Answers) {
   for (const [fieldIdStr, answer] of Object.entries(answers)) {
     const fieldId = Number(fieldIdStr);
     if (answer.type === "options") {
       for (const optionId of answer.optionIds) {
-        db.insert(cartItemSelections).values({ cartItemId, fieldId, fieldOptionId: optionId }).run();
+        await db.insert(cartItemSelections).values({ cartItemId, fieldId, fieldOptionId: optionId });
       }
     } else if (answer.type === "text") {
-      db.insert(cartItemSelections).values({ cartItemId, fieldId, textValue: answer.value }).run();
+      await db.insert(cartItemSelections).values({ cartItemId, fieldId, textValue: answer.value });
     } else {
-      db.insert(cartItemSelections).values({ cartItemId, fieldId, numberValue: answer.value }).run();
+      await db.insert(cartItemSelections).values({ cartItemId, fieldId, numberValue: answer.value });
     }
   }
 }
@@ -57,17 +57,17 @@ export async function addCartItemAction(formData: FormData): Promise<{ id: numbe
   const answers = parseAnswers(formData);
   const files = filesFrom(formData, "referenceImages");
 
-  const inserted = db
+  const inserted = await db
     .insert(cartItems)
     .values({ userId: user.id, designId, isCustom })
     .returning({ id: cartItems.id })
-    .get();
-  insertSelections(inserted.id, answers);
+    .then((r) => r[0]);
+  await insertSelections(inserted.id, answers);
 
   const referenceImagePaths: string[] = [];
   for (const file of files) {
     const relPath = await saveUploadedPhoto(file);
-    db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath }).run();
+    await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath });
     referenceImagePaths.push(relPath);
   }
 
@@ -83,7 +83,7 @@ export async function updateCartItemAction(formData: FormData): Promise<{ refere
   if (!user) throw new Error("Not signed in.");
 
   const id = Number(formData.get("id"));
-  const existing = db.select().from(cartItems).where(eq(cartItems.id, id)).get();
+  const existing = await db.select().from(cartItems).where(eq(cartItems.id, id)).then((r) => r[0]);
   if (!existing || existing.userId !== user.id) throw new Error("Cart item not found.");
 
   const designId = parseDesignId(formData);
@@ -91,20 +91,20 @@ export async function updateCartItemAction(formData: FormData): Promise<{ refere
   const answers = parseAnswers(formData);
   const files = filesFrom(formData, "referenceImages");
 
-  db.update(cartItems).set({ designId, isCustom }).where(eq(cartItems.id, id)).run();
-  db.delete(cartItemSelections).where(eq(cartItemSelections.cartItemId, id)).run();
-  insertSelections(id, answers);
+  await db.update(cartItems).set({ designId, isCustom }).where(eq(cartItems.id, id));
+  await db.delete(cartItemSelections).where(eq(cartItemSelections.cartItemId, id));
+  await insertSelections(id, answers);
 
   for (const file of files) {
     const relPath = await saveUploadedPhoto(file);
-    db.insert(cartItemReferenceImages).values({ cartItemId: id, path: relPath }).run();
+    await db.insert(cartItemReferenceImages).values({ cartItemId: id, path: relPath });
   }
 
-  const images = db
+  const images = await db
     .select()
     .from(cartItemReferenceImages)
     .where(eq(cartItemReferenceImages.cartItemId, id))
-    .all();
+    ;
   return { referenceImagePaths: images.map((i) => i.path) };
 }
 
@@ -113,9 +113,9 @@ export async function updateCartItemAction(formData: FormData): Promise<{ refere
 export async function removeCartItemAction(id: number): Promise<void> {
   const user = await getCurrentUser();
   if (!user) return;
-  const existing = db.select().from(cartItems).where(eq(cartItems.id, id)).get();
+  const existing = await db.select().from(cartItems).where(eq(cartItems.id, id)).then((r) => r[0]);
   if (!existing || existing.userId !== user.id) return;
-  db.delete(cartItems).where(eq(cartItems.id, id)).run();
+  await db.delete(cartItems).where(eq(cartItems.id, id));
 }
 
 const guestItemSchema = z.object({
@@ -136,17 +136,17 @@ export async function mergeGuestCartAction(formData: FormData): Promise<CartItem
   const items = guestItemSchema.array().parse(JSON.parse(String(formData.get("items") ?? "[]")));
 
   for (const item of items) {
-    const inserted = db
+    const inserted = await db
       .insert(cartItems)
       .values({ userId: user.id, designId: item.designId, isCustom: item.isCustom })
       .returning({ id: cartItems.id })
-      .get();
-    insertSelections(inserted.id, item.answers);
+      .then((r) => r[0]);
+    await insertSelections(inserted.id, item.answers);
 
     if (item.isCustom) {
       for (const file of filesFrom(formData, `files_${item.localId}`)) {
         const relPath = await saveUploadedPhoto(file);
-        db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath }).run();
+        await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath });
       }
     }
   }

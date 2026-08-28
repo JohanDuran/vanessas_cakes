@@ -1,5 +1,4 @@
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, lt, ne } from "drizzle-orm";
-import { cookies } from "next/headers";
 import { db } from "./index";
 import {
   fields,
@@ -22,13 +21,13 @@ import {
   orderItems,
   orderSelections,
   orderReferenceImages,
-  users,
+  profiles,
   cartItems,
   cartItemSelections,
   cartItemReferenceImages,
 } from "./schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
-import { USER_SESSION_COOKIE, verifyUserSessionToken } from "../lib/auth";
+import { createSupabaseServerClient } from "../lib/supabase/server";
 import type { Answers } from "../lib/pricing";
 import type {
   CategoryDTO,
@@ -53,12 +52,12 @@ export const DEFAULT_PICKUP_SETTINGS: PickupSettings = {
  *  detail page's new->viewed flip on view. Orders with no pickup date (e.g.
  *  custom-cake quote requests) are left alone since there's no date to judge
  *  "past" by. Call this before reading orders in any admin orders view. */
-export function closePastPickupOrders(): void {
+export async function closePastPickupOrders(): Promise<void> {
   const todayKey = toDateKey(new Date());
-  db.update(orders)
+  await db
+    .update(orders)
     .set({ status: "archived" })
-    .where(and(ne(orders.status, "archived"), isNotNull(orders.pickupDate), lt(orders.pickupDate, todayKey)))
-    .run();
+    .where(and(ne(orders.status, "archived"), isNotNull(orders.pickupDate), lt(orders.pickupDate, todayKey)));
 }
 
 /** Everything the cart's pickup calendar needs to compute available
@@ -373,15 +372,15 @@ export type OrderItemDetailDTO = {
  *  the admin order detail page and the thank-you page. Returns null if no
  *  order with this id exists. */
 export async function loadOrderWithItems(orderId: number) {
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const order = await db.select().from(orders).where(eq(orders.id, orderId)).then((r) => r[0]);
   if (!order) return null;
 
-  const items = db
+  const items = await db
     .select()
     .from(orderItems)
     .where(eq(orderItems.orderId, orderId))
     .orderBy(asc(orderItems.sortOrder))
-    .all();
+    ;
   const itemIds = items.map((i) => i.id);
 
   const [selections, referenceImages, allFieldRows, designRows] = await Promise.all([
@@ -423,7 +422,7 @@ export async function loadOrderWithItems(orderId: number) {
 }
 
 export type CurrentUserDTO = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   phone: string | null;
@@ -432,24 +431,26 @@ export type CurrentUserDTO = {
 };
 
 /** The logged-in user for this request, or null if there's no valid
- *  session — reads the same signed cookie proxy.ts checks for route
- *  protection, but this is for using the identity within a page/action.
+ *  Supabase Auth session — this is for using the identity within a
+ *  page/action; proxy.ts does its own separate check for route protection.
  *  Covers both customers and admins — isAdmin is just a flag on the row. */
 export async function getCurrentUser(): Promise<CurrentUserDTO | null> {
-  const store = await cookies();
-  const userId = await verifyUserSessionToken(store.get(USER_SESSION_COOKIE)?.value);
-  if (userId == null) return null;
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) return null;
 
-  const user = db.select().from(users).where(eq(users.id, userId)).get();
-  if (!user) return null;
+  const profile = await db.select().from(profiles).where(eq(profiles.id, authUser.id)).then((r) => r[0]);
+  if (!profile) return null;
 
   return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    isAdmin: user.isAdmin,
-    marketingOptIn: user.marketingOptIn,
+    id: profile.id,
+    name: profile.name,
+    email: profile.email,
+    phone: profile.phone,
+    isAdmin: profile.isAdmin,
+    marketingOptIn: profile.marketingOptIn,
   };
 }
 
@@ -467,27 +468,27 @@ export type CartItemDTO = {
 /** A logged-in customer's saved cart, in wizard-answer shape — the DB-backed
  *  counterpart to CartContext's in-memory guest cart. Empty for anyone who
  *  isn't signed in (guests never get rows here). */
-export async function getCartItemsForUser(userId: number): Promise<CartItemDTO[]> {
-  const items = db
+export async function getCartItemsForUser(userId: string): Promise<CartItemDTO[]> {
+  const items = await db
     .select()
     .from(cartItems)
     .where(eq(cartItems.userId, userId))
     .orderBy(asc(cartItems.sortOrder), asc(cartItems.id))
-    .all();
+    ;
   if (items.length === 0) return [];
 
   const itemIds = items.map((i) => i.id);
-  const selections = db
+  const selections = await db
     .select()
     .from(cartItemSelections)
     .where(inArray(cartItemSelections.cartItemId, itemIds))
-    .all();
-  const images = db
+    ;
+  const images = await db
     .select()
     .from(cartItemReferenceImages)
     .where(inArray(cartItemReferenceImages.cartItemId, itemIds))
     .orderBy(asc(cartItemReferenceImages.sortOrder))
-    .all();
+    ;
 
   return items.map((item) => {
     const answers: Answers = {};
@@ -514,12 +515,12 @@ export async function getCartItemsForUser(userId: number): Promise<CartItemDTO[]
   });
 }
 
-export type UserSummaryDTO = { id: number; name: string; email: string; isAdmin: boolean; createdAt: number };
+export type UserSummaryDTO = { id: string; name: string; email: string; isAdmin: boolean; createdAt: number };
 
 /** Every registered account, for the admin section's Admins page — lets an
  *  admin grant or revoke admin access on any user. */
 export async function loadAllUsers(): Promise<UserSummaryDTO[]> {
-  return db.select().from(users).orderBy(asc(users.name)).all();
+  return db.select().from(profiles).orderBy(asc(profiles.name));
 }
 
 export type OrderSummaryDTO = {
@@ -533,20 +534,20 @@ export type OrderSummaryDTO = {
 };
 
 /** Order history for a logged-in customer's account page — newest first. */
-export async function loadOrdersForUser(userId: number): Promise<OrderSummaryDTO[]> {
-  const userOrders = db
+export async function loadOrdersForUser(userId: string): Promise<OrderSummaryDTO[]> {
+  const userOrders = await db
     .select()
     .from(orders)
     .where(eq(orders.userId, userId))
     .orderBy(desc(orders.createdAt))
-    .all();
+    ;
   if (userOrders.length === 0) return [];
 
   const orderIds = userOrders.map((o) => o.id);
-  const items = db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds)).all();
+  const items = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
   const designIds = items.map((i) => i.designId).filter((id): id is number => id != null);
   const designRows =
-    designIds.length > 0 ? db.select().from(designs).where(inArray(designs.id, designIds)).all() : [];
+    designIds.length > 0 ? await db.select().from(designs).where(inArray(designs.id, designIds)) : [];
   const designNameById = new Map(designRows.map((d) => [d.id, d.name]));
 
   return userOrders.map((order) => ({

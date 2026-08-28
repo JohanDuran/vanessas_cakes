@@ -26,7 +26,7 @@ export default function DesignPhotoCarousel({ photos, alt }: Props) {
   return (
     <div className="photo-carousel">
       <div className="photo-carousel__stage">
-        <img src={`/uploads/${photos[index]}`} alt={alt} />
+        <img src={photos[index]} alt={alt} />
 
         {photos.length > 1 && (
           <>

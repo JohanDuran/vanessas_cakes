@@ -20,7 +20,7 @@ function summarizeItemNames(names: string[]): string {
 }
 
 export default async function AdminDashboardPage() {
-  closePastPickupOrders();
+  await closePastPickupOrders();
 
   const now = new Date();
   const todayKey = toDateKey(now);
@@ -28,7 +28,7 @@ export default async function AdminDashboardPage() {
   const upcomingEndKey = toDateKey(new Date(now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000));
 
   const [allOrders, allItems, allDesigns, { settings, orderCountsByDate }] = await Promise.all([
-    db
+    await db
       .select({
         id: orders.id,
         customerName: orders.customerName,
@@ -40,13 +40,13 @@ export default async function AdminDashboardPage() {
       })
       .from(orders)
       .orderBy(desc(orders.createdAt))
-      .all(),
-    db
+      ,
+    await db
       .select({ orderId: orderItems.orderId, designName: designs.name, sortOrder: orderItems.sortOrder })
       .from(orderItems)
       .leftJoin(designs, eq(orderItems.designId, designs.id))
-      .all(),
-    db.select({ published: designs.published }).from(designs).all(),
+      ,
+    await db.select({ published: designs.published }).from(designs),
     loadPickupAvailability(),
   ]);
 

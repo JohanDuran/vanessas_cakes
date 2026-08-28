@@ -12,15 +12,15 @@ export async function setMaintenanceMode(formData: FormData) {
   const maintenanceMode = formData.get("maintenanceMode") === "on";
 
   try {
-    const existing = db.select({ id: siteSettings.id }).from(siteSettings).limit(1).get();
+    const existing = await db.select({ id: siteSettings.id }).from(siteSettings).limit(1).then((r) => r[0]);
 
     if (existing) {
-      db.update(siteSettings)
+      await db.update(siteSettings)
         .set({ maintenanceMode, updatedAt: Date.now() })
         .where(eq(siteSettings.id, existing.id))
-        .run();
+        ;
     } else {
-      db.insert(siteSettings).values({ maintenanceMode, updatedAt: Date.now() }).run();
+      await db.insert(siteSettings).values({ maintenanceMode, updatedAt: Date.now() });
     }
 
     revalidatePath(PATH);

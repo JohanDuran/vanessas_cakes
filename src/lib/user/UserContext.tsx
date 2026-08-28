@@ -2,7 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-export type CurrentUser = { id: number; name: string; email: string; phone: string | null; isAdmin: boolean };
+export type CurrentUser = { id: string; name: string; email: string; phone: string | null; isAdmin: boolean };
 
 const UserContext = createContext<CurrentUser | null>(null);
 

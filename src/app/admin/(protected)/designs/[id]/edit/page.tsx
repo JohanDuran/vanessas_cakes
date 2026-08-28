@@ -30,7 +30,7 @@ export default async function EditDesignPage({
   const designId = Number(id);
   if (!Number.isInteger(designId)) notFound();
 
-  const design = db.select().from(designs).where(eq(designs.id, designId)).get();
+  const design = await db.select().from(designs).where(eq(designs.id, designId)).then((r) => r[0]);
   if (!design) notFound();
 
   const [

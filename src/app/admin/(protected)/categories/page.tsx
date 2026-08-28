@@ -6,11 +6,11 @@ import { createCategory, saveCategory, setCategoryActive } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function CategoriesPage() {
-  const categories = db
+  const categories = await db
     .select()
     .from(cakeCategories)
     .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
-    .all();
+    ;
 
   return (
     <>

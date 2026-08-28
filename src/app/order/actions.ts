@@ -77,7 +77,7 @@ type ResolvedItem = {
 /** Validates and re-prices one cart item entirely from trusted server-side
  *  catalog data — never trusts the client-sent designId/answers/price shape.
  *  Mirrors what the old single-cake submitOrder did for its one design. */
-function resolveCartItem(
+async function resolveCartItem(
   item: z.infer<typeof cartItemSchema>,
   catalog: {
     allFields: (typeof fields.$inferSelect)[];
@@ -87,13 +87,13 @@ function resolveCartItem(
     cakeStyleCtx: ReturnType<typeof buildCakeStyleContext>;
     pairs: (typeof constraintPairs.$inferSelect)[];
   }
-): { ok: true; item: ResolvedItem } | { ok: false; error: string } {
+): Promise<{ ok: true; item: ResolvedItem } | { ok: false; error: string }> {
   const { allFields, allOptions, optionById, fieldById, cakeStyleCtx, pairs } = catalog;
   const isCustomItem = !item.designId;
 
   let design: typeof designs.$inferSelect | undefined;
   if (!isCustomItem) {
-    design = db.select().from(designs).where(eq(designs.id, item.designId!)).get();
+    design = await db.select().from(designs).where(eq(designs.id, item.designId!)).then((r) => r[0]);
     if (!design || !design.published) {
       return { ok: false, error: "One of the designs in your cart is no longer available." };
     }
@@ -102,11 +102,11 @@ function resolveCartItem(
   const designAnswers: Answers = {};
   const includedFieldIds = new Set<number>();
   if (!isCustomItem) {
-    const designFieldValueRows = db
+    const designFieldValueRows = await db
       .select()
       .from(designFieldValues)
       .where(eq(designFieldValues.designId, design!.id))
-      .all();
+      ;
     for (const row of designFieldValueRows) {
       includedFieldIds.add(row.fieldId);
       if (row.fieldOptionId != null) {
@@ -126,23 +126,17 @@ function resolveCartItem(
   const lockedFieldIds = new Set(
     isCustomItem
       ? []
-      : db
-          .select()
-          .from(designLockedFields)
-          .where(eq(designLockedFields.designId, design!.id))
-          .all()
-          .map((r) => r.fieldId)
+      : (
+          await db.select().from(designLockedFields).where(eq(designLockedFields.designId, design!.id))
+        ).map((r) => r.fieldId)
   );
 
   const excludedOptionIds = new Set(
     isCustomItem
       ? []
-      : db
-          .select()
-          .from(designExcludedOptions)
-          .where(eq(designExcludedOptions.designId, design!.id))
-          .all()
-          .map((r) => r.fieldOptionId)
+      : (
+          await db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, design!.id))
+        ).map((r) => r.fieldOptionId)
   );
 
   // re-validate each field's answer against the trusted catalog — never trust
@@ -271,13 +265,13 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     pickupTime = parsed.pickupTime!;
   }
 
-  const allFields = db.select().from(fields).where(eq(fields.active, true)).all();
-  const allOptions = db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).all();
+  const allFields = await db.select().from(fields).where(eq(fields.active, true));
+  const allOptions = await db.select().from(fieldOptions).where(eq(fieldOptions.active, true));
   const optionById = new Map(allOptions.map((o) => [o.id, o]));
   const fieldById = new Map(allFields.map((f) => [f.id, f]));
 
-  const allTierPresetRows = db.select().from(tierPresetsTable).all();
-  const allTierPresetLevelRows = db.select().from(tierPresetLevels).all();
+  const allTierPresetRows = await db.select().from(tierPresetsTable);
+  const allTierPresetLevelRows = await db.select().from(tierPresetLevels);
   const tierPresetDTOs: TierPresetDTO[] = allTierPresetRows.map((preset) => ({
     fieldOptionId: preset.fieldOptionId,
     levelCount: preset.levelCount,
@@ -321,11 +315,11 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
   }));
   const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
-  const pairs = db.select().from(constraintPairs).all();
+  const pairs = await db.select().from(constraintPairs);
 
   const resolvedItems: ResolvedItem[] = [];
   for (const item of cartInput) {
-    const result = resolveCartItem(item, { allFields, allOptions, optionById, fieldById, cakeStyleCtx, pairs });
+    const result = await resolveCartItem(item, { allFields, allOptions, optionById, fieldById, cakeStyleCtx, pairs });
     if (!result.ok) return { error: result.error };
     resolvedItems.push(result.item);
   }
@@ -349,8 +343,8 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
       : totalPriceCents
     : totalPriceCents;
 
-  const { orderId, itemIdByClientId } = db.transaction((tx) => {
-    const insertedOrder = tx
+  const { orderId, itemIdByClientId } = await db.transaction(async (tx) => {
+    const insertedOrder = await tx
       .insert(orders)
       .values({
         userId: currentUser?.id ?? null,
@@ -367,12 +361,12 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         amountDueCents,
       })
       .returning({ id: orders.id })
-      .get();
+      .then((r) => r[0]);
 
     const itemIdByClientId = new Map<string, number>();
 
-    resolvedItems.forEach((resolved, index) => {
-      const insertedItem = tx
+    for (const [index, resolved] of resolvedItems.entries()) {
+      const insertedItem = await tx
         .insert(orderItems)
         .values({
           orderId: insertedOrder.id,
@@ -381,7 +375,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
           sortOrder: index,
         })
         .returning({ id: orderItems.id })
-        .get();
+        .then((r) => r[0]);
       itemIdByClientId.set(resolved.clientId, insertedItem.id);
 
       for (const [fieldIdStr, answer] of Object.entries(resolved.answers)) {
@@ -389,7 +383,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         if (answer.type === "options") {
           for (const optionId of answer.optionIds) {
             const option = optionById.get(optionId)!;
-            tx.insert(orderSelections)
+            await tx.insert(orderSelections)
               .values({
                 orderItemId: insertedItem.id,
                 fieldId,
@@ -397,10 +391,10 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
                 labelSnapshot: option.name,
                 priceCentsSnapshot: option.priceCents,
               })
-              .run();
+              ;
           }
         } else if (answer.type === "text") {
-          tx.insert(orderSelections)
+          await tx.insert(orderSelections)
             .values({
               orderItemId: insertedItem.id,
               fieldId,
@@ -408,9 +402,9 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
               labelSnapshot: answer.value,
               priceCentsSnapshot: fieldById.get(fieldId)?.additionalPriceCents ?? 0,
             })
-            .run();
+            ;
         } else {
-          tx.insert(orderSelections)
+          await tx.insert(orderSelections)
             .values({
               orderItemId: insertedItem.id,
               fieldId,
@@ -418,10 +412,10 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
               labelSnapshot: String(answer.value),
               priceCentsSnapshot: fieldById.get(fieldId)?.additionalPriceCents ?? 0,
             })
-            .run();
+            ;
         }
       }
-    });
+    }
 
     return { orderId: insertedOrder.id, itemIdByClientId };
   });
@@ -436,19 +430,19 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     // (client-impossible-to-resend) File objects in this submission. Only
     // trust dbId when it actually belongs to the submitting customer.
     if (item.dbId && currentUser) {
-      const ownedCartItem = db
+      const ownedCartItem = await db
         .select()
         .from(cartItems)
         .where(eq(cartItems.id, item.dbId))
-        .get();
+        .then((r) => r[0]);
       if (ownedCartItem && ownedCartItem.userId === currentUser.id) {
-        const savedImages = db
+        const savedImages = await db
           .select()
           .from(cartItemReferenceImages)
           .where(eq(cartItemReferenceImages.cartItemId, item.dbId))
-          .all();
+          ;
         for (const image of savedImages) {
-          db.insert(orderReferenceImages).values({ orderItemId, path: image.path }).run();
+          await db.insert(orderReferenceImages).values({ orderItemId, path: image.path });
         }
         continue;
       }
@@ -459,7 +453,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
       .filter((f): f is File => f instanceof File && f.size > 0);
     for (const file of referenceImageFiles) {
       const relPath = await saveUploadedPhoto(file);
-      db.insert(orderReferenceImages).values({ orderItemId, path: relPath }).run();
+      await db.insert(orderReferenceImages).values({ orderItemId, path: relPath });
     }
   }
 
@@ -481,7 +475,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         totalPriceCents,
       });
     } catch {
-      db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId)).run();
+      await db.update(orders).set({ paymentStatus: "failed" }).where(eq(orders.id, orderId));
       return { error: "We couldn't start checkout. Please try again in a moment." };
     }
     redirect(session.url!);
@@ -491,7 +485,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   // drop whatever's left of the customer's saved cart so it doesn't linger
   // and get resubmitted
   if (currentUser) {
-    db.delete(cartItems).where(eq(cartItems.userId, currentUser.id)).run();
+    await db.delete(cartItems).where(eq(cartItems.userId, currentUser.id));
   }
 
   redirect(`/order/thank-you?id=${orderId}`);

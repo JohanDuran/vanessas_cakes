@@ -23,8 +23,8 @@ export async function createConstraint(formData: FormData) {
     }
 
     const [optionA, optionB] = await Promise.all([
-      db.select().from(fieldOptions).where(eq(fieldOptions.id, parsed.optionAId)).get(),
-      db.select().from(fieldOptions).where(eq(fieldOptions.id, parsed.optionBId)).get(),
+      await db.select().from(fieldOptions).where(eq(fieldOptions.id, parsed.optionAId)).then((r) => r[0]),
+      await db.select().from(fieldOptions).where(eq(fieldOptions.id, parsed.optionBId)).then((r) => r[0]),
     ]);
     if (!optionA || !optionB) throw new Error("Option not found.");
     if (optionA.fieldId === optionB.fieldId) {
@@ -34,10 +34,10 @@ export async function createConstraint(formData: FormData) {
     // canonicalize so (A,B) and (B,A) are never stored as separate rows
     const [first, second] = optionA.id < optionB.id ? [optionA, optionB] : [optionB, optionA];
 
-    db.insert(constraintPairs)
+    await db.insert(constraintPairs)
       .values({ optionAId: first.id, optionBId: second.id })
       .onConflictDoNothing()
-      .run();
+      ;
 
     revalidatePath(PATH);
   } catch (err) {
@@ -51,6 +51,6 @@ const deleteSchema = z.object({ id: z.coerce.number().int() });
 
 export async function deleteConstraint(formData: FormData) {
   const parsed = deleteSchema.parse(Object.fromEntries(formData));
-  db.delete(constraintPairs).where(eq(constraintPairs.id, parsed.id)).run();
+  await db.delete(constraintPairs).where(eq(constraintPairs.id, parsed.id));
   revalidatePath("/admin/constraints");
 }

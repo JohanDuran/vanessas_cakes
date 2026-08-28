@@ -7,9 +7,9 @@ import "../account.css";
 export default async function AccountLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; next?: string }>;
+  searchParams: Promise<{ error?: string; notice?: string; next?: string }>;
 }) {
-  const { error, next } = await searchParams;
+  const { error, notice, next } = await searchParams;
 
   return (
     <>
@@ -20,6 +20,9 @@ export default async function AccountLoginPage({
           <h1>Log In</h1>
           <p>Log in to track your orders and check out faster.</p>
 
+          {notice === "confirm-email" && (
+            <p className="account-auth__error">Almost there — check your email for a confirmation link before logging in.</p>
+          )}
           {error && <p className="account-auth__error">Incorrect email or password. Try again.</p>}
 
           {next && <input type="hidden" name="next" value={next} />}

@@ -43,11 +43,11 @@ export async function saveDesign(formData: FormData) {
   try {
     const parsed = saveSchema.parse(Object.fromEntries(formData));
 
-    const allFields = db.select().from(fields).all();
-    const allOptions = db.select().from(fieldOptions).all();
+    const allFields = await db.select().from(fields);
+    const allOptions = await db.select().from(fieldOptions);
 
-    const allTierPresetRows = db.select().from(tierPresets).all();
-    const allTierPresetLevelRows = db.select().from(tierPresetLevels).all();
+    const allTierPresetRows = await db.select().from(tierPresets);
+    const allTierPresetLevelRows = await db.select().from(tierPresetLevels);
     const optionByIdRaw = new Map(allOptions.map((o) => [o.id, o]));
     const tierPresetDTOs: TierPresetDTO[] = allTierPresetRows.map((preset) => ({
       fieldOptionId: preset.fieldOptionId,
@@ -146,11 +146,10 @@ export async function saveDesign(formData: FormData) {
       }
     }
 
-    const pairs = db
-      .select()
-      .from(constraintPairs)
-      .all()
-      .map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
+    const pairs = (await db.select().from(constraintPairs)).map((p) => ({
+      optionAId: p.optionAId,
+      optionBId: p.optionBId,
+    }));
 
     if (selectionsViolateConstraints(answers, pairs)) {
       throw new Error(
@@ -193,9 +192,9 @@ export async function saveDesign(formData: FormData) {
 
     designId = parsed.id;
 
-    db.transaction((tx) => {
+    await db.transaction(async (tx) => {
       if (designId) {
-        tx.update(designs)
+        await tx.update(designs)
           .set({
             name: parsed.name,
             description: parsed.description || null,
@@ -205,11 +204,11 @@ export async function saveDesign(formData: FormData) {
             updatedAt: Date.now(),
           })
           .where(eq(designs.id, designId!))
-          .run();
+          ;
 
-        tx.delete(designFieldValues).where(eq(designFieldValues.designId, designId!)).run();
+        await tx.delete(designFieldValues).where(eq(designFieldValues.designId, designId!));
       } else {
-        const inserted = tx
+        const inserted = await tx
           .insert(designs)
           .values({
             name: parsed.name,
@@ -220,7 +219,7 @@ export async function saveDesign(formData: FormData) {
             updatedAt: Date.now(),
           })
           .returning({ id: designs.id })
-          .get();
+          .then((r) => r[0]);
         designId = inserted.id;
       }
 
@@ -228,12 +227,12 @@ export async function saveDesign(formData: FormData) {
         const fieldId = Number(fieldIdStr);
         if (answer.type === "options") {
           for (const optionId of answer.optionIds) {
-            tx.insert(designFieldValues).values({ designId: designId!, fieldId, fieldOptionId: optionId }).run();
+            await tx.insert(designFieldValues).values({ designId: designId!, fieldId, fieldOptionId: optionId });
           }
         } else if (answer.type === "text") {
-          tx.insert(designFieldValues).values({ designId: designId!, fieldId, textValue: answer.value }).run();
+          await tx.insert(designFieldValues).values({ designId: designId!, fieldId, textValue: answer.value });
         } else if (answer.type === "number") {
-          tx.insert(designFieldValues).values({ designId: designId!, fieldId, numberValue: answer.value }).run();
+          await tx.insert(designFieldValues).values({ designId: designId!, fieldId, numberValue: answer.value });
         }
       }
 
@@ -246,24 +245,24 @@ export async function saveDesign(formData: FormData) {
           includedCustomFieldIds.has(field.id) &&
           !answers[field.id]
         ) {
-          tx.insert(designFieldValues).values({ designId: designId!, fieldId: field.id }).run();
+          await tx.insert(designFieldValues).values({ designId: designId!, fieldId: field.id });
         }
       }
 
-      tx.delete(designLockedFields).where(eq(designLockedFields.designId, designId!)).run();
-      lockedFieldIds.forEach((fieldId) => {
-        tx.insert(designLockedFields).values({ designId: designId!, fieldId }).run();
-      });
+      await tx.delete(designLockedFields).where(eq(designLockedFields.designId, designId!));
+      for (const fieldId of lockedFieldIds) {
+        await tx.insert(designLockedFields).values({ designId: designId!, fieldId });
+      }
 
-      tx.delete(designExcludedOptions).where(eq(designExcludedOptions.designId, designId!)).run();
-      excludedOptionIds.forEach((fieldOptionId) => {
-        tx.insert(designExcludedOptions).values({ designId: designId!, fieldOptionId }).run();
-      });
+      await tx.delete(designExcludedOptions).where(eq(designExcludedOptions.designId, designId!));
+      for (const fieldOptionId of excludedOptionIds) {
+        await tx.insert(designExcludedOptions).values({ designId: designId!, fieldOptionId });
+      }
 
-      tx.delete(designCategories).where(eq(designCategories.designId, designId!)).run();
-      categoryIds.forEach((categoryId) => {
-        tx.insert(designCategories).values({ designId: designId!, categoryId }).run();
-      });
+      await tx.delete(designCategories).where(eq(designCategories.designId, designId!));
+      for (const categoryId of categoryIds) {
+        await tx.insert(designCategories).values({ designId: designId!, categoryId });
+      }
     });
 
     const photoFiles = formData
@@ -272,7 +271,7 @@ export async function saveDesign(formData: FormData) {
 
     for (const file of photoFiles) {
       const relPath = await saveUploadedPhoto(file);
-      db.insert(designPhotos).values({ designId: designId!, path: relPath }).run();
+      await db.insert(designPhotos).values({ designId: designId!, path: relPath });
     }
 
     revalidatePath("/admin/designs");
@@ -290,19 +289,19 @@ const deletePhotoSchema = z.object({
 
 export async function deleteDesignPhoto(formData: FormData) {
   const parsed = deletePhotoSchema.parse(Object.fromEntries(formData));
-  const photo = db.select().from(designPhotos).where(eq(designPhotos.id, parsed.id)).get();
+  const photo = await db.select().from(designPhotos).where(eq(designPhotos.id, parsed.id)).then((r) => r[0]);
   if (photo) {
     await deleteUploadedPhoto(photo.path);
-    db.delete(designPhotos).where(eq(designPhotos.id, parsed.id)).run();
+    await db.delete(designPhotos).where(eq(designPhotos.id, parsed.id));
   }
   revalidatePath(`/admin/designs/${parsed.designId}/edit`);
 }
 
 export async function setPrimaryPhoto(formData: FormData) {
   const parsed = deletePhotoSchema.parse(Object.fromEntries(formData));
-  db.transaction((tx) => {
-    tx.update(designPhotos).set({ isPrimary: false }).where(eq(designPhotos.designId, parsed.designId)).run();
-    tx.update(designPhotos).set({ isPrimary: true }).where(eq(designPhotos.id, parsed.id)).run();
+  await db.transaction(async (tx) => {
+    await tx.update(designPhotos).set({ isPrimary: false }).where(eq(designPhotos.designId, parsed.designId));
+    await tx.update(designPhotos).set({ isPrimary: true }).where(eq(designPhotos.id, parsed.id));
   });
   revalidatePath(`/admin/designs/${parsed.designId}/edit`);
 }
@@ -314,10 +313,10 @@ const togglePublishedSchema = z.object({
 
 export async function setDesignPublished(formData: FormData) {
   const parsed = togglePublishedSchema.parse(Object.fromEntries(formData));
-  db.update(designs)
+  await db.update(designs)
     .set({ published: Boolean(parsed.published), updatedAt: Date.now() })
     .where(eq(designs.id, parsed.id))
-    .run();
+    ;
   revalidatePath("/admin/designs");
 }
 
@@ -330,10 +329,10 @@ const toggleFeaturedSchema = z.object({
  *  loadFeaturedDesigns in db/queries.ts, the single place that reads it back. */
 export async function setDesignFeatured(formData: FormData) {
   const parsed = toggleFeaturedSchema.parse(Object.fromEntries(formData));
-  db.update(designs)
+  await db.update(designs)
     .set({ featured: Boolean(parsed.featured), updatedAt: Date.now() })
     .where(eq(designs.id, parsed.id))
-    .run();
+    ;
   revalidatePath("/admin/designs");
   revalidatePath("/");
 }

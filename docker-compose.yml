@@ -8,8 +8,6 @@ services:
       - "5000:3000"
     env_file:
       - .env.docker
-    volumes:
-      - vanessa_data:/data
     restart: unless-stopped
     networks:
       - app-network
@@ -27,6 +25,3 @@ services:
 networks:
   app-network:
     driver: bridge
-
-volumes:
-  vanessa_data:

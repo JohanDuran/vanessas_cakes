@@ -31,17 +31,17 @@ export async function POST(req: Request) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded": {
       const session = event.data.object as Stripe.Checkout.Session;
-      finalizeOrderPaymentFromSession(session);
+      await finalizeOrderPaymentFromSession(session);
       break;
     }
     case "checkout.session.async_payment_failed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      markOrderPaymentFailed(session.id);
+      await markOrderPaymentFailed(session.id);
       break;
     }
     case "checkout.session.expired": {
       const session = event.data.object as Stripe.Checkout.Session;
-      markOrderPaymentExpired(session.id);
+      await markOrderPaymentExpired(session.id);
       break;
     }
     default:

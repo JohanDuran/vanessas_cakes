@@ -81,16 +81,16 @@ const seedOptions: SeedOption[] = [
   { fieldSlug: "decoration", name: "Macarons", priceCents: 500, sortOrder: 5 },
 ];
 
-function seed() {
-  const existing = db.select().from(fields).all();
+async function seed() {
+  const existing = await db.select().from(fields);
   if (existing.length > 0) {
     console.log(`fields already has ${existing.length} rows — skipping seed.`);
     return;
   }
 
   const fieldIdBySlug = new Map<string, number>();
-  BASE_FIELD_SLUGS.forEach((slug, index) => {
-    const inserted = db
+  for (const [index, slug] of BASE_FIELD_SLUGS.entries()) {
+    const inserted = await db
       .insert(fields)
       .values({
         slug,
@@ -102,16 +102,16 @@ function seed() {
         updatedAt: Date.now(),
       })
       .returning({ id: fields.id })
-      .get();
+      .then((r) => r[0]);
     fieldIdBySlug.set(slug, inserted.id);
-  });
+  }
 
   // standard-only, since tier presets are always built from the plain
   // (single-tier, Standard-styled) molds, never from Tall or other presets
   const standardMoldIdByName = new Map<string, number>();
 
   for (const opt of seedOptions) {
-    const insertedOption = db
+    const insertedOption = await db
       .insert(fieldOptions)
       .values({
         fieldId: fieldIdBySlug.get(opt.fieldSlug)!,
@@ -122,7 +122,7 @@ function seed() {
         updatedAt: Date.now(),
       })
       .returning({ id: fieldOptions.id })
-      .get();
+      .then((r) => r[0]);
 
     if (opt.fieldSlug === "size" && opt.styleKind === "standard") {
       standardMoldIdByName.set(opt.name, insertedOption.id);
@@ -135,7 +135,7 @@ function seed() {
       opt.servesMin != null ||
       opt.servesMax != null;
     if (hasDims) {
-      db.insert(fieldOptionDimensions)
+      await db.insert(fieldOptionDimensions)
         .values({
           fieldOptionId: insertedOption.id,
           diameterIn: opt.diameterIn ?? null,
@@ -145,7 +145,7 @@ function seed() {
           servesMax: opt.servesMax ?? null,
           updatedAt: Date.now(),
         })
-        .run();
+        ;
     }
   }
 
@@ -162,7 +162,7 @@ function seed() {
     { name: "Classic 4-Tier", priceCents: 18000, moldNames: ["Extra Large", "Large", "Medium", "Small"] },
   ];
   for (const preset of examplePresets) {
-    const insertedOption = db
+    const insertedOption = await db
       .insert(fieldOptions)
       .values({
         fieldId: sizeFieldId,
@@ -173,23 +173,21 @@ function seed() {
         updatedAt: Date.now(),
       })
       .returning({ id: fieldOptions.id })
-      .get();
-    const insertedPreset = db
+      .then((r) => r[0]);
+    const insertedPreset = await db
       .insert(tierPresets)
       .values({ fieldOptionId: insertedOption.id, levelCount: preset.moldNames.length, updatedAt: Date.now() })
       .returning({ id: tierPresets.id })
-      .get();
-    preset.moldNames.forEach((moldName, index) => {
-      db.insert(tierPresetLevels)
-        .values({
-          tierPresetId: insertedPreset.id,
-          position: index + 1,
-          moldOptionId: standardMoldIdByName.get(moldName)!,
-        })
-        .run();
-    });
+      .then((r) => r[0]);
+    for (const [index, moldName] of preset.moldNames.entries()) {
+      await db.insert(tierPresetLevels).values({
+        tierPresetId: insertedPreset.id,
+        position: index + 1,
+        moldOptionId: standardMoldIdByName.get(moldName)!,
+      });
+    }
   }
   console.log(`Seeded ${examplePresets.length} example tiered size presets.`);
 }
 
-seed();
+await seed();

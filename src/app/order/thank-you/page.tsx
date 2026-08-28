@@ -29,7 +29,7 @@ export default async function ThankYouPage({
   if (result?.order.paymentStatus === "pending" && result.order.stripeCheckoutSessionId) {
     try {
       const session = await getStripe().checkout.sessions.retrieve(result.order.stripeCheckoutSessionId);
-      finalizeOrderPaymentFromSession(session);
+      await finalizeOrderPaymentFromSession(session);
       result = await loadOrderWithItems(orderId!);
     } catch {
       // Stripe unreachable/misconfigured — fall through and show the

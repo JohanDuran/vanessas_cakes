@@ -5,7 +5,7 @@ import { setMaintenanceMode } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const row = db.select({ maintenanceMode: siteSettings.maintenanceMode }).from(siteSettings).limit(1).get();
+  const row = await db.select({ maintenanceMode: siteSettings.maintenanceMode }).from(siteSettings).limit(1).then((r) => r[0]);
   const maintenanceMode = row?.maintenanceMode ?? false;
 
   return (

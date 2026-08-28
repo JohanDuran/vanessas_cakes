@@ -87,7 +87,7 @@ export default function HeroSlideshow({ featured = [] }: Props) {
                     aria-hidden={i !== index}
                   >
                     {cake.photo ? (
-                      <img src={`/uploads/${cake.photo}`} alt={cake.name} />
+                      <img src={cake.photo} alt={cake.name} />
                     ) : (
                       <div className="hero__slide-placeholder">🎂</div>
                     )}

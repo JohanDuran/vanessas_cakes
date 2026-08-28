@@ -20,10 +20,10 @@ function summarizeItemNames(names: string[]): string {
 }
 
 export default async function OrdersInboxPage() {
-  closePastPickupOrders();
+  await closePastPickupOrders();
 
   const [allOrders, allItems, { settings, overrides }] = await Promise.all([
-    db
+    await db
       .select({
         id: orders.id,
         customerName: orders.customerName,
@@ -40,12 +40,12 @@ export default async function OrdersInboxPage() {
       })
       .from(orders)
       .orderBy(desc(orders.createdAt))
-      .all(),
-    db
+      ,
+    await db
       .select({ orderId: orderItems.orderId, designName: designs.name, sortOrder: orderItems.sortOrder })
       .from(orderItems)
       .leftJoin(designs, eq(orderItems.designId, designs.id))
-      .all(),
+      ,
     loadPickupAvailability(),
   ]);
 

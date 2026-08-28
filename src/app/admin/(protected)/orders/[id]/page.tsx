@@ -39,11 +39,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const orderId = Number(id);
   if (!Number.isInteger(orderId)) notFound();
 
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const order = await db.select().from(orders).where(eq(orders.id, orderId)).then((r) => r[0]);
   if (!order) notFound();
 
   if (order.status === "new") {
-    db.update(orders).set({ status: "viewed" }).where(eq(orders.id, orderId)).run();
+    await db.update(orders).set({ status: "viewed" }).where(eq(orders.id, orderId));
     order.status = "viewed";
   }
 
@@ -127,9 +127,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 <h3 style={{ marginBottom: 10 }}>Reference Images {items.length > 1 ? `— Cake ${index + 1}` : ""}</h3>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                   {item.referenceImagePaths.map((path) => (
-                    <a key={path} href={`/uploads/${path}`} target="_blank" rel="noopener noreferrer">
+                    <a key={path} href={path} target="_blank" rel="noopener noreferrer">
                       <img
-                        src={`/uploads/${path}`}
+                        src={path}
                         alt="Customer reference"
                         style={{ width: 110, height: 110, objectFit: "cover", borderRadius: 8 }}
                       />

@@ -55,7 +55,7 @@ export default async function DesignsListPage() {
                   <td>
                     {photo ? (
                       <img
-                        src={`/uploads/${photo}`}
+                        src={photo}
                         alt=""
                         width={44}
                         height={44}

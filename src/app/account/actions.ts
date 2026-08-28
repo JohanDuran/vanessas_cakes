@@ -1,19 +1,12 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db";
-import { users, authAccounts } from "../../db/schema";
+import { profiles } from "../../db/schema";
 import { getCurrentUser } from "../../db/queries";
-import {
-  createUserSessionToken,
-  hashPassword,
-  verifyPassword,
-  USER_SESSION_COOKIE,
-  USER_SESSION_TTL_MS,
-} from "../../lib/auth";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 // Accepts digits with optional +, spaces, dashes, dots, and parentheses;
 // the digit count (7-15) follows the E.164 range so both local and
@@ -50,18 +43,6 @@ function safeNext(next: string | undefined): string {
     : "/account";
 }
 
-async function startSession(userId: number) {
-  const token = await createUserSessionToken(userId);
-  const store = await cookies();
-  store.set(USER_SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: USER_SESSION_TTL_MS / 1000,
-  });
-}
-
 export async function signup(formData: FormData) {
   const parsed = signupSchema.safeParse({
     name: formData.get("name"),
@@ -83,29 +64,27 @@ export async function signup(formData: FormData) {
   const { name, email, phone, password, marketingOptIn, next } = parsed.data;
   const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
 
-  const existing = db
-    .select()
-    .from(authAccounts)
-    .where(and(eq(authAccounts.provider, "local"), eq(authAccounts.providerAccountId, email)))
-    .get();
-  if (existing) {
-    redirect(`/account/signup?error=taken${nextParam}`);
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.signUp({ email, password });
+
+  if (error) {
+    redirect(`/account/signup?error=invalid${nextParam}`);
+  }
+  if (!data.user) {
+    redirect(`/account/signup?error=invalid${nextParam}`);
   }
 
-  const passwordHash = await hashPassword(password);
-  const userId = db.transaction((tx) => {
-    const user = tx
-      .insert(users)
-      .values({ name, email, phone, marketingOptIn })
-      .returning({ id: users.id })
-      .get();
-    tx.insert(authAccounts)
-      .values({ userId: user.id, provider: "local", providerAccountId: email, passwordHash })
-      .run();
-    return user.id;
-  });
+  await db
+    .insert(profiles)
+    .values({ id: data.user.id, email, name, phone, marketingOptIn })
+    .onConflictDoUpdate({ target: profiles.id, set: { email, name, phone, marketingOptIn } });
 
-  await startSession(userId);
+  // No session yet means Supabase Auth is waiting on email confirmation —
+  // there's nothing more to do here until the customer clicks that link.
+  if (!data.session) {
+    redirect(`/account/login?notice=confirm-email${nextParam}`);
+  }
+
   redirect(safeNext(next));
 }
 
@@ -123,24 +102,19 @@ export async function login(formData: FormData) {
   const { email, password, next } = parsed.data;
   const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
 
-  const account = db
-    .select()
-    .from(authAccounts)
-    .where(and(eq(authAccounts.provider, "local"), eq(authAccounts.providerAccountId, email)))
-    .get();
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  const ok = account?.passwordHash ? await verifyPassword(password, account.passwordHash) : false;
-  if (!ok || !account) {
+  if (error) {
     redirect(`/account/login?error=1${nextParam}`);
   }
 
-  await startSession(account.userId);
   redirect(safeNext(next));
 }
 
 export async function logout() {
-  const store = await cookies();
-  store.delete(USER_SESSION_COOKIE);
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
   redirect("/");
 }
 
@@ -149,7 +123,7 @@ export async function updateMarketingOptIn(formData: FormData) {
   if (!user) redirect("/account/login?next=/account");
 
   const marketingOptIn = formData.get("marketingOptIn") === "on";
-  db.update(users).set({ marketingOptIn }).where(eq(users.id, user.id)).run();
+  await db.update(profiles).set({ marketingOptIn }).where(eq(profiles.id, user.id));
 
   redirect("/account");
 }

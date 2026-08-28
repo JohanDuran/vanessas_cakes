@@ -14,14 +14,8 @@ const LOCKED_OPTION_SET_SLUGS = new Set([CAKE_STYLE_FIELD_SLUG]);
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
-function uniqueSlug(base: string): string {
-  const existing = new Set(
-    db
-      .select({ slug: fields.slug })
-      .from(fields)
-      .all()
-      .map((f) => f.slug)
-  );
+async function uniqueSlug(base: string): Promise<string> {
+  const existing = new Set((await db.select({ slug: fields.slug }).from(fields)).map((f) => f.slug));
   let slug = base;
   let n = 2;
   while (existing.has(slug)) {
@@ -52,9 +46,9 @@ export async function createField(formData: FormData) {
 
   try {
     const parsed = createFieldSchema.parse(Object.fromEntries(formData));
-    const slug = uniqueSlug(slugify(parsed.name));
+    const slug = await uniqueSlug(slugify(parsed.name));
 
-    const inserted = db
+    const inserted = await db
       .insert(fields)
       .values({
         slug,
@@ -66,7 +60,7 @@ export async function createField(formData: FormData) {
         updatedAt: Date.now(),
       })
       .returning({ id: fields.id })
-      .get();
+      .then((r) => r[0]);
     fieldId = inserted.id;
 
     revalidatePath("/admin/catalog");
@@ -92,12 +86,12 @@ export async function saveFieldSettings(formData: FormData) {
 
   try {
     const parsed = fieldSettingsSchema.parse(Object.fromEntries(formData));
-    const field = db.select().from(fields).where(eq(fields.id, parsed.id)).get();
+    const field = await db.select().from(fields).where(eq(fields.id, parsed.id)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
 
     const finalType = field.isBase ? field.type : (parsed.type ?? field.type);
 
-    db.update(fields)
+    await db.update(fields)
       .set({
         name: parsed.name,
         type: finalType,
@@ -112,7 +106,7 @@ export async function saveFieldSettings(formData: FormData) {
         updatedAt: Date.now(),
       })
       .where(eq(fields.id, parsed.id))
-      .run();
+      ;
 
     revalidatePath("/admin/catalog");
     revalidatePath(path);
@@ -130,10 +124,10 @@ const setFieldActiveSchema = z.object({
 
 export async function setFieldActive(formData: FormData) {
   const parsed = setFieldActiveSchema.parse(Object.fromEntries(formData));
-  db.update(fields)
+  await db.update(fields)
     .set({ active: Boolean(parsed.active), updatedAt: Date.now() })
     .where(eq(fields.id, parsed.id))
-    .run();
+    ;
   revalidatePath("/admin/catalog");
 }
 
@@ -180,7 +174,7 @@ export async function createOption(formData: FormData) {
 
   try {
     const parsed = createOptionSchema.parse(Object.fromEntries(formData));
-    const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
+    const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
     if (LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
       throw new Error(`${field.name}'s options are fixed and can't be added to.`);
@@ -190,8 +184,8 @@ export async function createOption(formData: FormData) {
       throw new Error("Choose Standard or Tall for this size — tiered presets are built below instead.");
     }
 
-    db.transaction((tx) => {
-      const inserted = tx
+    await db.transaction(async (tx) => {
+      const inserted = await tx
         .insert(fieldOptions)
         .values({
           fieldId: parsed.fieldId,
@@ -202,14 +196,14 @@ export async function createOption(formData: FormData) {
           updatedAt: Date.now(),
         })
         .returning({ id: fieldOptions.id })
-        .get();
+        .then((r) => r[0]);
 
       const dims = sizeMeta(parsed);
       const hasAnyDim = Object.values(dims).some((v) => v !== null);
       if (field.hasShapeDiagram && hasAnyDim) {
-        tx.insert(fieldOptionDimensions)
+        await tx.insert(fieldOptionDimensions)
           .values({ fieldOptionId: inserted.id, ...dims, updatedAt: Date.now() })
-          .run();
+          ;
       }
     });
 
@@ -227,11 +221,11 @@ export async function updateOption(formData: FormData) {
 
   try {
     const parsed = updateOptionSchema.parse(Object.fromEntries(formData));
-    const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
+    const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
 
-    db.transaction((tx) => {
-      tx.update(fieldOptions)
+    await db.transaction(async (tx) => {
+      await tx.update(fieldOptions)
         .set({
           name: parsed.name,
           priceCents: dollarsToCents(parsed.priceDollars),
@@ -239,16 +233,16 @@ export async function updateOption(formData: FormData) {
           updatedAt: Date.now(),
         })
         .where(eq(fieldOptions.id, parsed.id))
-        .run();
+        ;
 
-      tx.delete(fieldOptionDimensions).where(eq(fieldOptionDimensions.fieldOptionId, parsed.id)).run();
+      await tx.delete(fieldOptionDimensions).where(eq(fieldOptionDimensions.fieldOptionId, parsed.id));
 
       const dims = sizeMeta(parsed);
       const hasAnyDim = Object.values(dims).some((v) => v !== null);
       if (field.hasShapeDiagram && hasAnyDim) {
-        tx.insert(fieldOptionDimensions)
+        await tx.insert(fieldOptionDimensions)
           .values({ fieldOptionId: parsed.id, ...dims, updatedAt: Date.now() })
-          .run();
+          ;
       }
     });
 
@@ -268,14 +262,14 @@ const setOptionActiveSchema = z.object({
 
 export async function setOptionActive(formData: FormData) {
   const parsed = setOptionActiveSchema.parse(Object.fromEntries(formData));
-  const field = db.select().from(fields).where(eq(fields.id, parsed.fieldId)).get();
+  const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
   if (field && !parsed.active && LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
     throw new Error(`${field.name}'s 3 options must always stay active.`);
   }
-  db.update(fieldOptions)
+  await db.update(fieldOptions)
     .set({ active: Boolean(parsed.active), updatedAt: Date.now() })
     .where(eq(fieldOptions.id, parsed.id))
-    .run();
+    ;
   revalidatePath(`/admin/catalog/${parsed.fieldId}`);
 }
 
@@ -318,7 +312,7 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
     }
   }
 
-  const slug = uniqueSlug(slugify(parsed.name));
+  const slug = await uniqueSlug(slugify(parsed.name));
   const required = textOrNumberOnly(parsed.type, Boolean(parsed.required), false);
   const additionalPriceCents = textOrNumberOnly(
     parsed.type,
@@ -326,8 +320,8 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
     0
   );
 
-  const fieldId = db.transaction((tx) => {
-    const inserted = tx
+  const fieldId = await db.transaction(async (tx) => {
+    const inserted = await tx
       .insert(fields)
       .values({
         slug,
@@ -339,26 +333,24 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
         updatedAt: Date.now(),
       })
       .returning({ id: fields.id })
-      .get();
+      .then((r) => r[0]);
 
-    options.forEach((opt, index) => {
-      tx.insert(fieldOptions)
-        .values({
-          fieldId: inserted.id,
-          name: opt.label,
-          priceCents: dollarsToCents(opt.priceDollars),
-          sortOrder: index,
-          updatedAt: Date.now(),
-        })
-        .run();
-    });
+    for (const [index, opt] of options.entries()) {
+      await tx.insert(fieldOptions).values({
+        fieldId: inserted.id,
+        name: opt.label,
+        priceCents: dollarsToCents(opt.priceDollars),
+        sortOrder: index,
+        updatedAt: Date.now(),
+      });
+    }
 
     return inserted.id;
   });
 
   revalidatePath("/admin/catalog");
 
-  const savedOptions = db.select().from(fieldOptions).where(eq(fieldOptions.fieldId, fieldId)).all();
+  const savedOptions = await db.select().from(fieldOptions).where(eq(fieldOptions.fieldId, fieldId));
   return {
     id: fieldId,
     slug,
