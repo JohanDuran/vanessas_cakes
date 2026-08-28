@@ -59,7 +59,7 @@ export default function Navbar() {
             </div>
           ) : (
             <Link
-              href="/account/login"
+              href={`/account/login?next=${encodeURIComponent(pathname)}`}
               className="navbar__icon-link"
               aria-label="Log In"
               title="Log In"

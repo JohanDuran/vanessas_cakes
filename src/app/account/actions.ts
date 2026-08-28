@@ -38,10 +38,11 @@ const loginSchema = z.object({
   next: z.string().optional(),
 });
 
+// Only allows same-site relative paths — "//evil.com" or "/\evil.com" are
+// browser-interpreted as protocol-relative URLs and would otherwise let
+// `next` redirect off-site.
 function safeNext(next: string | undefined): string {
-  return next && (next.startsWith("/account") || next.startsWith("/admin") || next.startsWith("/cart"))
-    ? next
-    : "/account";
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/account";
 }
 
 export async function signup(formData: FormData) {

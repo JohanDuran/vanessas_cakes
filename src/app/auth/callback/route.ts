@@ -4,10 +4,11 @@ import { profiles } from "../../../db/schema";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getSiteUrl } from "../../../lib/stripe";
 
+// Only allows same-site relative paths — "//evil.com" or "/\evil.com" are
+// browser-interpreted as protocol-relative URLs and would otherwise let
+// `next` redirect off-site.
 function safeNext(next: string | null): string {
-  return next && (next.startsWith("/account") || next.startsWith("/admin") || next.startsWith("/cart"))
-    ? next
-    : "/account";
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/account";
 }
 
 /** Landing point for Supabase OAuth (Google) sign-in — Supabase redirects the

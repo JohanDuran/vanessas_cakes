@@ -167,6 +167,22 @@ export function CartProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Covers logins that land here via a hard browser redirect rather than a
+  // client-side transition — Google sign-in (see auth/callback/route.ts)
+  // remounts this provider already authenticated, so the transition effect
+  // below never observes a guest -> logged-in change to react to. If a
+  // guest cart is still sitting in localStorage from before that redirect,
+  // fold it into the DB cart now.
+  useEffect(() => {
+    if (!user) return;
+    const guestItems = readGuestCartFromStorage();
+    if (guestItems.length === 0) return;
+    clearGuestCartStorage();
+    mergeGuestCartIntoDb(guestItems).then(setItems);
+    // run once, at mount, before the transition effect's ref has a chance to diverge
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Reacts to the signed-in user changing — login/signup, logout, or (rare)
   // switching accounts. clearCart() only ever touches local state; nothing
   // here ever deletes a DB row.

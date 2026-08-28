@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, lt, ne } from "drizzle-orm";
 import { db } from "./index";
+import { withDbRetry } from "./retry";
 import {
   fields,
   fieldOptions,
@@ -54,10 +55,12 @@ export const DEFAULT_PICKUP_SETTINGS: PickupSettings = {
  *  "past" by. Call this before reading orders in any admin orders view. */
 export async function closePastPickupOrders(): Promise<void> {
   const todayKey = toDateKey(new Date());
-  await db
-    .update(orders)
-    .set({ status: "archived" })
-    .where(and(ne(orders.status, "archived"), isNotNull(orders.pickupDate), lt(orders.pickupDate, todayKey)));
+  await withDbRetry(() =>
+    db
+      .update(orders)
+      .set({ status: "archived" })
+      .where(and(ne(orders.status, "archived"), isNotNull(orders.pickupDate), lt(orders.pickupDate, todayKey))),
+  );
 }
 
 /** Everything the cart's pickup calendar needs to compute available
@@ -75,19 +78,21 @@ export async function loadPickupAvailability(): Promise<{
 }> {
   const todayKey = toDateKey(new Date());
 
-  const [settingsRow, weeklyRows, overrideRows, orderCountRows] = await Promise.all([
-    db.select().from(pickupSettings).limit(1).then((r) => r[0]),
-    db.select().from(pickupWeeklyHours).then((r) => r),
-    db.select().from(pickupDateOverrides).where(gte(pickupDateOverrides.endDate, todayKey)).then((r) => r),
-    db
-      .select({ pickupDate: orders.pickupDate, count: count() })
-      .from(orders)
-      // an order whose Stripe Checkout was never completed never actually
-      // happened — don't let it hold a pickup slot hostage against the cap
-      .where(and(gte(orders.pickupDate, todayKey), ne(orders.paymentStatus, "failed"), ne(orders.paymentStatus, "expired")))
-      .groupBy(orders.pickupDate)
-      .then((r) => r),
-  ]);
+  const [settingsRow, weeklyRows, overrideRows, orderCountRows] = await withDbRetry(() =>
+    Promise.all([
+      db.select().from(pickupSettings).limit(1).then((r) => r[0]),
+      db.select().from(pickupWeeklyHours).then((r) => r),
+      db.select().from(pickupDateOverrides).where(gte(pickupDateOverrides.endDate, todayKey)).then((r) => r),
+      db
+        .select({ pickupDate: orders.pickupDate, count: count() })
+        .from(orders)
+        // an order whose Stripe Checkout was never completed never actually
+        // happened — don't let it hold a pickup slot hostage against the cap
+        .where(and(gte(orders.pickupDate, todayKey), ne(orders.paymentStatus, "failed"), ne(orders.paymentStatus, "expired")))
+        .groupBy(orders.pickupDate)
+        .then((r) => r),
+    ]),
+  );
 
   const orderCountsByDate: Record<string, number> = {};
   for (const row of orderCountRows) {
@@ -142,16 +147,18 @@ export type FeaturedDesignDTO = {
  *  See setDesignFeatured in admin/(protected)/designs/actions.ts for the
  *  write side. */
 export async function loadFeaturedDesigns(): Promise<FeaturedDesignDTO[]> {
-  const featuredDesigns = await db
-    .select()
-    .from(designs)
-    .where(and(eq(designs.featured, true), eq(designs.published, true)))
-    .orderBy(asc(designs.featuredSortOrder), asc(designs.name))
-    .then((r) => r);
+  const featuredDesigns = await withDbRetry(() =>
+    db
+      .select()
+      .from(designs)
+      .where(and(eq(designs.featured, true), eq(designs.published, true)))
+      .orderBy(asc(designs.featuredSortOrder), asc(designs.name))
+      .then((r) => r),
+  );
 
   if (featuredDesigns.length === 0) return [];
 
-  const photos = await db.select().from(designPhotos).orderBy(asc(designPhotos.sortOrder)).then((r) => r);
+  const photos = await withDbRetry(() => db.select().from(designPhotos).orderBy(asc(designPhotos.sortOrder)).then((r) => r));
   const primaryPhotoByDesign = new Map<number, string>();
   for (const photo of photos) {
     if (photo.isPrimary || !primaryPhotoByDesign.has(photo.designId)) {
@@ -186,30 +193,32 @@ export async function loadOrderData() {
     allTierPresetLevelRows,
     activeCategories,
     allDesignCategoryRows,
-  ] = await Promise.all([
-    db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
-    db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
-    db.select().from(fieldOptionDimensions).then((r) => r),
-    db.select().from(designs).where(eq(designs.published, true)).then((r) => r),
-    db
-      .select()
-      .from(designPhotos)
-      .orderBy(asc(designPhotos.sortOrder))
-      .then((r) => r),
-    db.select().from(designFieldValues).then((r) => r),
-    db.select().from(constraintPairs).then((r) => r),
-    db.select().from(designLockedFields).then((r) => r),
-    db.select().from(designExcludedOptions).then((r) => r),
-    db.select().from(tierPresets).then((r) => r),
-    db.select().from(tierPresetLevels).orderBy(asc(tierPresetLevels.position)).then((r) => r),
-    db
-      .select()
-      .from(cakeCategories)
-      .where(eq(cakeCategories.active, true))
-      .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
-      .then((r) => r),
-    db.select().from(designCategories).then((r) => r),
-  ]);
+  ] = await withDbRetry(() =>
+    Promise.all([
+      db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
+      db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
+      db.select().from(fieldOptionDimensions).then((r) => r),
+      db.select().from(designs).where(eq(designs.published, true)).then((r) => r),
+      db
+        .select()
+        .from(designPhotos)
+        .orderBy(asc(designPhotos.sortOrder))
+        .then((r) => r),
+      db.select().from(designFieldValues).then((r) => r),
+      db.select().from(constraintPairs).then((r) => r),
+      db.select().from(designLockedFields).then((r) => r),
+      db.select().from(designExcludedOptions).then((r) => r),
+      db.select().from(tierPresets).then((r) => r),
+      db.select().from(tierPresetLevels).orderBy(asc(tierPresetLevels.position)).then((r) => r),
+      db
+        .select()
+        .from(cakeCategories)
+        .where(eq(cakeCategories.active, true))
+        .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
+        .then((r) => r),
+      db.select().from(designCategories).then((r) => r),
+    ]),
+  );
 
   const fieldSummaries: FieldDTO[] = allFields
     .filter((f) => isFieldType(f.type))
@@ -372,31 +381,34 @@ export type OrderItemDetailDTO = {
  *  the admin order detail page and the thank-you page. Returns null if no
  *  order with this id exists. */
 export async function loadOrderWithItems(orderId: number) {
-  const order = await db.select().from(orders).where(eq(orders.id, orderId)).then((r) => r[0]);
+  const order = await withDbRetry(() => db.select().from(orders).where(eq(orders.id, orderId)).then((r) => r[0]));
   if (!order) return null;
 
-  const items = await db
-    .select()
-    .from(orderItems)
-    .where(eq(orderItems.orderId, orderId))
-    .orderBy(asc(orderItems.sortOrder))
-    ;
+  const items = await withDbRetry(() =>
+    db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId))
+      .orderBy(asc(orderItems.sortOrder)),
+  );
   const itemIds = items.map((i) => i.id);
 
-  const [selections, referenceImages, allFieldRows, designRows] = await Promise.all([
-    itemIds.length > 0
-      ? db.select().from(orderSelections).where(inArray(orderSelections.orderItemId, itemIds)).then((r) => r)
-      : Promise.resolve([]),
-    itemIds.length > 0
-      ? db
-          .select()
-          .from(orderReferenceImages)
-          .where(inArray(orderReferenceImages.orderItemId, itemIds))
-          .then((r) => r)
-      : Promise.resolve([]),
-    db.select().from(fields).then((r) => r),
-    db.select().from(designs).then((r) => r),
-  ]);
+  const [selections, referenceImages, allFieldRows, designRows] = await withDbRetry(() =>
+    Promise.all([
+      itemIds.length > 0
+        ? db.select().from(orderSelections).where(inArray(orderSelections.orderItemId, itemIds)).then((r) => r)
+        : Promise.resolve([]),
+      itemIds.length > 0
+        ? db
+            .select()
+            .from(orderReferenceImages)
+            .where(inArray(orderReferenceImages.orderItemId, itemIds))
+            .then((r) => r)
+        : Promise.resolve([]),
+      db.select().from(fields).then((r) => r),
+      db.select().from(designs).then((r) => r),
+    ]),
+  );
 
   const fieldById = new Map(allFieldRows.map((f) => [f.id, f]));
   const designById = new Map(designRows.map((d) => [d.id, d]));
@@ -441,7 +453,7 @@ export async function getCurrentUser(): Promise<CurrentUserDTO | null> {
   } = await supabase.auth.getUser();
   if (!authUser) return null;
 
-  const profile = await db.select().from(profiles).where(eq(profiles.id, authUser.id)).then((r) => r[0]);
+  const profile = await withDbRetry(() => db.select().from(profiles).where(eq(profiles.id, authUser.id)).then((r) => r[0]));
   if (!profile) return null;
 
   return {
@@ -469,26 +481,29 @@ export type CartItemDTO = {
  *  counterpart to CartContext's in-memory guest cart. Empty for anyone who
  *  isn't signed in (guests never get rows here). */
 export async function getCartItemsForUser(userId: string): Promise<CartItemDTO[]> {
-  const items = await db
-    .select()
-    .from(cartItems)
-    .where(eq(cartItems.userId, userId))
-    .orderBy(asc(cartItems.sortOrder), asc(cartItems.id))
-    ;
+  const items = await withDbRetry(() =>
+    db
+      .select()
+      .from(cartItems)
+      .where(eq(cartItems.userId, userId))
+      .orderBy(asc(cartItems.sortOrder), asc(cartItems.id)),
+  );
   if (items.length === 0) return [];
 
   const itemIds = items.map((i) => i.id);
-  const selections = await db
-    .select()
-    .from(cartItemSelections)
-    .where(inArray(cartItemSelections.cartItemId, itemIds))
-    ;
-  const images = await db
-    .select()
-    .from(cartItemReferenceImages)
-    .where(inArray(cartItemReferenceImages.cartItemId, itemIds))
-    .orderBy(asc(cartItemReferenceImages.sortOrder))
-    ;
+  const selections = await withDbRetry(() =>
+    db
+      .select()
+      .from(cartItemSelections)
+      .where(inArray(cartItemSelections.cartItemId, itemIds)),
+  );
+  const images = await withDbRetry(() =>
+    db
+      .select()
+      .from(cartItemReferenceImages)
+      .where(inArray(cartItemReferenceImages.cartItemId, itemIds))
+      .orderBy(asc(cartItemReferenceImages.sortOrder)),
+  );
 
   return items.map((item) => {
     const answers: Answers = {};
@@ -520,7 +535,7 @@ export type UserSummaryDTO = { id: string; name: string; email: string; isAdmin:
 /** Every registered account, for the admin section's Admins page — lets an
  *  admin grant or revoke admin access on any user. */
 export async function loadAllUsers(): Promise<UserSummaryDTO[]> {
-  return db.select().from(profiles).orderBy(asc(profiles.name));
+  return withDbRetry(() => db.select().from(profiles).orderBy(asc(profiles.name)));
 }
 
 export type OrderSummaryDTO = {
@@ -535,19 +550,20 @@ export type OrderSummaryDTO = {
 
 /** Order history for a logged-in customer's account page — newest first. */
 export async function loadOrdersForUser(userId: string): Promise<OrderSummaryDTO[]> {
-  const userOrders = await db
-    .select()
-    .from(orders)
-    .where(eq(orders.userId, userId))
-    .orderBy(desc(orders.createdAt))
-    ;
+  const userOrders = await withDbRetry(() =>
+    db
+      .select()
+      .from(orders)
+      .where(eq(orders.userId, userId))
+      .orderBy(desc(orders.createdAt)),
+  );
   if (userOrders.length === 0) return [];
 
   const orderIds = userOrders.map((o) => o.id);
-  const items = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+  const items = await withDbRetry(() => db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds)));
   const designIds = items.map((i) => i.designId).filter((id): id is number => id != null);
   const designRows =
-    designIds.length > 0 ? await db.select().from(designs).where(inArray(designs.id, designIds)) : [];
+    designIds.length > 0 ? await withDbRetry(() => db.select().from(designs).where(inArray(designs.id, designIds))) : [];
   const designNameById = new Map(designRows.map((d) => [d.id, d.name]));
 
   return userOrders.map((order) => ({
