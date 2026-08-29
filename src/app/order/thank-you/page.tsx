@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { loadOrderWithItems } from "../../../db/queries";
+import { loadOrderWithItemsByToken } from "../../../db/queries";
 import { fromDateKey, formatTimeLabel } from "../../../lib/availability";
 import { formatCents } from "../../../lib/pricing";
 import { getStripe } from "../../../lib/stripe";
@@ -15,11 +15,10 @@ export const dynamic = "force-dynamic";
 export default async function ThankYouPage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ token?: string }>;
 }) {
-  const { id } = await searchParams;
-  const orderId = id ? Number(id) : null;
-  let result = orderId && Number.isInteger(orderId) ? await loadOrderWithItems(orderId) : null;
+  const { token } = await searchParams;
+  let result = token ? await loadOrderWithItemsByToken(token) : null;
 
   // Normally the webhook (src/app/api/stripe/webhook) has already marked the
   // order paid by the time Stripe redirects the customer back here, but
@@ -30,7 +29,7 @@ export default async function ThankYouPage({
     try {
       const session = await getStripe().checkout.sessions.retrieve(result.order.stripeCheckoutSessionId);
       await finalizeOrderPaymentFromSession(session);
-      result = await loadOrderWithItems(orderId!);
+      result = await loadOrderWithItemsByToken(token!);
     } catch {
       // Stripe unreachable/misconfigured — fall through and show the
       // "confirming" state below; the webhook will still resolve this later.
@@ -38,6 +37,7 @@ export default async function ThankYouPage({
   }
 
   const order = result?.order;
+  const id = order?.id;
   const paymentStillPending = order?.paymentStatus === "pending";
   const paymentFailed = order?.paymentStatus === "failed" || order?.paymentStatus === "expired";
 

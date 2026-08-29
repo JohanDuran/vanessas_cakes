@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { orders } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const setStatusSchema = z.object({
@@ -17,6 +18,7 @@ export async function setOrderStatus(formData: FormData) {
   const path = `/admin/orders/${rawId}`;
 
   try {
+    await requireAdmin();
     const parsed = setStatusSchema.parse(Object.fromEntries(formData));
     await db.update(orders).set({ status: parsed.status }).where(eq(orders.id, parsed.id));
     revalidatePath("/admin/orders");
@@ -38,6 +40,7 @@ export async function markBalanceCollected(formData: FormData) {
   const path = `/admin/orders/${rawId}`;
 
   try {
+    await requireAdmin();
     const parsed = markBalanceCollectedSchema.parse(Object.fromEntries(formData));
     await db.update(orders).set({ balanceCollectedAt: Date.now() }).where(eq(orders.id, parsed.id));
     revalidatePath("/admin/orders");

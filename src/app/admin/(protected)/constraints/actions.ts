@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { fieldOptions, constraintPairs } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const PATH = "/admin/constraints";
@@ -16,6 +17,7 @@ const createSchema = z.object({
 
 export async function createConstraint(formData: FormData) {
   try {
+    await requireAdmin();
     const parsed = createSchema.parse(Object.fromEntries(formData));
 
     if (parsed.optionAId === parsed.optionBId) {
@@ -50,6 +52,7 @@ export async function createConstraint(formData: FormData) {
 const deleteSchema = z.object({ id: z.coerce.number().int() });
 
 export async function deleteConstraint(formData: FormData) {
+  await requireAdmin();
   const parsed = deleteSchema.parse(Object.fromEntries(formData));
   await db.delete(constraintPairs).where(eq(constraintPairs.id, parsed.id));
   revalidatePath("/admin/constraints");

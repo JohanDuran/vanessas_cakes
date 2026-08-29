@@ -366,11 +366,20 @@ export const orders = pgTable(
     balanceCollectedAt: bigint("balance_collected_at", { mode: "number" }),
     stripeCheckoutSessionId: text("stripe_checkout_session_id"),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
+    // Random, unguessable lookup key for the public /order/thank-you page —
+    // the sequential `id` must never be used there, since anyone could
+    // enumerate it to view other customers' orders. Nullable so existing
+    // orders from before this column existed don't need a backfill; they
+    // simply can't be looked up on that page anymore.
+    confirmationToken: text("confirmation_token"),
     createdAt: bigint("created_at", { mode: "number" })
       .notNull()
       .default(sql`(extract(epoch from now()) * 1000)::bigint`),
   },
-  (t) => [uniqueIndex("orders_stripe_checkout_session_idx").on(t.stripeCheckoutSessionId)]
+  (t) => [
+    uniqueIndex("orders_stripe_checkout_session_idx").on(t.stripeCheckoutSessionId),
+    uniqueIndex("orders_confirmation_token_idx").on(t.confirmationToken),
+  ]
 );
 
 /** One configured cake within a checkout — one row per cart item. Null

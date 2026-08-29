@@ -378,12 +378,28 @@ export type OrderItemDetailDTO = {
 };
 
 /** One checkout with every cake in it, fully expanded for display — used by
- *  the admin order detail page and the thank-you page. Returns null if no
- *  order with this id exists. */
+ *  the admin order detail page (looked up by id, which is fine there since
+ *  that page is admin-only) and the thank-you page (looked up by
+ *  confirmationToken instead — see loadOrderWithItemsByToken — since the
+ *  sequential id must never be exposed to an unauthenticated lookup).
+ *  Returns null if no matching order exists. */
 export async function loadOrderWithItems(orderId: number) {
   const order = await withDbRetry(() => db.select().from(orders).where(eq(orders.id, orderId)).then((r) => r[0]));
-  if (!order) return null;
+  return order ? loadOrderItemDetails(order) : null;
+}
 
+/** Same as loadOrderWithItems, but looked up by the order's unguessable
+ *  confirmationToken instead of its sequential id — the only lookup safe to
+ *  expose on the public, unauthenticated /order/thank-you page. */
+export async function loadOrderWithItemsByToken(token: string) {
+  const order = await withDbRetry(() =>
+    db.select().from(orders).where(eq(orders.confirmationToken, token)).then((r) => r[0]),
+  );
+  return order ? loadOrderItemDetails(order) : null;
+}
+
+async function loadOrderItemDetails(order: typeof orders.$inferSelect) {
+  const orderId = order.id;
   const items = await withDbRetry(() =>
     db
       .select()
@@ -464,6 +480,20 @@ export async function getCurrentUser(): Promise<CurrentUserDTO | null> {
     isAdmin: profile.isAdmin,
     marketingOptIn: profile.marketingOptIn,
   };
+}
+
+/** Guards an admin Server Action. proxy.ts already blocks page navigation to
+ *  /admin for non-admins, but Server Actions are reachable directly by
+ *  anyone who can send the matching POST regardless of the page they're
+ *  "on" — so every admin action must independently re-check this itself
+ *  rather than trusting proxy.ts alone. Throws (not redirects) since actions
+ *  either propagate the error to their own try/catch + toastRedirect, or,
+ *  for actions with no try/catch, are only ever reachable this way through a
+ *  forged request. */
+export async function requireAdmin(): Promise<CurrentUserDTO> {
+  const user = await getCurrentUser();
+  if (!user?.isAdmin) throw new Error("Not authorized.");
+  return user;
 }
 
 export type CartItemDTO = {

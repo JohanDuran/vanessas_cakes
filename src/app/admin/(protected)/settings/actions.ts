@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { siteSettings } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const PATH = "/admin/settings";
@@ -12,6 +13,7 @@ export async function setMaintenanceMode(formData: FormData) {
   const maintenanceMode = formData.get("maintenanceMode") === "on";
 
   try {
+    await requireAdmin();
     const existing = await db.select({ id: siteSettings.id }).from(siteSettings).limit(1).then((r) => r[0]);
 
     if (existing) {

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { pickupSettings, pickupWeeklyHours, pickupDateOverrides } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const PATH = "/admin/availability";
@@ -15,6 +16,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
 export async function saveWeeklyHours(formData: FormData) {
   try {
+    await requireAdmin();
     for (let day = 0; day < 7; day++) {
       const isOpen = formData.get(`day_${day}_open`) === "on";
       const openRaw = String(formData.get(`day_${day}_start`) ?? "");
@@ -57,6 +59,7 @@ const settingsSchema = z.object({
 
 export async function savePickupSettings(formData: FormData) {
   try {
+    await requireAdmin();
     const raw = Object.fromEntries(formData);
     const parsed = settingsSchema.parse({
       ...raw,
@@ -94,6 +97,7 @@ const overrideSchema = z.object({
 
 export async function addDateOverride(formData: FormData) {
   try {
+    await requireAdmin();
     const parsed = overrideSchema.parse(Object.fromEntries(formData));
     if (parsed.endDate < parsed.startDate) {
       throw new Error("End date must be on or after the start date.");
@@ -134,6 +138,7 @@ export async function addDateOverride(formData: FormData) {
 const deleteOverrideSchema = z.object({ id: z.coerce.number().int() });
 
 export async function deleteDateOverride(formData: FormData) {
+  await requireAdmin();
   const parsed = deleteOverrideSchema.parse(Object.fromEntries(formData));
   await db.delete(pickupDateOverrides).where(eq(pickupDateOverrides.id, parsed.id));
   revalidatePath("/admin/availability");
@@ -147,6 +152,7 @@ const dayDateSchema = z.object({ date: dateSchema });
  *  closed override. */
 export async function closeDayForNewOrders(formData: FormData) {
   try {
+    await requireAdmin();
     const { date } = dayDateSchema.parse(Object.fromEntries(formData));
     await db.insert(pickupDateOverrides)
       .values({ startDate: date, endDate: date, closed: true, note: "Closed manually by admin" })
@@ -165,6 +171,7 @@ export async function closeDayForNewOrders(formData: FormData) {
  *  managed from the Date overrides table instead. */
 export async function reopenDay(formData: FormData) {
   try {
+    await requireAdmin();
     const { date } = dayDateSchema.parse(Object.fromEntries(formData));
     await db.delete(pickupDateOverrides)
       .where(

@@ -24,13 +24,14 @@ export type PaymentPlan = "full" | "deposit";
  *  line item for the deposit amount instead. */
 export async function createCheckoutSessionForOrder(params: {
   orderId: number;
+  confirmationToken: string;
   customerEmail: string;
   items: PaymentLineItem[];
   paymentPlan: PaymentPlan;
   amountDueCents: number;
   totalPriceCents: number;
 }): Promise<Stripe.Checkout.Session> {
-  const { orderId, customerEmail, items, paymentPlan, amountDueCents, totalPriceCents } = params;
+  const { orderId, confirmationToken, customerEmail, items, paymentPlan, amountDueCents, totalPriceCents } = params;
   const stripe = getStripe();
   const siteUrl = getSiteUrl();
 
@@ -63,7 +64,7 @@ export async function createCheckoutSessionForOrder(params: {
     client_reference_id: String(orderId),
     metadata: { orderId: String(orderId), paymentPlan, amountDueCents: String(amountDueCents) },
     line_items: lineItems,
-    success_url: `${siteUrl}/order/thank-you?id=${orderId}`,
+    success_url: `${siteUrl}/order/thank-you?token=${confirmationToken}`,
     cancel_url: `${siteUrl}/cart?payment=cancelled`,
     expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_TTL_SECONDS,
   });

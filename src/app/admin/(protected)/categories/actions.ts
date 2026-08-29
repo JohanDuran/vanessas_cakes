@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { cakeCategories } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const PATH = "/admin/categories";
@@ -15,6 +16,7 @@ const createCategorySchema = z.object({
 
 export async function createCategory(formData: FormData) {
   try {
+    await requireAdmin();
     const parsed = createCategorySchema.parse(Object.fromEntries(formData));
     const existing = await db.select().from(cakeCategories).where(eq(cakeCategories.name, parsed.name)).then((r) => r[0]);
     if (existing) throw new Error("A category with this name already exists.");
@@ -37,6 +39,7 @@ const saveCategorySchema = z.object({
 
 export async function saveCategory(formData: FormData) {
   try {
+    await requireAdmin();
     const parsed = saveCategorySchema.parse(Object.fromEntries(formData));
 
     await db.update(cakeCategories)
@@ -58,6 +61,7 @@ const setCategoryActiveSchema = z.object({
 });
 
 export async function setCategoryActive(formData: FormData) {
+  await requireAdmin();
   const parsed = setCategoryActiveSchema.parse(Object.fromEntries(formData));
   await db.update(cakeCategories)
     .set({ active: Boolean(parsed.active), updatedAt: Date.now() })

@@ -17,6 +17,7 @@ import {
   tierPresets,
   tierPresetLevels,
 } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { selectionsViolateConstraints } from "../../../../lib/constraints";
 import { buildCakeStyleContext } from "../../../../lib/cakeStyle";
 import { computeStandardPriceCents, type Answers } from "../../../../lib/pricing";
@@ -41,6 +42,7 @@ export async function saveDesign(formData: FormData) {
   let designId: number | undefined;
 
   try {
+    await requireAdmin();
     const parsed = saveSchema.parse(Object.fromEntries(formData));
 
     const allFields = await db.select().from(fields);
@@ -288,6 +290,7 @@ const deletePhotoSchema = z.object({
 });
 
 export async function deleteDesignPhoto(formData: FormData) {
+  await requireAdmin();
   const parsed = deletePhotoSchema.parse(Object.fromEntries(formData));
   const photo = await db.select().from(designPhotos).where(eq(designPhotos.id, parsed.id)).then((r) => r[0]);
   if (photo) {
@@ -298,6 +301,7 @@ export async function deleteDesignPhoto(formData: FormData) {
 }
 
 export async function setPrimaryPhoto(formData: FormData) {
+  await requireAdmin();
   const parsed = deletePhotoSchema.parse(Object.fromEntries(formData));
   await db.transaction(async (tx) => {
     await tx.update(designPhotos).set({ isPrimary: false }).where(eq(designPhotos.designId, parsed.designId));
@@ -312,6 +316,7 @@ const togglePublishedSchema = z.object({
 });
 
 export async function setDesignPublished(formData: FormData) {
+  await requireAdmin();
   const parsed = togglePublishedSchema.parse(Object.fromEntries(formData));
   await db.update(designs)
     .set({ published: Boolean(parsed.published), updatedAt: Date.now() })
@@ -328,6 +333,7 @@ const toggleFeaturedSchema = z.object({
 /** Admin's pick of which designs show in the homepage hero carousel — see
  *  loadFeaturedDesigns in db/queries.ts, the single place that reads it back. */
 export async function setDesignFeatured(formData: FormData) {
+  await requireAdmin();
   const parsed = toggleFeaturedSchema.parse(Object.fromEntries(formData));
   await db.update(designs)
     .set({ featured: Boolean(parsed.featured), updatedAt: Date.now() })

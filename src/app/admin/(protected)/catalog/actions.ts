@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, slugify } from "../../../../lib/fields";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
@@ -45,6 +46,7 @@ export async function createField(formData: FormData) {
   let fieldId: number | undefined;
 
   try {
+    await requireAdmin();
     const parsed = createFieldSchema.parse(Object.fromEntries(formData));
     const slug = await uniqueSlug(slugify(parsed.name));
 
@@ -85,6 +87,7 @@ export async function saveFieldSettings(formData: FormData) {
   const path = `/admin/catalog/${rawId}`;
 
   try {
+    await requireAdmin();
     const parsed = fieldSettingsSchema.parse(Object.fromEntries(formData));
     const field = await db.select().from(fields).where(eq(fields.id, parsed.id)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
@@ -123,6 +126,7 @@ const setFieldActiveSchema = z.object({
 });
 
 export async function setFieldActive(formData: FormData) {
+  await requireAdmin();
   const parsed = setFieldActiveSchema.parse(Object.fromEntries(formData));
   await db.update(fields)
     .set({ active: Boolean(parsed.active), updatedAt: Date.now() })
@@ -173,6 +177,7 @@ export async function createOption(formData: FormData) {
   const path = `/admin/catalog/${rawFieldId}`;
 
   try {
+    await requireAdmin();
     const parsed = createOptionSchema.parse(Object.fromEntries(formData));
     const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
@@ -220,6 +225,7 @@ export async function updateOption(formData: FormData) {
   const path = `/admin/catalog/${rawFieldId}`;
 
   try {
+    await requireAdmin();
     const parsed = updateOptionSchema.parse(Object.fromEntries(formData));
     const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
@@ -261,6 +267,7 @@ const setOptionActiveSchema = z.object({
 });
 
 export async function setOptionActive(formData: FormData) {
+  await requireAdmin();
   const parsed = setOptionActiveSchema.parse(Object.fromEntries(formData));
   const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
   if (field && !parsed.active && LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
@@ -301,6 +308,7 @@ const quickCreateSchema = z.object({
 });
 
 export async function quickCreateField(formData: FormData): Promise<QuickField> {
+  await requireAdmin();
   const parsed = quickCreateSchema.parse(Object.fromEntries(formData));
 
   let options: { label: string; priceDollars: string }[] = [];

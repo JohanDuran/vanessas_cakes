@@ -1,5 +1,6 @@
 "use server";
 
+import crypto from "node:crypto";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -343,6 +344,10 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
       : totalPriceCents
     : totalPriceCents;
 
+  // Unguessable lookup key for the public /order/thank-you page — never the
+  // sequential `id`, which anyone could enumerate to view other customers' orders.
+  const confirmationToken = crypto.randomBytes(24).toString("hex");
+
   const { orderId, itemIdByClientId } = await db.transaction(async (tx) => {
     const insertedOrder = await tx
       .insert(orders)
@@ -359,6 +364,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         paymentStatus: requiresPayment ? "pending" : "not_required",
         paymentPlan,
         amountDueCents,
+        confirmationToken,
       })
       .returning({ id: orders.id })
       .then((r) => r[0]);
@@ -465,6 +471,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     try {
       session = await createCheckoutSessionForOrder({
         orderId,
+        confirmationToken,
         customerEmail: parsed.customerEmail,
         items: resolvedItems.map((item) => ({
           name: item.designName ?? "Cake",
@@ -488,5 +495,5 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     await db.delete(cartItems).where(eq(cartItems.userId, currentUser.id));
   }
 
-  redirect(`/order/thank-you?id=${orderId}`);
+  redirect(`/order/thank-you?token=${confirmationToken}`);
 }

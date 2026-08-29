@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { fields, fieldOptions, tierPresets, tierPresetLevels } from "../../../../db/schema";
+import { requireAdmin } from "../../../../db/queries";
 import { SIZE_FIELD_SLUG, isTierLevelCount } from "../../../../lib/fields";
 import { isValidMoldStack, type AtomicMold } from "../../../../lib/cakeStyle";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
@@ -67,6 +68,7 @@ export async function createTierPreset(formData: FormData) {
   let path = "/admin/catalog";
 
   try {
+    await requireAdmin();
     const parsed = createPresetSchema.parse(readPresetForm(formData));
     const sizeField = await getSizeField();
     path = `/admin/catalog/${sizeField.id}`;
@@ -107,6 +109,7 @@ export async function updateTierPreset(formData: FormData) {
   let path = "/admin/catalog";
 
   try {
+    await requireAdmin();
     const parsed = updatePresetSchema.parse(readPresetForm(formData));
     const sizeField = await getSizeField();
     path = `/admin/catalog/${sizeField.id}`;

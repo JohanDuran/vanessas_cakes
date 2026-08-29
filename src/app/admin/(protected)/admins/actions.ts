@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
 import { profiles } from "../../../../db/schema";
-import { getCurrentUser } from "../../../../db/queries";
+import { requireAdmin } from "../../../../db/queries";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
 
 const PATH = "/admin/admins";
@@ -14,8 +14,7 @@ const userIdSchema = z.object({ userId: z.string().min(1) });
 
 export async function promoteToAdmin(formData: FormData) {
   try {
-    const caller = await getCurrentUser();
-    if (!caller?.isAdmin) throw new Error("Not authorized.");
+    await requireAdmin();
 
     const { userId } = userIdSchema.parse(Object.fromEntries(formData));
     await db.update(profiles).set({ isAdmin: true, updatedAt: Date.now() }).where(eq(profiles.id, userId));
@@ -30,8 +29,7 @@ export async function promoteToAdmin(formData: FormData) {
 
 export async function demoteFromAdmin(formData: FormData) {
   try {
-    const caller = await getCurrentUser();
-    if (!caller?.isAdmin) throw new Error("Not authorized.");
+    await requireAdmin();
 
     const { userId } = userIdSchema.parse(Object.fromEntries(formData));
     const target = await db.select().from(profiles).where(eq(profiles.id, userId)).then((r) => r[0]);
