@@ -188,16 +188,43 @@
     left: 0;
     right: 0;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 18px;
+    align-items: stretch;
+    gap: 2px;
     background: var(--white);
-    padding: 24px;
+    padding: 12px;
     box-shadow: 0 12px 24px rgba(107, 66, 38, 0.1);
     display: none;
   }
 
   .navbar__links--open {
     display: flex;
+  }
+
+  /* full-width tap targets — a plain inline <a> only reacts to clicks
+     directly on its text, so each row spans and reacts to the whole width
+     instead of just wherever the label happens to sit */
+  .navbar__links > a {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 13px 12px;
+    border-radius: var(--radius-sm);
+  }
+
+  .navbar__links > a:hover {
+    background: var(--pink-50);
+  }
+
+  .navbar__mobile-link-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 13px 12px;
+    border-radius: var(--radius-sm);
+  }
+
+  .navbar__mobile-link-btn:hover {
+    background: var(--pink-50);
   }
 
   .navbar__desktop-only {

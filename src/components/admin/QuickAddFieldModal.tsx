@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { FIELD_TYPES, FIELD_TYPE_LABELS, fieldHasOptions, type FieldType } from "../../lib/fields";
 import { quickCreateField } from "../../app/admin/(protected)/catalog/actions";
+import { useToast } from "../ToastProvider";
 import FieldOptionsEditor, { type OptionDraft } from "./FieldOptionsEditor";
 import type { FieldSummary } from "./DesignForm";
 
@@ -12,27 +13,26 @@ type Props = {
 };
 
 export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
+  const { push: pushToast } = useToast();
   const [name, setName] = useState("");
   const [type, setType] = useState<FieldType>("text");
   const [options, setOptions] = useState<OptionDraft[]>([]);
   const [required, setRequired] = useState(false);
   const [additionalPriceDollars, setAdditionalPriceDollars] = useState("0");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError("Name is required.");
+      pushToast("error", "Name is required.");
       return;
     }
     if (fieldHasOptions(type) && options.length === 0) {
-      setError("Add at least one option.");
+      pushToast("error", "Add at least one option.");
       return;
     }
 
     setSubmitting(true);
-    setError(null);
     try {
       const formData = new FormData();
       formData.set("name", name);
@@ -53,7 +53,7 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
         options: saved.options.map((o) => ({ id: o.id, name: o.name, priceCents: o.priceCents, active: true })),
       });
     } catch {
-      setError("Couldn't create the field — double check the options and try again.");
+      pushToast("error", "Couldn't create the field — double check the options and try again.");
       setSubmitting(false);
     }
   };
@@ -72,15 +72,9 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {error && (
-            <div className="admin-error-banner" style={{ margin: 0 }}>
-              {error}
-            </div>
-          )}
-
           <div className="admin-field">
             <label>Field name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required style={{ width: "100%" }} />
+            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
           </div>
 
           <div className="admin-field">

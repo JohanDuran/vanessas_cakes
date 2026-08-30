@@ -6,7 +6,7 @@ import { db } from "../../../../db";
 import { siteSettings } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
 import { saveUploadedPhoto, deleteUploadedPhoto } from "../../../../lib/uploads";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const PATH = "/admin/homepage";
 
@@ -26,6 +26,17 @@ export async function updateStoryContent(formData: FormData) {
 
   try {
     await requireAdmin();
+
+    // these all used to be enforced only by the inputs' native `required`
+    // attribute — a form-level check now that the popup is the one place
+    // that validates and reports back, not the browser
+    if (!heading) throw new Error("Heading is required.");
+    if (!paragraph1) throw new Error("Paragraph 1 is required.");
+    if (!paragraph2) throw new Error("Paragraph 2 is required.");
+    if (!stat1Label || !stat1Value || !stat2Label || !stat2Value || !stat3Label || !stat3Value) {
+      throw new Error("Every stat needs both a value and a label.");
+    }
+
     const existing = await db
       .select({ id: siteSettings.id, storyImagePath: siteSettings.storyImagePath })
       .from(siteSettings)

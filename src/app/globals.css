@@ -32,6 +32,9 @@
   --radius-md: 18px;
   --radius-sm: 10px;
 
+  --toast-success: #1f9d63;
+  --toast-error: #d6455c;
+
   /* --font-heading / --font-body are supplied by next/font on <html> (see layout.tsx) */
 
   color-scheme: light;
@@ -186,4 +189,78 @@ ul {
 ::-webkit-scrollbar-thumb {
   background: var(--pink-300);
   border-radius: 10px;
+}
+
+/* floating toasts (see components/ToastProvider.tsx) — a top-center popup
+   (not a corner toast) so it stays legible and reachable on phones: centering
+   with left:50%/translateX avoids the overflow-off-the-edge math a right-16px
+   anchor has on narrow screens, and the safe-area inset clears notches/the
+   status bar instead of drawing under them. */
+.toast-host {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 32px);
+  max-width: 420px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(74, 44, 23, 0.28);
+  color: var(--white);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  animation: toast-in 0.2s ease;
+  pointer-events: auto;
+}
+
+.toast--success {
+  background: var(--toast-success);
+}
+
+.toast--error {
+  background: var(--toast-error);
+}
+
+.toast__message {
+  flex: 1;
+}
+
+.toast__dismiss {
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.85;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.toast__dismiss:hover {
+  opacity: 1;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

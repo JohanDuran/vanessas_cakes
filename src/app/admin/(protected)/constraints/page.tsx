@@ -45,7 +45,7 @@ export default async function ConstraintsPage() {
         <form action={createConstraint} className="admin-form-row">
           <div className="admin-field">
             <label>Option A</label>
-            <select name="optionAId" required style={{ minWidth: 200 }}>
+            <select name="optionAId" style={{ minWidth: 200 }}>
               {sortedFields.map((f) => (
                 <optgroup key={f.id} label={f.name}>
                   {(activeOptionsByField.get(f.id) ?? []).map((o) => (
@@ -59,7 +59,7 @@ export default async function ConstraintsPage() {
           </div>
           <div className="admin-field">
             <label>Option B</label>
-            <select name="optionBId" required style={{ minWidth: 200 }}>
+            <select name="optionBId" style={{ minWidth: 200 }}>
               {sortedFields.map((f) => (
                 <optgroup key={f.id} label={f.name}>
                   {(activeOptionsByField.get(f.id) ?? []).map((o) => (

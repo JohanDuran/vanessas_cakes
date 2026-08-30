@@ -8,7 +8,7 @@ import { fields, fieldOptions, tierPresets, tierPresetLevels } from "../../../..
 import { requireAdmin } from "../../../../db/queries";
 import { SIZE_FIELD_SLUG, isTierLevelCount } from "../../../../lib/fields";
 import { isValidMoldStack, type AtomicMold } from "../../../../lib/cakeStyle";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -36,7 +36,7 @@ async function getAtomicMolds(sizeFieldId: number): Promise<AtomicMold[]> {
 
 const presetShape = {
   name: z.string().trim().min(1, "Name is required"),
-  priceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
+  priceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
   levelCount: z.coerce.number().int(),
   moldOptionIds: z.array(z.coerce.number().int()),
 };

@@ -4,18 +4,12 @@ import Navbar from "../../../components/Navbar";
 import Footer from "../../../components/Footer";
 import "../account.css";
 
-const ERROR_MESSAGES: Record<string, string> = {
-  taken: "An account with that email already exists.",
-  invalid: "Please check the form — all fields are required, including a valid email, a valid phone number, and an 8+ character password.",
-  mismatch: "Passwords do not match.",
-};
-
 export default async function AccountSignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; next?: string }>;
+  searchParams: Promise<{ next?: string }>;
 }) {
-  const { error, next } = await searchParams;
+  const { next } = await searchParams;
 
   return (
     <>
@@ -26,8 +20,6 @@ export default async function AccountSignupPage({
             <span className="section-eyebrow">Join Us</span>
             <h1>Create Account</h1>
             <p>Sign up to save your info and see your order history.</p>
-
-            {error && <p className="account-auth__error">{ERROR_MESSAGES[error] ?? "Something went wrong. Try again."}</p>}
 
             {next && <input type="hidden" name="next" value={next} />}
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fredoka, Quicksand } from "next/font/google";
 import { CartProvider } from "../lib/cart/CartContext";
 import { UserProvider } from "../lib/user/UserContext";
+import { ToastProvider } from "../components/ToastProvider";
 import { getCurrentUser, getCartItemsForUser } from "../db/queries";
 import "./globals.css";
 
@@ -38,7 +39,9 @@ export default async function RootLayout({
     <html lang="en" className={`${fredoka.variable} ${quicksand.variable}`}>
       <body>
         <UserProvider initialUser={user}>
-          <CartProvider initialItems={initialCartItems}>{children}</CartProvider>
+          <ToastProvider>
+            <CartProvider initialItems={initialCartItems}>{children}</CartProvider>
+          </ToastProvider>
         </UserProvider>
       </body>
     </html>

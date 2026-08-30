@@ -34,7 +34,7 @@ import {
 } from "../../../../lib/fields";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
 import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../../../lib/order-types";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -42,7 +42,7 @@ const saveSchema = z.object({
   id: z.coerce.number().int().optional(),
   name: z.string().trim().min(1, "Name is required"),
   description: z.string().trim().optional(),
-  chargedPriceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
+  chargedPriceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
   published: z.coerce.number().optional(),
   portfolioPhotoId: z.coerce.number().int().optional(),
 });
@@ -233,6 +233,16 @@ export async function saveDesign(formData: FormData) {
 
     designId = parsed.id;
     const isCreate = !designId;
+
+    // a brand-new design with no seed photo (no Portfolio pick) needs at
+    // least one photo of its own — editing an existing design manages its
+    // photos separately, and a Portfolio-seeded one already has one
+    if (isCreate && !parsed.portfolioPhotoId) {
+      const hasPhotoFile = formData
+        .getAll("photos")
+        .some((f) => f instanceof File && f.size > 0);
+      if (!hasPhotoFile) throw new Error("Add at least one photo.");
+    }
 
     await db.transaction(async (tx) => {
       // the two quote-kind designs are always reachable, never unlisted like

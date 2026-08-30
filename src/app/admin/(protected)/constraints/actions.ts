@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import { fieldOptions, constraintPairs } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const PATH = "/admin/constraints";
 

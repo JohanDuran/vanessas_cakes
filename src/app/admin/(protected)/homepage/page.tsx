@@ -15,17 +15,17 @@ export default async function HomepageSettingsPage() {
         <form action={updateStoryContent} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="admin-field">
             <label>Heading</label>
-            <input name="heading" defaultValue={story.heading} required style={{ width: "100%" }} />
+            <input name="heading" defaultValue={story.heading} style={{ width: "100%" }} />
           </div>
 
           <div className="admin-field">
             <label>Paragraph 1</label>
-            <textarea name="paragraph1" defaultValue={story.paragraph1} required rows={4} style={{ width: "100%" }} />
+            <textarea name="paragraph1" defaultValue={story.paragraph1} rows={4} style={{ width: "100%" }} />
           </div>
 
           <div className="admin-field">
             <label>Paragraph 2</label>
-            <textarea name="paragraph2" defaultValue={story.paragraph2} required rows={4} style={{ width: "100%" }} />
+            <textarea name="paragraph2" defaultValue={story.paragraph2} rows={4} style={{ width: "100%" }} />
           </div>
 
           <div className="admin-field">
@@ -40,7 +40,6 @@ export default async function HomepageSettingsPage() {
                     <input
                       name={`stat${i + 1}Value`}
                       defaultValue={stat.value}
-                      required
                       placeholder="Value (e.g. 12+)"
                       style={{ width: "100%" }}
                     />
@@ -49,7 +48,6 @@ export default async function HomepageSettingsPage() {
                     <input
                       name={`stat${i + 1}Label`}
                       defaultValue={stat.label}
-                      required
                       placeholder="Label (e.g. Years Baking)"
                       style={{ width: "100%" }}
                     />

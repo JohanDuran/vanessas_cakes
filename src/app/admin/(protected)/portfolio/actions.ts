@@ -7,7 +7,7 @@ import { db } from "../../../../db";
 import { portfolioPhotos } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 /** Bulk-adds every attached photo as its own Portfolio row — the admin's entry
  *  point for stocking the customer-facing /portfolio page. */

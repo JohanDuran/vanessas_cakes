@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import { orders } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const setStatusSchema = z.object({
   id: z.coerce.number().int(),
@@ -57,7 +57,7 @@ const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 const saveQuotePriceSchema = z.object({
   id: z.coerce.number().int(),
   notes: z.string().optional(),
-  priceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
+  priceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
 });
 
 /** Admin's manual quote pricing — notes + a single final price, logged onto

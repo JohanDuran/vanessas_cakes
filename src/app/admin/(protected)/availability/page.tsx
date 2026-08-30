@@ -86,7 +86,6 @@ export default async function AvailabilityPage() {
               min={0}
               max={720}
               defaultValue={settings.leadTimeHours}
-              required
             />
           </div>
           <div className="admin-field">
@@ -97,7 +96,6 @@ export default async function AvailabilityPage() {
               min={1}
               max={365}
               defaultValue={settings.maxAdvanceDays}
-              required
             />
           </div>
           <div className="admin-field">
@@ -109,7 +107,6 @@ export default async function AvailabilityPage() {
               max={240}
               step={5}
               defaultValue={settings.slotIntervalMinutes}
-              required
             />
           </div>
           <div className="admin-field">
@@ -138,11 +135,11 @@ export default async function AvailabilityPage() {
         <form action={addDateOverride} className="admin-form-row" style={{ marginBottom: 20 }}>
           <div className="admin-field">
             <label>From</label>
-            <input type="date" name="startDate" required />
+            <input type="date" name="startDate" />
           </div>
           <div className="admin-field">
             <label>To</label>
-            <input type="date" name="endDate" required />
+            <input type="date" name="endDate" />
           </div>
           <div className="admin-field">
             <label>Closed all day</label>

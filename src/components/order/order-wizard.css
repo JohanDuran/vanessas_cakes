@@ -720,37 +720,6 @@
   margin-top: 6px;
 }
 
-.order-summary__error {
-  background: var(--pink-50);
-  border: 1px solid var(--pink-300);
-  color: var(--pink-600);
-  border-radius: var(--radius-sm);
-  padding: 12px 16px;
-  margin-top: 16px;
-  font-size: 0.92rem;
-  font-weight: 600;
-}
-
-ul.order-summary__error {
-  list-style: none;
-  padding-left: 16px;
-}
-
-ul.order-summary__error li {
-  position: relative;
-  padding-left: 14px;
-}
-
-ul.order-summary__error li::before {
-  content: "•";
-  position: absolute;
-  left: 0;
-}
-
-ul.order-summary__error li + li {
-  margin-top: 4px;
-}
-
 /* pickup calendar */
 .pickup-calendar {
   max-width: 380px;

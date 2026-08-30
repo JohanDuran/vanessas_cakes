@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { siteSettings } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const PATH = "/admin/settings";
 

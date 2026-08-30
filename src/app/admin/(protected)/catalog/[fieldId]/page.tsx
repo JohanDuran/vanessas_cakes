@@ -127,11 +127,11 @@ export default async function FieldDetailPage({
               {styleKind && <input type="hidden" name="styleKind" value={styleKind} />}
               <div className="admin-field">
                 <label>Name</label>
-                <input name="name" required />
+                <input name="name" />
               </div>
               <div className="admin-field">
                 <label>Price ($)</label>
-                <input name="priceDollars" type="number" step="0.01" defaultValue="0" required />
+                <input name="priceDollars" type="number" step="0.01" defaultValue="0" />
               </div>
               <div className="admin-field">
                 <label>Sort order</label>
@@ -210,7 +210,7 @@ export default async function FieldDetailPage({
                       <form id={formId} action={updateOption} />
                       <input type="hidden" form={formId} name="id" value={opt.id} />
                       <input type="hidden" form={formId} name="fieldId" value={field.id} />
-                      <input form={formId} name="name" defaultValue={opt.name} required style={{ width: "100%" }} />
+                      <input form={formId} name="name" defaultValue={opt.name} style={{ width: "100%" }} />
                     </td>
                     <td style={{ minWidth: 90 }}>
                       <input
@@ -332,7 +332,7 @@ export default async function FieldDetailPage({
           <div className="admin-form-row">
             <div className="admin-field">
               <label>Name</label>
-              <input name="name" defaultValue={field.name} required />
+              <input name="name" defaultValue={field.name} />
             </div>
             <div className="admin-field">
               <label>Type{field.isBase ? " (fixed)" : ""}</label>

@@ -8,6 +8,7 @@ import { profiles } from "../../db/schema";
 import { getCurrentUser } from "../../db/queries";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { getSiteUrl } from "../../lib/stripe";
+import { toastRedirect } from "../../lib/toast";
 
 // Accepts digits with optional +, spaces, dashes, dots, and parentheses;
 // the digit count (7-15) follows the E.164 range so both local and
@@ -46,6 +47,9 @@ function safeNext(next: string | undefined): string {
 }
 
 export async function signup(formData: FormData) {
+  const rawNext = formData.get("next");
+  const nextExtra = typeof rawNext === "string" && rawNext ? { next: rawNext } : undefined;
+
   const parsed = signupSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
@@ -57,23 +61,32 @@ export async function signup(formData: FormData) {
   });
 
   if (!parsed.success) {
-    const error = parsed.error.issues.some((issue) => issue.path[0] === "confirmPassword")
-      ? "mismatch"
-      : "invalid";
-    redirect(`/account/signup?error=${error}`);
+    const message = parsed.error.issues.some((issue) => issue.path[0] === "confirmPassword")
+      ? "Passwords do not match."
+      : "Please check the form — all fields are required, including a valid email, a valid phone number, and an 8+ character password.";
+    toastRedirect("/account/signup", "error", message, nextExtra);
   }
 
   const { name, email, phone, password, marketingOptIn, next } = parsed.data;
-  const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
-    redirect(`/account/signup?error=invalid${nextParam}`);
+    toastRedirect(
+      "/account/signup",
+      "error",
+      "Please check the form — all fields are required, including a valid email, a valid phone number, and an 8+ character password.",
+      nextExtra
+    );
   }
   if (!data.user) {
-    redirect(`/account/signup?error=invalid${nextParam}`);
+    toastRedirect(
+      "/account/signup",
+      "error",
+      "Please check the form — all fields are required, including a valid email, a valid phone number, and an 8+ character password.",
+      nextExtra
+    );
   }
 
   await db
@@ -84,13 +97,21 @@ export async function signup(formData: FormData) {
   // No session yet means Supabase Auth is waiting on email confirmation —
   // there's nothing more to do here until the customer clicks that link.
   if (!data.session) {
-    redirect(`/account/login?notice=confirm-email${nextParam}`);
+    toastRedirect(
+      "/account/login",
+      "success",
+      "Almost there — check your email for a confirmation link before logging in.",
+      nextExtra
+    );
   }
 
   redirect(safeNext(next));
 }
 
 export async function login(formData: FormData) {
+  const rawNext = formData.get("next");
+  const nextExtra = typeof rawNext === "string" && rawNext ? { next: rawNext } : undefined;
+
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
@@ -98,17 +119,16 @@ export async function login(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/account/login?error=1`);
+    toastRedirect("/account/login", "error", "Incorrect email or password. Try again.", nextExtra);
   }
 
   const { email, password, next } = parsed.data;
-  const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    redirect(`/account/login?error=1${nextParam}`);
+    toastRedirect("/account/login", "error", "Incorrect email or password. Try again.", nextExtra);
   }
 
   redirect(safeNext(next));
@@ -116,6 +136,7 @@ export async function login(formData: FormData) {
 
 export async function loginWithGoogle(formData: FormData) {
   const next = (formData.get("next") as string | null) ?? undefined;
+  const nextExtra = next ? { next } : undefined;
   const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
 
   const supabase = await createSupabaseServerClient();
@@ -125,7 +146,7 @@ export async function loginWithGoogle(formData: FormData) {
   });
 
   if (error || !data.url) {
-    redirect(`/account/login?error=1${next ? `&next=${encodeURIComponent(next)}` : ""}`);
+    toastRedirect("/account/login", "error", "Couldn't start Google sign-in. Please try again.", nextExtra);
   }
 
   redirect(data.url);
@@ -144,5 +165,5 @@ export async function updateMarketingOptIn(formData: FormData) {
   const marketingOptIn = formData.get("marketingOptIn") === "on";
   await db.update(profiles).set({ marketingOptIn }).where(eq(profiles.id, user.id));
 
-  redirect("/account");
+  toastRedirect("/account", "success", "Preference saved!");
 }

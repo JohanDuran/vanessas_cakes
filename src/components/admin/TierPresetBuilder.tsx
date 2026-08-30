@@ -40,7 +40,7 @@ export default function TierPresetBuilder({ action, molds, levelCounts, initial,
       {initial && <input type="hidden" name="id" value={initial.id} />}
       <div className="admin-field">
         <label>Name</label>
-        <input name="name" defaultValue={initial?.name} required style={{ minWidth: 140 }} />
+        <input name="name" defaultValue={initial?.name} style={{ minWidth: 140 }} />
       </div>
       <div className="admin-field">
         <label>Price ($)</label>
@@ -49,7 +49,6 @@ export default function TierPresetBuilder({ action, molds, levelCounts, initial,
           type="number"
           step="0.01"
           defaultValue={initial?.priceDollars ?? "0"}
-          required
           style={{ minWidth: 90 }}
         />
       </div>

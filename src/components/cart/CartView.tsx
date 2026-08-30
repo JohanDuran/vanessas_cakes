@@ -8,6 +8,7 @@ import { computeTotalCents, formatCents } from "../../lib/pricing";
 import type { WeeklyHour, DateOverride, PickupSettings } from "../../lib/availability";
 import { useCart, type CartItem } from "../../lib/cart/CartContext";
 import { useUser } from "../../lib/user/UserContext";
+import { useToast } from "../ToastProvider";
 import { submitCart } from "../../app/order/actions";
 import PickupStep from "../order/steps/PickupStep";
 import "./cart.css";
@@ -92,9 +93,13 @@ export default function CartView({ fields, options, designs, tierPresets, availa
   const cart = useCart();
   const user = useUser();
   const router = useRouter();
+  const { push: pushToast } = useToast();
   const [submitState, formAction, isSubmitting] = useActionState(submitCart, undefined);
-  const [formErrors, setFormErrors] = useState<string[]>([]);
   const [paymentPlan, setPaymentPlan] = useState<"full" | "deposit">("full");
+
+  useEffect(() => {
+    if (submitState?.error) pushToast("error", submitState.error);
+  }, [submitState, pushToast]);
 
   const summaries = new Map(cart.items.map((item) => [item.clientId, summarizeItem(item, fields, options, tierPresets, designs)]));
   const hasCatalogItem = cart.items.some((i) => !summaries.get(i.clientId)?.isQuote);
@@ -138,10 +143,8 @@ export default function CartView({ fields, options, designs, tierPresets, availa
 
     if (errors.length > 0) {
       e.preventDefault();
-      setFormErrors(errors);
-      return;
+      errors.forEach((err) => pushToast("error", err));
     }
-    setFormErrors([]);
   };
 
   if (cart.items.length === 0) {
@@ -334,19 +337,6 @@ export default function CartView({ fields, options, designs, tierPresets, availa
         <p className="cart-confirmation-note">
           You&apos;ll receive a confirmation email at the address above once your order is submitted.
         </p>
-
-        {formErrors.length > 0 && (
-          <ul className="order-summary__error" role="alert">
-            {formErrors.map((err) => (
-              <li key={err}>{err}</li>
-            ))}
-          </ul>
-        )}
-        {submitState?.error && (
-          <p className="order-summary__error" role="alert">
-            {submitState.error}
-          </p>
-        )}
 
         <button type="submit" className="btn btn-primary order-summary__submit" disabled={isSubmitting}>
           {isSubmitting ? "Sending…" : "Send Order to the Baker"}

@@ -28,7 +28,6 @@ export default function FieldOptionsEditor({ options, onChange }: Props) {
             placeholder="Option label"
             value={opt.label}
             onChange={(e) => updateOption(i, { label: e.target.value })}
-            required
           />
           <input
             type="number"

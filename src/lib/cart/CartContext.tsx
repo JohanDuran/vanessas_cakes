@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Answers } from "../pricing";
 import { useUser } from "../user/UserContext";
+import { useToast } from "../../components/ToastProvider";
 import { addCartItemAction, updateCartItemAction, removeCartItemAction, mergeGuestCartAction, loadCartItemsAction } from "./dbActions";
 import type { CartItemDTO } from "../../db/queries";
 
@@ -145,6 +146,7 @@ export function CartProvider({
   children: ReactNode;
 }) {
   const user = useUser();
+  const { push: pushToast } = useToast();
   const [items, setItems] = useState<CartItem[]>(() => initialItems.map(dtoToCartItem));
   const [contact, setContactState] = useState<ContactFields>(EMPTY_CONTACT);
   const [pickupDate, setPickupDate] = useState<string | null>(null);
@@ -188,7 +190,12 @@ export function CartProvider({
     const guestItems = readGuestCartFromStorage();
     if (guestItems.length === 0) return;
     clearGuestCartStorage();
-    mergeGuestCartIntoDb(guestItems).then(setItems);
+    mergeGuestCartIntoDb(guestItems)
+      .then(setItems)
+      .catch((err) => {
+        console.error(err);
+        pushToast("error", "Couldn't restore your saved cart — please refresh the page.");
+      });
     // run once, at mount, before the transition effect's ref has a chance to diverge
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -211,11 +218,21 @@ export function CartProvider({
     if (wasGuest) {
       const guestItems = itemsRef.current;
       clearGuestCartStorage();
-      mergeGuestCartIntoDb(guestItems).then(setItems);
+      mergeGuestCartIntoDb(guestItems)
+        .then(setItems)
+        .catch((err) => {
+          console.error(err);
+          pushToast("error", "Couldn't restore your saved cart — please refresh the page.");
+        });
     } else {
-      loadCartItemsAction().then((loaded) => setItems(loaded.map(dtoToCartItem)));
+      loadCartItemsAction()
+        .then((loaded) => setItems(loaded.map(dtoToCartItem)))
+        .catch((err) => {
+          console.error(err);
+          pushToast("error", "Couldn't load your cart — please refresh the page.");
+        });
     }
-  }, [user, clearCart]);
+  }, [user, clearCart, pushToast]);
 
   // Prefill contact fields from the signed-in user's profile — fires on
   // mount for an already-logged-in customer and again right after a
@@ -246,27 +263,35 @@ export function CartProvider({
         formData.set("answers", JSON.stringify(item.answers));
         formData.set("lockedReferenceImagePath", item.lockedReferenceImagePath ?? "");
         item.referenceImages.forEach((f) => formData.append("referenceImages", f));
-        addCartItemAction(formData).then(({ id, referenceImagePaths }) => {
-          setItems((prev) =>
-            prev.map((i) =>
-              i.clientId === clientId
-                ? {
-                    ...i,
-                    clientId: `db-${id}`,
-                    dbId: id,
-                    referenceImages: [],
-                    referenceImagePaths,
-                    lockedReferenceImagePath: null,
-                  }
-                : i
-            )
-          );
-        });
+        addCartItemAction(formData)
+          .then(({ id, referenceImagePaths }) => {
+            setItems((prev) =>
+              prev.map((i) =>
+                i.clientId === clientId
+                  ? {
+                      ...i,
+                      clientId: `db-${id}`,
+                      dbId: id,
+                      referenceImages: [],
+                      referenceImagePaths,
+                      lockedReferenceImagePath: null,
+                    }
+                  : i
+              )
+            );
+          })
+          .catch((err) => {
+            console.error(err);
+            // it was never actually persisted — drop the optimistic entry so the
+            // cart doesn't show a cake that would vanish on the next page load
+            setItems((prev) => prev.filter((i) => i.clientId !== clientId));
+            pushToast("error", "Couldn't add that cake to your cart — please try again.");
+          });
       }
 
       return clientId;
     },
-    [user]
+    [user, pushToast]
   );
 
   const updateItem = useCallback(
@@ -287,19 +312,27 @@ export function CartProvider({
           formData.set("answers", JSON.stringify(merged.answers));
           formData.set("lockedReferenceImagePath", merged.lockedReferenceImagePath ?? "");
           (patch.referenceImages ?? []).forEach((f) => formData.append("referenceImages", f));
-          updateCartItemAction(formData).then(({ referenceImagePaths }) => {
-            setItems((prev) =>
-              prev.map((i) =>
-                i.clientId === clientId
-                  ? { ...i, referenceImages: [], referenceImagePaths, lockedReferenceImagePath: null }
-                  : i
-              )
-            );
-          });
+          updateCartItemAction(formData)
+            .then(({ referenceImagePaths }) => {
+              setItems((prev) =>
+                prev.map((i) =>
+                  i.clientId === clientId
+                    ? { ...i, referenceImages: [], referenceImagePaths, lockedReferenceImagePath: null }
+                    : i
+                )
+              );
+            })
+            .catch((err) => {
+              console.error(err);
+              // the edit never actually saved — revert to what's still on the
+              // server so the review step doesn't show a change that isn't real
+              setItems((prev) => prev.map((i) => (i.clientId === clientId ? current : i)));
+              pushToast("error", "Couldn't save that change — please try again.");
+            });
         }
       }
     },
-    [user]
+    [user, pushToast]
   );
 
   const removeItem = useCallback(

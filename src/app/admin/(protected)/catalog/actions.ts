@@ -7,7 +7,7 @@ import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, slugify } from "../../../../lib/fields";
-import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
+import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 /** cake_style is locked to its exact 3 seeded options — admins may
  *  rename/re-price them but not add/remove/deactivate. */
@@ -140,7 +140,7 @@ export async function setFieldActive(formData: FormData) {
 const optionShape = {
   fieldId: z.coerce.number().int(),
   name: z.string().trim().min(1, "Name is required"),
-  priceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
+  priceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
   sortOrder: z.coerce.number().int().default(0),
   diameterIn: z.string().trim().optional(),
   shape: z.enum(["round", "square", "sheet", ""]).optional(),
@@ -296,7 +296,7 @@ export type QuickField = {
 
 const quickOptionSchema = z.object({
   label: z.string().trim().min(1),
-  priceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
+  priceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
 });
 
 const quickCreateSchema = z.object({

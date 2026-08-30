@@ -215,7 +215,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     step="0.01"
                     min="0"
                     defaultValue={order.quoteStatus === "new" ? "" : centsToDollarsStr(order.totalPriceCents)}
-                    required
                     style={{ minWidth: 110 }}
                   />
                 </div>

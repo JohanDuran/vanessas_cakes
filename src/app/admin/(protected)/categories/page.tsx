@@ -26,7 +26,7 @@ export default async function CategoriesPage() {
         <form action={createCategory} className="admin-form-row">
           <div className="admin-field">
             <label>Name</label>
-            <input name="name" required placeholder="e.g. Wedding Cakes" />
+            <input name="name" placeholder="e.g. Wedding Cakes" />
           </div>
           <button type="submit" className="btn btn-primary" style={{ padding: "10px 22px" }}>
             Add
@@ -53,7 +53,7 @@ export default async function CategoriesPage() {
                   <td style={{ minWidth: 200 }}>
                     <form id={formId} action={saveCategory} />
                     <input type="hidden" form={formId} name="id" value={c.id} />
-                    <input form={formId} name="name" defaultValue={c.name} required style={{ width: "100%" }} />
+                    <input form={formId} name="name" defaultValue={c.name} style={{ width: "100%" }} />
                   </td>
                   <td style={{ minWidth: 70 }}>
                     <input

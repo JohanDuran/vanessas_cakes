@@ -19,7 +19,7 @@ export default function NewFieldPage() {
         <div className="admin-form-row">
           <div className="admin-field" style={{ flex: 1, minWidth: 240 }}>
             <label>Field name</label>
-            <input name="name" required style={{ width: "100%" }} />
+            <input name="name" style={{ width: "100%" }} />
           </div>
           <div className="admin-field">
             <label>Type</label>

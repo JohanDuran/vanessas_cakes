@@ -24,7 +24,7 @@ export default async function AdminPortfolioPage() {
       <form action={uploadPortfolioPhotos} className="admin-card" style={{ marginBottom: 20 }}>
         <div className="admin-field">
           <label>Upload photos</label>
-          <input type="file" name="photos" accept="image/*" multiple required />
+          <input type="file" name="photos" accept="image/*" multiple />
         </div>
         <button type="submit" className="btn btn-primary" style={{ marginTop: 12 }}>
           Upload

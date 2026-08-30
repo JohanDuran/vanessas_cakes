@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { computeStandardPriceCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
 import type { DesignTierPresetSummary } from "../../app/admin/(protected)/designs/tierPresetSummary";
+import { useToast } from "../ToastProvider";
 import QuickAddFieldModal from "./QuickAddFieldModal";
 
 export type FieldOptionSummary = {
@@ -78,6 +79,7 @@ function draftFromAnswer(answer: Answers[number] | undefined): Draft {
 }
 
 export default function DesignForm({ fields, tierPresets = [], categories = [], portfolioPhoto, design }: Props) {
+  const { push: pushToast } = useToast();
   // new designs are always catalog — the two quote-kind designs are seeded
   // once and only ever reached through their own edit pages, never created here
   const isCatalog = !design || design.kind === "catalog";
@@ -275,9 +277,56 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const chargedCents = Math.round(Number(chargedDollars || "0") * 100);
   const premiumCents = Number.isFinite(chargedCents) ? chargedCents - standardPriceCents : 0;
 
+  // A disabled submit button — or a native HTML `required` attribute —
+  // gives zero feedback when tapped: the browser just silently blocks the
+  // submit (at most a small native tooltip on whichever field it stopped
+  // at) and our own code never runs. So none of these inputs use native
+  // `required` — this is the one place that validates them, and it always
+  // says something back via a popup instead of failing silently.
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const formData = new FormData(e.currentTarget);
+    const errors: string[] = [];
+
+    if (!String(formData.get("name") ?? "").trim()) {
+      errors.push("Design name is required.");
+    }
+
+    if (isCatalog) {
+      const priceRaw = String(formData.get("chargedPriceDollars") ?? "").trim();
+      if (!priceRaw || Number.isNaN(Number(priceRaw))) {
+        errors.push("Charged price is required.");
+      }
+    }
+
+    if (missingRequiredDefaults.length > 0) {
+      errors.push(
+        `Give a default value for: ${missingRequiredDefaults.map((f) => f.name).join(", ")} — or uncheck "Include in this design" if you don't want to use it.`
+      );
+    }
+
+    // a brand-new design with no seed photo (no existing design, no
+    // Portfolio pick) needs at least one photo of its own — editing or
+    // coming from Portfolio already has one, so "Add more photos" stays optional
+    if (!design && !portfolioPhoto) {
+      const photoFiles = formData.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
+      if (photoFiles.length === 0) {
+        errors.push("Add at least one photo.");
+      }
+    }
+
+    if (errors.length === 0) return;
+    e.preventDefault();
+    errors.forEach((message) => pushToast("error", message));
+  };
+
   return (
     <>
-      <form action={saveDesign} className="admin-card" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <form
+        action={saveDesign}
+        onSubmit={handleSubmit}
+        className="admin-card"
+        style={{ display: "flex", flexDirection: "column", gap: 18 }}
+      >
         {design && <input type="hidden" name="id" value={design.id} />}
         {!design && portfolioPhoto && (
           <input type="hidden" name="portfolioPhotoId" value={portfolioPhoto.id} />
@@ -285,8 +334,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
         <div className="admin-form-row">
           <div className="admin-field" style={{ flex: 1, minWidth: 240 }}>
-            <label>Design name</label>
-            <input name="name" defaultValue={design?.name} required style={{ width: "100%" }} />
+            <label>
+              Design name
+              <span className="field-type-tag">Required</span>
+            </label>
+            <input name="name" defaultValue={design?.name} style={{ width: "100%" }} />
           </div>
           <div className="admin-field" style={{ flex: 2, minWidth: 300 }}>
             <label>Description</label>
@@ -360,6 +412,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                       {field.name}
                       {!field.isBase && <span className="field-type-tag">{FIELD_TYPE_LABELS[field.type]}</span>}
                       {!field.active && " (inactive)"}
+                      {isCatalog && isIncluded && hasOptions && (
+                        <span className="field-type-tag">Required</span>
+                      )}
                       {(field.type === "text" || field.type === "number") && field.required && (
                         <span className="field-type-tag">Required</span>
                       )}
@@ -387,7 +442,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                     {isIncluded && field.type === "single_select" && (
                       <select
                         name={`option_${field.id}`}
-                        required={isCatalog}
                         value={draft.optionIds[0] ?? ""}
                         onChange={(e) => selectSingleOption(field.id, e.target.value ? Number(e.target.value) : undefined)}
                       >
@@ -405,6 +459,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                           );
                         })}
                       </select>
+                    )}
+                    {isIncluded && field.type === "single_select" && missingRequiredDefaultIds.has(field.id) && (
+                      <span style={{ color: "var(--pink-600)", fontSize: "0.8rem" }}>
+                        Needs a default value before this can be saved.
+                      </span>
                     )}
                     {isSizeField && (
                       <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: "4px 0 0" }}>
@@ -527,12 +586,14 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               <div style={{ padding: "9px 0", fontWeight: 600 }}>{formatCents(standardPriceCents)}</div>
             </div>
             <div className="admin-field">
-              <label>Charged price ($)</label>
+              <label>
+                Charged price ($)
+                <span className="field-type-tag">Required</span>
+              </label>
               <input
                 name="chargedPriceDollars"
                 type="number"
                 step="0.01"
-                required
                 value={chargedDollars}
                 onChange={(e) => setChargedDollars(e.target.value)}
                 style={{ minWidth: 110 }}
@@ -584,20 +645,17 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         )}
 
         <div className="admin-field">
-          <label>{design || portfolioPhoto ? "Add more photos" : "Photos"}</label>
+          <label>
+            {design || portfolioPhoto ? "Add more photos" : "Photos"}
+            {!design && !portfolioPhoto && <span className="field-type-tag">Required</span>}
+          </label>
           <input type="file" name="photos" accept="image/*" multiple />
         </div>
 
         <div>
-          <button type="submit" className="btn btn-primary" disabled={missingRequiredDefaults.length > 0}>
+          <button type="submit" className="btn btn-primary">
             {design ? "Save Design" : "Create Design"}
           </button>
-          {missingRequiredDefaults.length > 0 && (
-            <p style={{ color: "var(--pink-600)", fontSize: "0.85rem", marginTop: 6 }}>
-              Give a default value for: {missingRequiredDefaults.map((f) => f.name).join(", ")} — or uncheck
-              &quot;Include in this design&quot; if you don&apos;t want to use it.
-            </p>
-          )}
         </div>
       </form>
 
