@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logout } from "../../app/account/actions";
@@ -18,11 +19,30 @@ const NAV_ITEMS = [
 
 export default function AdminSidebar() {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => setOpen(false), [pathname]);
 
   return (
     <aside className="admin-sidebar">
-      <div className="admin-sidebar__brand">🎂 Vanessa's Admin</div>
-      <nav className="admin-sidebar__nav">
+      <div className="admin-sidebar__top">
+        <div className="admin-sidebar__brand">🎂 Vanessa's Admin</div>
+        <button
+          type="button"
+          className="admin-sidebar__toggle"
+          aria-label="Toggle admin menu"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+      </div>
+      <Link href="/" className="admin-sidebar__back">
+        ← Back to site
+      </Link>
+      <nav className={`admin-sidebar__nav ${open ? "admin-sidebar__nav--open" : ""}`}>
         {NAV_ITEMS.map((item) => {
           const active =
             item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
@@ -33,7 +53,10 @@ export default function AdminSidebar() {
           );
         })}
       </nav>
-      <form action={logout} className="admin-sidebar__logout">
+      <form
+        action={logout}
+        className={`admin-sidebar__logout ${open ? "admin-sidebar__logout--open" : ""}`}
+      >
         <button type="submit">Log Out</button>
       </form>
     </aside>

@@ -243,4 +243,8 @@
   }
   .hero__nav--prev { left: 4px; }
   .hero__nav--next { right: 4px; }
+
+  .hero__donut {
+    display: none;
+  }
 }

@@ -135,6 +135,32 @@
   font-weight: 700;
 }
 
+.navbar__mobile-only {
+  display: none;
+}
+
+.navbar__mobile-logout {
+  width: 100%;
+}
+
+.navbar__mobile-link-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  color: var(--choco-700);
+  cursor: pointer;
+}
+
+.navbar__mobile-link-btn:hover {
+  color: var(--pink-500);
+}
+
 .navbar__burger {
   display: none;
   flex-direction: column;
@@ -172,5 +198,13 @@
 
   .navbar__links--open {
     display: flex;
+  }
+
+  .navbar__desktop-only {
+    display: none;
+  }
+
+  .navbar__mobile-only {
+    display: block;
   }
 }

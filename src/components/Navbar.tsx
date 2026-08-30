@@ -38,37 +38,55 @@ export default function Navbar() {
           <Link href="/order/custom">Custom Cake</Link>
           {user?.isAdmin && <Link href="/admin">Admin</Link>}
           {user ? (
-            <div className="navbar__account">
+            <>
+              <div className="navbar__account navbar__desktop-only">
+                <Link
+                  href="/account"
+                  className="navbar__icon-link"
+                  aria-label="My Account"
+                  title="My Account"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                  </svg>
+                </Link>
+                <div className="navbar__account-menu">
+                  <Link href="/account">My Profile</Link>
+                  <form action={logout}>
+                    <button type="submit">Log Out</button>
+                  </form>
+                </div>
+              </div>
+              <Link href="/account" className="navbar__mobile-only">
+                My Account
+              </Link>
+              <form action={logout} className="navbar__mobile-only navbar__mobile-logout">
+                <button type="submit" className="navbar__mobile-link-btn">
+                  Log Out
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
               <Link
-                href="/account"
-                className="navbar__icon-link"
-                aria-label="My Account"
-                title="My Account"
+                href={`/account/login?next=${encodeURIComponent(pathname)}`}
+                className="navbar__icon-link navbar__desktop-only"
+                aria-label="Log In"
+                title="Log In"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="12" cy="8" r="4" />
                   <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
                 </svg>
               </Link>
-              <div className="navbar__account-menu">
-                <Link href="/account">My Profile</Link>
-                <form action={logout}>
-                  <button type="submit">Log Out</button>
-                </form>
-              </div>
-            </div>
-          ) : (
-            <Link
-              href={`/account/login?next=${encodeURIComponent(pathname)}`}
-              className="navbar__icon-link"
-              aria-label="Log In"
-              title="Log In"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
-              </svg>
-            </Link>
+              <Link
+                href={`/account/login?next=${encodeURIComponent(pathname)}`}
+                className="navbar__mobile-only"
+              >
+                Log In
+              </Link>
+            </>
           )}
           <Link href="/cart" className="navbar__cart navbar__icon-link" aria-label="Cart" title="Cart">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
