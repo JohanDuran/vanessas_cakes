@@ -15,9 +15,10 @@ const answerSchema = z.union([
 ]);
 const answersSchema = z.record(z.string(), answerSchema);
 
-function parseDesignId(formData: FormData): number | null {
-  const raw = formData.get("designId");
-  return typeof raw === "string" && raw !== "" ? Number(raw) : null;
+function parseDesignId(formData: FormData): number {
+  const raw = Number(formData.get("designId"));
+  if (!Number.isInteger(raw)) throw new Error("Missing designId.");
+  return raw;
 }
 
 function parseAnswers(formData: FormData): Answers {
@@ -26,6 +27,15 @@ function parseAnswers(formData: FormData): Answers {
 
 function filesFrom(formData: FormData, field: string): File[] {
   return formData.getAll(field).filter((f): f is File => f instanceof File && f.size > 0);
+}
+
+/** A reference image path that's already sitting in storage (e.g. a Portfolio
+ *  photo picked via "Get a Quote") — attached to the cart item as-is, no
+ *  saveUploadedPhoto re-upload needed. */
+function lockedPathFrom(formData: FormData): string | null {
+  const raw = formData.get("lockedReferenceImagePath");
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  return trimmed || null;
 }
 
 /** Mirrors submitCart's order_selections insert, minus the price/label
@@ -53,13 +63,13 @@ export async function addCartItemAction(formData: FormData): Promise<{ id: numbe
   if (!user) throw new Error("Not signed in.");
 
   const designId = parseDesignId(formData);
-  const isCustom = formData.get("isCustom") === "true";
   const answers = parseAnswers(formData);
   const files = filesFrom(formData, "referenceImages");
+  const lockedPath = lockedPathFrom(formData);
 
   const inserted = await db
     .insert(cartItems)
-    .values({ userId: user.id, designId, isCustom })
+    .values({ userId: user.id, designId })
     .returning({ id: cartItems.id })
     .then((r) => r[0]);
   await insertSelections(inserted.id, answers);
@@ -69,6 +79,10 @@ export async function addCartItemAction(formData: FormData): Promise<{ id: numbe
     const relPath = await saveUploadedPhoto(file);
     await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath });
     referenceImagePaths.push(relPath);
+  }
+  if (lockedPath) {
+    await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: lockedPath });
+    referenceImagePaths.push(lockedPath);
   }
 
   return { id: inserted.id, referenceImagePaths };
@@ -87,11 +101,11 @@ export async function updateCartItemAction(formData: FormData): Promise<{ refere
   if (!existing || existing.userId !== user.id) throw new Error("Cart item not found.");
 
   const designId = parseDesignId(formData);
-  const isCustom = formData.get("isCustom") === "true";
   const answers = parseAnswers(formData);
   const files = filesFrom(formData, "referenceImages");
+  const lockedPath = lockedPathFrom(formData);
 
-  await db.update(cartItems).set({ designId, isCustom }).where(eq(cartItems.id, id));
+  await db.update(cartItems).set({ designId }).where(eq(cartItems.id, id));
   await db.delete(cartItemSelections).where(eq(cartItemSelections.cartItemId, id));
   await insertSelections(id, answers);
 
@@ -105,7 +119,16 @@ export async function updateCartItemAction(formData: FormData): Promise<{ refere
     .from(cartItemReferenceImages)
     .where(eq(cartItemReferenceImages.cartItemId, id))
     ;
-  return { referenceImagePaths: images.map((i) => i.path) };
+  const referenceImagePaths = images.map((i) => i.path);
+
+  // avoid re-inserting the same locked path on every save (e.g. the wizard's
+  // review step re-submitting an unchanged edit)
+  if (lockedPath && !referenceImagePaths.includes(lockedPath)) {
+    await db.insert(cartItemReferenceImages).values({ cartItemId: id, path: lockedPath });
+    referenceImagePaths.push(lockedPath);
+  }
+
+  return { referenceImagePaths };
 }
 
 /** Removes one cart item — ownership-checked so a customer can only ever
@@ -120,9 +143,9 @@ export async function removeCartItemAction(id: number): Promise<void> {
 
 const guestItemSchema = z.object({
   localId: z.string(),
-  designId: z.number().nullable(),
-  isCustom: z.boolean(),
+  designId: z.number(),
   answers: answersSchema,
+  lockedReferenceImagePath: z.string().nullable().optional(),
 });
 
 /** Folds a just-logged-in customer's browser-only cart into their DB cart —
@@ -138,16 +161,20 @@ export async function mergeGuestCartAction(formData: FormData): Promise<CartItem
   for (const item of items) {
     const inserted = await db
       .insert(cartItems)
-      .values({ userId: user.id, designId: item.designId, isCustom: item.isCustom })
+      .values({ userId: user.id, designId: item.designId })
       .returning({ id: cartItems.id })
       .then((r) => r[0]);
     await insertSelections(inserted.id, item.answers);
 
-    if (item.isCustom) {
-      for (const file of filesFrom(formData, `files_${item.localId}`)) {
-        const relPath = await saveUploadedPhoto(file);
-        await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath });
-      }
+    // reference images are only ever attached to a quote item to begin
+    // with (see CustomCakeQuoteStep) — a catalog item simply has none of
+    // these to carry over
+    for (const file of filesFrom(formData, `files_${item.localId}`)) {
+      const relPath = await saveUploadedPhoto(file);
+      await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: relPath });
+    }
+    if (item.lockedReferenceImagePath) {
+      await db.insert(cartItemReferenceImages).values({ cartItemId: inserted.id, path: item.lockedReferenceImagePath });
     }
   }
 

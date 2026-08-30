@@ -15,6 +15,41 @@
       "when": 1787928764368,
       "tag": "0001_loose_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788059469837,
+      "tag": "0002_known_triathlon",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788062466460,
+      "tag": "0003_bizarre_patch",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788063269464,
+      "tag": "0004_many_maximus",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788063522929,
+      "tag": "0005_calm_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788066549418,
+      "tag": "0006_outgoing_dreaming_celestial",
+      "breakpoints": true
     }
   ]
 }

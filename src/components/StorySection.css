@@ -18,6 +18,10 @@
   padding: 40px;
 }
 
+.story__art:has(.story__photo) {
+  padding: 0;
+}
+
 .story__art-blob {
   position: absolute;
   inset: 0;
@@ -27,6 +31,15 @@
   border-radius: 46% 54% 60% 40% / 50% 45% 55% 50%;
   background: linear-gradient(135deg, var(--pink-100), var(--lavender-100));
   z-index: -1;
+}
+
+.story__photo {
+  width: 100%;
+  max-width: 440px;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px rgba(107, 66, 38, 0.18);
 }
 
 .story__donut {

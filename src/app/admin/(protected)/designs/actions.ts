@@ -14,6 +14,7 @@ import {
   fieldOptions,
   fields,
   constraintPairs,
+  portfolioPhotos,
   tierPresets,
   tierPresetLevels,
 } from "../../../../db/schema";
@@ -21,7 +22,16 @@ import { requireAdmin } from "../../../../db/queries";
 import { selectionsViolateConstraints } from "../../../../lib/constraints";
 import { buildCakeStyleContext } from "../../../../lib/cakeStyle";
 import { computeStandardPriceCents, type Answers } from "../../../../lib/pricing";
-import { isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../lib/fields";
+import {
+  CAKE_STYLE_FIELD_SLUG,
+  SIZE_FIELD_SLUG,
+  fieldHasOptions,
+  isCakeStyleKind,
+  isDesignKind,
+  isFieldType,
+  isTierLevelCount,
+  type FieldType,
+} from "../../../../lib/fields";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
 import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../../../lib/order-types";
 import { toastMessage, toastRedirect } from "../../../../lib/adminToast";
@@ -34,6 +44,7 @@ const saveSchema = z.object({
   description: z.string().trim().optional(),
   chargedPriceDollars: z.string().refine((v) => !Number.isNaN(Number(v)), "Must be a number"),
   published: z.coerce.number().optional(),
+  portfolioPhotoId: z.coerce.number().int().optional(),
 });
 
 export async function saveDesign(formData: FormData) {
@@ -44,6 +55,16 @@ export async function saveDesign(formData: FormData) {
   try {
     await requireAdmin();
     const parsed = saveSchema.parse(Object.fromEntries(formData));
+
+    // kind is immutable after creation — new designs (no id) are always
+    // catalog; the two quote-kind designs are seeded once and only ever
+    // edited, never created through this form.
+    const existingDesign = parsed.id
+      ? await db.select().from(designs).where(eq(designs.id, parsed.id)).then((r) => r[0])
+      : undefined;
+    if (parsed.id && !existingDesign) throw new Error("Design not found.");
+    const kind = existingDesign && isDesignKind(existingDesign.kind) ? existingDesign.kind : "catalog";
+    const isCatalog = kind === "catalog";
 
     const allFields = await db.select().from(fields);
     const allOptions = await db.select().from(fieldOptions);
@@ -92,23 +113,31 @@ export async function saveDesign(formData: FormData) {
     }));
     const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
 
-    const includedCustomFieldIds = new Set(
+    const includedFieldIds = new Set(
       formData
         .getAll("includedFieldIds")
         .map((v) => Number(v))
         .filter((n) => Number.isInteger(n))
     );
 
+    // cake_style and size must move together — see the matching
+    // PAIRED_INCLUSION_SLUGS rule in DesignForm.tsx
+    const cakeStyleField = allFields.find((f) => f.slug === CAKE_STYLE_FIELD_SLUG);
+    const sizeField = allFields.find((f) => f.slug === SIZE_FIELD_SLUG);
+    if (cakeStyleField && sizeField && includedFieldIds.has(cakeStyleField.id) !== includedFieldIds.has(sizeField.id)) {
+      throw new Error("Cake Style and Size must be enabled or disabled together.");
+    }
+
     const answers: Answers = {};
     for (const field of allFields) {
-      const isIncluded = field.isBase || includedCustomFieldIds.has(field.id);
+      const isIncluded = includedFieldIds.has(field.id);
       if (!isIncluded) continue;
 
       if (field.type === "single_select") {
         const raw = formData.get(`option_${field.id}`);
         const optionId = raw != null ? Number(raw) : NaN;
         if (!Number.isInteger(optionId)) {
-          if (field.isBase) throw new Error(`${field.name} is required.`);
+          if (isCatalog) throw new Error(`${field.name} is required.`);
           continue;
         }
         answers[field.id] = { type: "options", optionIds: [optionId] };
@@ -127,9 +156,16 @@ export async function saveDesign(formData: FormData) {
       }
     }
 
-    for (const field of allFields) {
-      if (field.isBase && !answers[field.id]) {
-        throw new Error(`${field.name} is required.`);
+    // catalog designs price themselves off each included option field's
+    // default (see standardPriceCents below) — an included priced field left
+    // without one would silently inflate the customer's eventual total past
+    // chargedPriceCents once they pick something for it in the wizard. Quote
+    // designs have no fixed price to protect, so nothing is required there.
+    if (isCatalog) {
+      for (const field of allFields) {
+        if (!includedFieldIds.has(field.id)) continue;
+        if (!fieldHasOptions(field.type)) continue;
+        if (!answers[field.id]) throw new Error(`${field.name} is required.`);
       }
     }
 
@@ -162,8 +198,11 @@ export async function saveDesign(formData: FormData) {
     const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
     const flatFields = allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
     const standardPriceCents = computeStandardPriceCents(answers, flatOptions, flatFields);
-    const chargedPriceCents = dollarsToCents(parsed.chargedPriceDollars);
-    const premiumCents = chargedPriceCents - standardPriceCents;
+    // quote-kind designs have no fixed price — the baker quotes by hand once
+    // the request comes in — regardless of what the (hidden, always "0")
+    // chargedPriceDollars field carries
+    const chargedPriceCents = isCatalog ? dollarsToCents(parsed.chargedPriceDollars) : 0;
+    const premiumCents = isCatalog ? chargedPriceCents - standardPriceCents : 0;
 
     const lockedFieldIds = formData
       .getAll("lockedFieldIds")
@@ -193,8 +232,14 @@ export async function saveDesign(formData: FormData) {
     });
 
     designId = parsed.id;
+    const isCreate = !designId;
 
     await db.transaction(async (tx) => {
+      // the two quote-kind designs are always reachable, never unlisted like
+      // a catalog product, regardless of what the (hidden, always "1")
+      // published checkbox carries
+      const published = isCatalog ? Boolean(parsed.published) : true;
+
       if (designId) {
         await tx.update(designs)
           .set({
@@ -202,7 +247,7 @@ export async function saveDesign(formData: FormData) {
             description: parsed.description || null,
             chargedPriceCents,
             premiumCents,
-            published: Boolean(parsed.published),
+            published,
             updatedAt: Date.now(),
           })
           .where(eq(designs.id, designId!))
@@ -217,7 +262,7 @@ export async function saveDesign(formData: FormData) {
             description: parsed.description || null,
             chargedPriceCents,
             premiumCents,
-            published: Boolean(parsed.published),
+            published,
             updatedAt: Date.now(),
           })
           .returning({ id: designs.id })
@@ -238,15 +283,15 @@ export async function saveDesign(formData: FormData) {
         }
       }
 
-      // an included text/number field with no default value still needs a
-      // row to stay "included" (admin may leave a required field's default
-      // empty) — insert a bare marker row for it
+      // an included field with no default value still needs a row to stay
+      // "included" — inclusion *is* having a row here, value or not (see
+      // loadOrderData's includedFieldIdsByDesign). This covers text/number
+      // fields left blank (admin may leave a required field's default
+      // empty) and, now that a default is only required for catalog
+      // designs, single/multi_select fields left unanswered on a quote
+      // design too — insert a bare marker row for any of these.
       for (const field of allFields) {
-        if (
-          (field.type === "text" || field.type === "number") &&
-          includedCustomFieldIds.has(field.id) &&
-          !answers[field.id]
-        ) {
+        if (includedFieldIds.has(field.id) && !answers[field.id]) {
           await tx.insert(designFieldValues).values({ designId: designId!, fieldId: field.id });
         }
       }
@@ -267,6 +312,20 @@ export async function saveDesign(formData: FormData) {
       }
     });
 
+    // a portfolio photo only ever seeds a brand-new design — an existing design's
+    // photos are managed entirely through its own Photos section below
+    if (isCreate && parsed.portfolioPhotoId) {
+      const sourcePhoto = await db
+        .select()
+        .from(portfolioPhotos)
+        .where(eq(portfolioPhotos.id, parsed.portfolioPhotoId))
+        .then((r) => r[0]);
+      if (sourcePhoto) {
+        await db.insert(designPhotos).values({ designId: designId!, path: sourcePhoto.path, isPrimary: true });
+        await db.delete(portfolioPhotos).where(eq(portfolioPhotos.id, sourcePhoto.id));
+      }
+    }
+
     const photoFiles = formData
       .getAll("photos")
       .filter((f): f is File => f instanceof File && f.size > 0);
@@ -277,6 +336,7 @@ export async function saveDesign(formData: FormData) {
     }
 
     revalidatePath("/admin/designs");
+    revalidatePath("/admin/portfolio");
   } catch (err) {
     toastRedirect(backPath, "error", toastMessage(err, "Couldn't save this design."));
   }

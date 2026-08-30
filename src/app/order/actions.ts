@@ -40,13 +40,16 @@ const answerSchema = z.union([
 
 const cartItemSchema = z.object({
   clientId: z.string().min(1),
-  designId: z.number().nullable(),
-  isCustom: z.boolean(),
+  designId: z.number(),
   answers: z.record(z.string(), answerSchema),
   // set when this item was already persisted to the customer's DB cart
   // (see src/lib/cart/dbActions.ts) — its reference images, if any, already
   // live on disk and are copied over below instead of being re-uploaded.
   dbId: z.number().nullable().optional(),
+  // an already-uploaded photo (Portfolio "Get a Quote") attached as-is — only
+  // used for guest (no dbId) items; a dbId item's copy already covers it, see
+  // below.
+  lockedReferenceImagePath: z.string().nullable().optional(),
 });
 
 const submitCartSchema = z.object({
@@ -69,8 +72,10 @@ export type SubmitCartState = { error: string } | undefined;
 
 type ResolvedItem = {
   clientId: string;
-  designId: number | null;
-  designName: string | null;
+  designId: number;
+  designName: string;
+  /** design.kind !== "catalog" — no fixed price, quoted by hand later. */
+  isQuote: boolean;
   answers: Answers;
   priceCents: number;
 };
@@ -90,54 +95,45 @@ async function resolveCartItem(
   }
 ): Promise<{ ok: true; item: ResolvedItem } | { ok: false; error: string }> {
   const { allFields, allOptions, optionById, fieldById, cakeStyleCtx, pairs } = catalog;
-  const isCustomItem = !item.designId;
 
-  let design: typeof designs.$inferSelect | undefined;
-  if (!isCustomItem) {
-    design = await db.select().from(designs).where(eq(designs.id, item.designId!)).then((r) => r[0]);
-    if (!design || !design.published) {
-      return { ok: false, error: "One of the designs in your cart is no longer available." };
-    }
+  const design = await db.select().from(designs).where(eq(designs.id, item.designId)).then((r) => r[0]);
+  if (!design || !design.published) {
+    return { ok: false, error: "One of the designs in your cart is no longer available." };
   }
+  const isQuote = design.kind !== "catalog";
 
   const designAnswers: Answers = {};
   const includedFieldIds = new Set<number>();
-  if (!isCustomItem) {
-    const designFieldValueRows = await db
-      .select()
-      .from(designFieldValues)
-      .where(eq(designFieldValues.designId, design!.id))
-      ;
-    for (const row of designFieldValueRows) {
-      includedFieldIds.add(row.fieldId);
-      if (row.fieldOptionId != null) {
-        const existing = designAnswers[row.fieldId];
-        if (existing?.type === "options") existing.optionIds.push(row.fieldOptionId);
-        else designAnswers[row.fieldId] = { type: "options", optionIds: [row.fieldOptionId] };
-      } else if (row.textValue != null) {
-        designAnswers[row.fieldId] = { type: "text", value: row.textValue };
-      } else if (row.numberValue != null) {
-        designAnswers[row.fieldId] = { type: "number", value: row.numberValue };
-      }
+  const designFieldValueRows = await db
+    .select()
+    .from(designFieldValues)
+    .where(eq(designFieldValues.designId, design.id))
+    ;
+  for (const row of designFieldValueRows) {
+    includedFieldIds.add(row.fieldId);
+    if (row.fieldOptionId != null) {
+      const existing = designAnswers[row.fieldId];
+      if (existing?.type === "options") existing.optionIds.push(row.fieldOptionId);
+      else designAnswers[row.fieldId] = { type: "options", optionIds: [row.fieldOptionId] };
+    } else if (row.textValue != null) {
+      designAnswers[row.fieldId] = { type: "text", value: row.textValue };
+    } else if (row.numberValue != null) {
+      designAnswers[row.fieldId] = { type: "number", value: row.numberValue };
     }
   }
 
-  const designFields = allFields.filter((f) => f.isBase || includedFieldIds.has(f.id));
+  const designFields = allFields.filter((f) => includedFieldIds.has(f.id));
 
   const lockedFieldIds = new Set(
-    isCustomItem
-      ? []
-      : (
-          await db.select().from(designLockedFields).where(eq(designLockedFields.designId, design!.id))
-        ).map((r) => r.fieldId)
+    (await db.select().from(designLockedFields).where(eq(designLockedFields.designId, design.id))).map(
+      (r) => r.fieldId
+    )
   );
 
   const excludedOptionIds = new Set(
-    isCustomItem
-      ? []
-      : (
-          await db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, design!.id))
-        ).map((r) => r.fieldOptionId)
+    (await db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, design.id))).map(
+      (r) => r.fieldOptionId
+    )
   );
 
   // re-validate each field's answer against the trusted catalog — never trust
@@ -177,7 +173,7 @@ async function resolveCartItem(
     }
   }
 
-  if (!isCustomItem) {
+  if (!isQuote) {
     for (const field of designFields) {
       const requiresAnswer =
         field.type === "single_select" || ((field.type === "text" || field.type === "number") && field.required);
@@ -206,14 +202,15 @@ async function resolveCartItem(
 
   const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
   const flatFields = allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
-  const priceCents = computeTotalCents(answers, design?.premiumCents ?? 0, flatOptions, flatFields);
+  const priceCents = computeTotalCents(answers, design.premiumCents, flatOptions, flatFields);
 
   return {
     ok: true,
     item: {
       clientId: item.clientId,
-      designId: isCustomItem ? null : design!.id,
-      designName: isCustomItem ? null : design!.name,
+      designId: design.id,
+      designName: design.name,
+      isQuote,
       answers,
       priceCents,
     },
@@ -234,7 +231,12 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     return { error: "Your cart is empty." };
   }
 
-  const hasCatalogItem = cartInput.some((i) => !i.isCustom);
+  // lightweight pre-check for the pickup-date requirement below — final
+  // per-item validation (including a stale/deleted designId) happens in
+  // resolveCartItem once the full catalog is loaded.
+  const designKindRows = await db.select({ id: designs.id, kind: designs.kind }).from(designs);
+  const designKindById = new Map(designKindRows.map((d) => [d.id, d.kind]));
+  const hasCatalogItem = cartInput.some((i) => designKindById.get(i.designId) === "catalog");
 
   // never trust a client-computed slot — re-validate against current admin
   // config in case availability changed since the cart loaded. Pickup is
@@ -332,7 +334,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   // hand) — only a cart made up entirely of catalog cakes has a known total
   // to actually charge online. Anything else keeps the pre-Stripe "we'll
   // contact you to confirm pricing" flow, unchanged.
-  const requiresPayment = totalPriceCents > 0 && resolvedItems.every((i) => i.designId != null);
+  const requiresPayment = totalPriceCents > 0 && resolvedItems.every((i) => !i.isQuote);
 
   // deposits only make sense when there's a real online charge to split —
   // otherwise (custom quotes / $0 carts) always treat as "full" with nothing
@@ -359,6 +361,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         comments: parsed.comments || null,
         totalPriceCents,
         status: "new",
+        quoteStatus: resolvedItems.some((i) => i.isQuote) ? "new" : null,
         pickupDate,
         pickupTime,
         paymentStatus: requiresPayment ? "pending" : "not_required",
@@ -427,7 +430,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   });
 
   for (const item of cartInput) {
-    if (!item.isCustom) continue;
+    if (designKindById.get(item.designId) === "catalog") continue;
     const orderItemId = itemIdByClientId.get(item.clientId);
     if (!orderItemId) continue;
 
@@ -460,6 +463,9 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
     for (const file of referenceImageFiles) {
       const relPath = await saveUploadedPhoto(file);
       await db.insert(orderReferenceImages).values({ orderItemId, path: relPath });
+    }
+    if (item.lockedReferenceImagePath) {
+      await db.insert(orderReferenceImages).values({ orderItemId, path: item.lockedReferenceImagePath });
     }
   }
 

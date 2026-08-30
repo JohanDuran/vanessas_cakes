@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
 export default async function GalleryPage() {
   const { fields, options, designSummaries, constraintPairsDTO, tierPresets, categories } = await loadOrderData();
 
-  const cards = designSummaries.map((design) => ({
+  const catalogDesigns = designSummaries.filter((d) => d.kind === "catalog");
+
+  const cards = catalogDesigns.map((design) => ({
     design,
     ...priceRangeForDesign(design, fields, options, constraintPairsDTO, tierPresets),
   }));
@@ -21,8 +23,8 @@ export default async function GalleryPage() {
       <header className="gallery-hero">
         <div className="container">
           <span className="section-eyebrow">Fan Favorites</span>
-          <h1>A little taste of what we bake</h1>
-          <p>Every cake below started as a custom order — tap one to make it yours.</p>
+          <h1>Shop Our Collection</h1>
+          <p>Enjoy our special selection of cakes.</p>
         </div>
       </header>
 

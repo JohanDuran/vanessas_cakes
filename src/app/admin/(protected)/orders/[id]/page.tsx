@@ -6,10 +6,15 @@ import { eq } from "drizzle-orm";
 import { baseFieldRank, CONTACT_PREFERENCE_LABELS, isContactPreference } from "../../../../../lib/fields";
 import { formatCents } from "../../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../../lib/availability";
-import { setOrderStatus, markBalanceCollected } from "../actions";
+import { setOrderStatus, markBalanceCollected, saveQuotePrice, setQuoteStatus } from "../actions";
 import PaymentBadge from "../../../../../components/admin/PaymentBadge";
+import QuoteStatusBadge from "../../../../../components/admin/QuoteStatusBadge";
 
 export const dynamic = "force-dynamic";
+
+function centsToDollarsStr(cents: number) {
+  return (cents / 100).toFixed(2);
+}
 
 /** Groups one item's flat selection rows by field (so a multi-select field's
  *  several rows show as one line) in canonical base-field order. */
@@ -118,7 +123,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       </div>
 
       {items.map((item, index) => {
-        const isCustom = item.designId == null;
+        const isCustom = item.designKind !== "catalog";
         const groupedSelections = groupSelections(item.selections);
         return (
           <div key={item.id}>
@@ -152,7 +157,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     <tr>
                       <th>Field</th>
                       <th>Selection</th>
-                      <th>Price</th>
+                      {!isCustom && <th>Price</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -160,23 +165,102 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                       <tr key={row.fieldId}>
                         <td>{row.fieldName}</td>
                         <td>{row.label}</td>
-                        <td>{formatCents(row.price)}</td>
+                        {!isCustom && <td>{formatCents(row.price)}</td>}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-              <div style={{ marginTop: 14, fontWeight: 700, fontFamily: "var(--font-heading)" }}>
-                {isCustom ? "Estimated total" : "Total"}: {formatCents(item.priceCents)}
-              </div>
+              {!isCustom && (
+                <div style={{ marginTop: 14, fontWeight: 700, fontFamily: "var(--font-heading)" }}>
+                  Total: {formatCents(item.priceCents)}
+                </div>
+              )}
             </div>
           </div>
         );
       })}
 
+      {order.quoteStatus != null && (
+        <div className="admin-card">
+          <h3 style={{ marginBottom: 10 }}>
+            Quote Pricing — <QuoteStatusBadge status={order.quoteStatus} />
+          </h3>
+
+          {order.quoteStatus === "accepted" ? (
+            <>
+              {order.quoteNotes && <p style={{ whiteSpace: "pre-wrap" }}>{order.quoteNotes}</p>}
+              <p style={{ fontWeight: 700 }}>{formatCents(order.totalPriceCents)}</p>
+            </>
+          ) : (
+            <>
+              <form action={saveQuotePrice} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <input type="hidden" name="id" value={order.id} />
+                <div className="admin-field">
+                  <label htmlFor="quoteNotes">Notes</label>
+                  <textarea
+                    id="quoteNotes"
+                    name="notes"
+                    rows={3}
+                    defaultValue={order.quoteNotes ?? ""}
+                    placeholder="How this price was worked out — tiers, flavors, rush fee, etc."
+                  />
+                </div>
+                <div className="admin-field">
+                  <label htmlFor="quotePriceDollars">Price ($)</label>
+                  <input
+                    id="quotePriceDollars"
+                    name="priceDollars"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={order.quoteStatus === "new" ? "" : centsToDollarsStr(order.totalPriceCents)}
+                    required
+                    style={{ minWidth: 110 }}
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ alignSelf: "flex-start" }}>
+                  {order.quoteStatus === "new" ? "Save Quote Price" : "Recalculate"}
+                </button>
+              </form>
+
+              {(order.quoteStatus === "calculated" || order.quoteStatus === "awaiting_confirmation") && (
+                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                  {order.quoteStatus === "calculated" && (
+                    <form action={setQuoteStatus}>
+                      <input type="hidden" name="id" value={order.id} />
+                      <input type="hidden" name="status" value="awaiting_confirmation" />
+                      <button type="submit" className="admin-btn-sm admin-btn-sm--ghost">
+                        Mark Awaiting Confirmation
+                      </button>
+                    </form>
+                  )}
+                  <form action={setQuoteStatus}>
+                    <input type="hidden" name="id" value={order.id} />
+                    <input type="hidden" name="status" value="accepted" />
+                    <button type="submit" className="admin-btn-sm">
+                      Accept
+                    </button>
+                  </form>
+                  <form action={setQuoteStatus}>
+                    <input type="hidden" name="id" value={order.id} />
+                    <input type="hidden" name="status" value="rejected" />
+                    <button type="submit" className="admin-btn-sm admin-btn-sm--danger">
+                      Reject
+                    </button>
+                  </form>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       <div className="admin-card">
         <h3 style={{ marginBottom: 10, fontFamily: "var(--font-heading)" }}>Order Total</h3>
-        <div style={{ fontWeight: 700 }}>{formatCents(order.totalPriceCents)}</div>
+        <div style={{ fontWeight: 700 }}>
+          {order.quoteStatus === "new" ? "Not yet quoted" : formatCents(order.totalPriceCents)}
+        </div>
       </div>
 
       {order.comments && (

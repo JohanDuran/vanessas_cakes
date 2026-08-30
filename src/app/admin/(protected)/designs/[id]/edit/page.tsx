@@ -14,7 +14,7 @@ import {
   tierPresets,
   tierPresetLevels,
 } from "../../../../../../db/schema";
-import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../../lib/fields";
+import { baseFieldRank, isCakeStyleKind, isDesignKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../../lib/fields";
 import type { Answers } from "../../../../../../lib/pricing";
 import DesignForm, { type FieldSummary } from "../../../../../../components/admin/DesignForm";
 import { buildTierPresetSummaries } from "../../tierPresetSummary";
@@ -127,6 +127,7 @@ export default async function EditDesignPage({
           id: design.id,
           name: design.name,
           description: design.description,
+          kind: isDesignKind(design.kind) ? design.kind : "catalog",
           chargedPriceCents: design.chargedPriceCents,
           published: design.published,
           fieldValues,

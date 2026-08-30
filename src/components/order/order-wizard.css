@@ -613,6 +613,17 @@
   cursor: pointer;
 }
 
+.custom-quote__locked-note {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  margin: 0 0 4px;
+}
+
+.custom-quote .custom-quote__preview:only-child {
+  width: 160px;
+  height: 160px;
+}
+
 /* order summary / review */
 .order-summary__design {
   color: var(--text-soft);

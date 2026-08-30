@@ -2,16 +2,15 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designs, orderItems, orders } from "../../../../db/schema";
-import { closePastPickupOrders, loadPickupAvailability } from "../../../../db/queries";
+import { closePastPickupOrders } from "../../../../db/queries";
 import { formatCents } from "../../../../lib/pricing";
 import { fromDateKey, formatTimeLabel } from "../../../../lib/availability";
-import OrdersCalendar, { type CalendarOrder } from "../../../../components/admin/OrdersCalendar";
-import { closeDayForNewOrders, reopenDay } from "../availability/actions";
-import PaymentBadge from "../../../../components/admin/PaymentBadge";
+import { CONTACT_PREFERENCE_LABELS, isContactPreference } from "../../../../lib/fields";
+import QuoteStatusBadge from "../../../../components/admin/QuoteStatusBadge";
 
 export const dynamic = "force-dynamic";
 
-/** "Midnight Choco Drip" for a single-cake order, "Midnight Choco Drip +1
+/** "Midnight Choco Drip" for a single-cake quote, "Midnight Choco Drip +1
  *  more" for a multi-cake one — the admin list only has room for one line. */
 function summarizeItemNames(names: string[]): string {
   if (names.length === 0) return "Custom Cake";
@@ -19,44 +18,38 @@ function summarizeItemNames(names: string[]): string {
   return `${names[0]} +${names.length - 1} more`;
 }
 
-export default async function OrdersInboxPage() {
+export default async function QuotesInboxPage() {
   await closePastPickupOrders();
 
-  const [allOrdersRaw, allItems, { settings, overrides }] = await Promise.all([
-    await db
+  const [allOrdersRaw, allItems] = await Promise.all([
+    db
       .select({
         id: orders.id,
         customerName: orders.customerName,
         customerEmail: orders.customerEmail,
-        totalPriceCents: orders.totalPriceCents,
         status: orders.status,
         quoteStatus: orders.quoteStatus,
-        paymentStatus: orders.paymentStatus,
-        paymentPlan: orders.paymentPlan,
-        amountDueCents: orders.amountDueCents,
-        balanceCollectedAt: orders.balanceCollectedAt,
+        totalPriceCents: orders.totalPriceCents,
+        contactPreference: orders.contactPreference,
         createdAt: orders.createdAt,
         pickupDate: orders.pickupDate,
         pickupTime: orders.pickupTime,
       })
       .from(orders)
-      .orderBy(desc(orders.createdAt))
-      ,
-    await db
+      .orderBy(desc(orders.createdAt)),
+    db
       .select({
         orderId: orderItems.orderId,
         designName: designs.name,
         sortOrder: orderItems.sortOrder,
       })
       .from(orderItems)
-      .leftJoin(designs, eq(orderItems.designId, designs.id))
-      ,
-    loadPickupAvailability(),
+      .leftJoin(designs, eq(orderItems.designId, designs.id)),
   ]);
 
-  // A quote is only listed here once accepted — see orders.quoteStatus in
-  // src/db/schema.ts. Still-pending quotes live on /admin/quotes instead.
-  const allOrders = allOrdersRaw.filter((o) => o.quoteStatus == null || o.quoteStatus === "accepted");
+  // A quote lives here until accepted — see orders.quoteStatus in
+  // src/db/schema.ts. Once accepted it moves to /admin/orders instead.
+  const allOrders = allOrdersRaw.filter((o) => o.quoteStatus != null && o.quoteStatus !== "accepted");
 
   const itemNamesByOrder = new Map<number, string[]>();
   for (const item of allItems.sort((a, b) => a.sortOrder - b.sortOrder)) {
@@ -65,35 +58,13 @@ export default async function OrdersInboxPage() {
     itemNamesByOrder.set(item.orderId, list);
   }
 
-  const ordersByDate: Record<string, CalendarOrder[]> = {};
-  for (const o of allOrders) {
-    if (!o.pickupDate) continue;
-    const list = ordersByDate[o.pickupDate] ?? (ordersByDate[o.pickupDate] = []);
-    list.push({
-      id: o.id,
-      customerName: o.customerName,
-      itemSummary: summarizeItemNames(itemNamesByOrder.get(o.id) ?? []),
-      pickupTime: o.pickupTime,
-      totalPriceCents: o.totalPriceCents,
-      status: o.status,
-    });
-  }
-
   return (
     <>
-      <h1>Orders</h1>
+      <h1>Quotes</h1>
       <p className="admin-main__subtitle">
-        Priced cake orders submitted by customers, newest first. Custom-cake quote requests live under{" "}
-        <Link href="/admin/quotes">Quotes</Link>.
+        Custom-cake quote requests, from first inquiry through pricing and confirmation. Accepted quotes move to{" "}
+        <Link href="/admin/orders">Orders</Link>.
       </p>
-
-      <OrdersCalendar
-        ordersByDate={ordersByDate}
-        maxOrdersPerDay={settings.maxOrdersPerDay}
-        overrides={overrides}
-        closeDayForNewOrders={closeDayForNewOrders}
-        reopenDay={reopenDay}
-      />
 
       <div className="admin-card">
         <table className="admin-table">
@@ -103,9 +74,9 @@ export default async function OrdersInboxPage() {
               <th>Customer</th>
               <th>Cakes</th>
               <th>Pickup</th>
-              <th>Total</th>
+              <th>Contact</th>
+              <th>Price</th>
               <th>Status</th>
-              <th>Payment</th>
               <th></th>
             </tr>
           </thead>
@@ -123,15 +94,14 @@ export default async function OrdersInboxPage() {
                     ? `${fromDateKey(o.pickupDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${formatTimeLabel(o.pickupTime)}`
                     : "—"}
                 </td>
-                <td>{formatCents(o.totalPriceCents)}</td>
-                <td style={{ textTransform: "capitalize" }}>{o.status}</td>
                 <td>
-                  <PaymentBadge
-                    status={o.paymentStatus}
-                    paymentPlan={o.paymentPlan}
-                    balanceCents={o.totalPriceCents - o.amountDueCents}
-                    balanceCollectedAt={o.balanceCollectedAt}
-                  />
+                  {o.contactPreference && isContactPreference(o.contactPreference)
+                    ? CONTACT_PREFERENCE_LABELS[o.contactPreference]
+                    : "—"}
+                </td>
+                <td>{o.quoteStatus === "new" ? "—" : formatCents(o.totalPriceCents)}</td>
+                <td>
+                  <QuoteStatusBadge status={o.quoteStatus ?? "new"} />
                 </td>
                 <td>
                   <Link href={`/admin/orders/${o.id}`} className="admin-btn-sm admin-btn-sm--ghost">
@@ -143,7 +113,7 @@ export default async function OrdersInboxPage() {
             {allOrders.length === 0 && (
               <tr>
                 <td colSpan={8} style={{ color: "var(--text-soft)" }}>
-                  No orders yet.
+                  No quote requests yet.
                 </td>
               </tr>
             )}

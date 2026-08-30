@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type FieldType, type TierLevelCount } from "../../lib/fields";
+import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { computeStandardPriceCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
@@ -37,22 +37,35 @@ type Props = {
   fields: FieldSummary[];
   tierPresets?: DesignTierPresetSummary[];
   categories?: CategorySummary[];
+  /** set when this design is being created from Portfolio's "Configure" button —
+   *  its photo becomes this design's photo on save (see saveDesign). Ignored once
+   *  a design already exists (editing never re-seeds from a portfolio photo). */
+  portfolioPhoto?: { id: number; path: string } | null;
   design?: {
     id: number;
     name: string;
     description: string | null;
+    /** catalog | custom | custom_portfolio — immutable after creation; the
+     *  two non-catalog kinds are seeded once, never created via this form. */
+    kind: DesignKind;
     chargedPriceCents: number;
     published: boolean;
     fieldValues: Answers;
     lockedFieldIds: number[];
     excludedOptionIds: number[];
     categoryIds: number[];
-    /** every field this design uses, base + included custom fields (whether or
-     *  not a default value was given) — see DesignSummaryDTO.includedFieldIds */
+    /** every field this design uses, whether or not a default value was
+     *  given — see DesignSummaryDTO.includedFieldIds */
     includedFieldIds: number[];
     photos: Photo[];
   };
 };
+
+/** cake_style and size must be included/excluded together — cakeStyle.ts's
+ *  tier-preset logic and the Size step's style filtering assume either both
+ *  are present on a design or neither is. Enforced here (linked checkboxes)
+ *  and mirrored server-side in saveDesign, not as a DB constraint. */
+const PAIRED_INCLUSION_SLUGS = new Set<string>([CAKE_STYLE_FIELD_SLUG, SIZE_FIELD_SLUG]);
 
 type Draft = { optionIds: number[]; text: string; number: string };
 
@@ -64,7 +77,10 @@ function draftFromAnswer(answer: Answers[number] | undefined): Draft {
   };
 }
 
-export default function DesignForm({ fields, tierPresets = [], categories = [], design }: Props) {
+export default function DesignForm({ fields, tierPresets = [], categories = [], portfolioPhoto, design }: Props) {
+  // new designs are always catalog — the two quote-kind designs are seeded
+  // once and only ever reached through their own edit pages, never created here
+  const isCatalog = !design || design.kind === "catalog";
   const [chargedDollars, setChargedDollars] = useState(
     design ? (design.chargedPriceCents / 100).toFixed(2) : ""
   );
@@ -74,8 +90,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     for (const f of fields) init[f.id] = draftFromAnswer(design?.fieldValues[f.id]);
     return init;
   });
-  const [includedCustomFieldIds, setIncludedCustomFieldIds] = useState<Set<number>>(
-    () => new Set(fields.filter((f) => !f.isBase && design?.includedFieldIds.includes(f.id)).map((f) => f.id))
+  // a brand-new design starts with every base field pre-checked (matching
+  // the old always-included behavior, admin can uncheck from there); an
+  // existing design's checked set is whatever it actually includes
+  const [includedFieldIds, setIncludedFieldIds] = useState<Set<number>>(
+    () => new Set(fields.filter((f) => (design ? design.includedFieldIds.includes(f.id) : f.isBase)).map((f) => f.id))
   );
   const [lockedFieldIds, setLockedFieldIds] = useState<Set<number>>(new Set(design?.lockedFieldIds ?? []));
   const [excludedOptionIds, setExcludedOptionIds] = useState<Set<number>>(
@@ -106,10 +125,21 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   };
 
   const toggleIncluded = (fieldId: number) => {
-    setIncludedCustomFieldIds((prev) => {
+    const field = availableFields.find((f) => f.id === fieldId);
+    setIncludedFieldIds((prev) => {
       const next = new Set(prev);
-      if (next.has(fieldId)) next.delete(fieldId);
-      else next.add(fieldId);
+      const nowIncluded = !next.has(fieldId);
+      if (nowIncluded) next.add(fieldId);
+      else next.delete(fieldId);
+
+      // cake_style and size move together — see PAIRED_INCLUSION_SLUGS
+      if (field && PAIRED_INCLUSION_SLUGS.has(field.slug)) {
+        const partner = availableFields.find((f) => f.id !== fieldId && PAIRED_INCLUSION_SLUGS.has(f.slug));
+        if (partner) {
+          if (nowIncluded) next.add(partner.id);
+          else next.delete(partner.id);
+        }
+      }
       return next;
     });
   };
@@ -131,8 +161,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const currentAnswers: Answers = useMemo(() => {
     const answers: Answers = {};
     for (const f of availableFields) {
-      const included = f.isBase || includedCustomFieldIds.has(f.id);
-      if (!included) continue;
+      if (!includedFieldIds.has(f.id)) continue;
       const draft = drafts[f.id];
       if (!draft) continue;
       if (f.type === "single_select" || f.type === "multi_select") {
@@ -144,7 +173,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
       }
     }
     return answers;
-  }, [availableFields, drafts, includedCustomFieldIds]);
+  }, [availableFields, drafts, includedFieldIds]);
 
   const allOptionsFlat = useMemo(
     () => availableFields.flatMap((f) => f.options.map((o) => ({ id: o.id, fieldId: f.id, priceCents: o.priceCents }))),
@@ -197,9 +226,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   // mirrors the order wizard's resolveAll: a `size` default left over from a
   // different cake_style (picked before a later style change, or inherited
   // from stale data) must not linger in the draft — otherwise it silently
-  // fails allBaseAnswered below with nothing on screen explaining why Save
-  // is disabled. Clearing it here keeps the visible dropdown, the drafted
-  // state, and the validation all in agreement.
+  // fails missingRequiredDefaults below with nothing on screen explaining
+  // why Save is disabled. Clearing it here keeps the visible dropdown, the
+  // drafted state, and the validation all in agreement.
   useEffect(() => {
     if (!cakeStyleCtx) return;
     const sizeDraft = drafts[cakeStyleCtx.sizeFieldId];
@@ -219,20 +248,19 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     [currentAnswers, cakeStyleCtx]
   );
 
-  const missingBaseFields = availableFields.filter((f) => f.isBase && effectiveAnswers[f.id] == null);
-  const allBaseAnswered = missingBaseFields.length === 0;
-
-  // custom fields with the "Include" box checked but no actual value: a
-  // multi_select field needs at least one default checked or it would save
-  // silently with no design_field_values row at all — see currentAnswers
-  // above. Text/number fields are exempt: admin can leave a required field's
-  // default empty and it still stays included (see saveDesign).
-  const includedFieldsMissingValue = availableFields.filter((f) => {
-    if (f.isBase || !includedCustomFieldIds.has(f.id)) return false;
-    if (f.type !== "multi_select") return false;
-    return currentAnswers[f.id] == null;
-  });
-  const includedFieldsMissingValueIds = new Set(includedFieldsMissingValue.map((f) => f.id));
+  // Catalog designs price themselves off each included option field's
+  // default (standardPriceCents below), so every included single/multi
+  // select field needs one — an included priced option left without a
+  // default would silently inflate the customer's eventual total past
+  // chargedPriceCents once they pick something for it in the wizard. Quote
+  // designs (custom / custom_portfolio) have no fixed price to protect, so
+  // nothing is required there — the customer just picks freely.
+  const missingRequiredDefaults = isCatalog
+    ? availableFields.filter(
+        (f) => includedFieldIds.has(f.id) && fieldHasOptions(f.type) && effectiveAnswers[f.id] == null
+      )
+    : [];
+  const missingRequiredDefaultIds = new Set(missingRequiredDefaults.map((f) => f.id));
 
   const allFieldsFlat: PriceableField[] = useMemo(
     () => availableFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents })),
@@ -251,6 +279,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     <>
       <form action={saveDesign} className="admin-card" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         {design && <input type="hidden" name="id" value={design.id} />}
+        {!design && portfolioPhoto && (
+          <input type="hidden" name="portfolioPhotoId" value={portfolioPhoto.id} />
+        )}
 
         <div className="admin-form-row">
           <div className="admin-field" style={{ flex: 1, minWidth: 240 }}>
@@ -294,10 +325,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             <div>
               <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
               <p style={{ color: "var(--text-soft)", marginTop: 4, fontSize: "0.9rem" }}>
-                Every built-in field needs a default — the standard price below is the sum of these
-                values&apos; catalog prices. Custom fields are optional; include the ones this design
-                uses. You can lock any field so customers can&apos;t change it, or hide specific
-                options just for this design.
+                {isCatalog
+                  ? "Include the fields this design uses, and give each included option field a default — the standard price below is the sum of those defaults' catalog prices. You can lock any field so customers can't change it, or hide specific options just for this design."
+                  : "Include the fields this quote flow should ask about — no default value is required, the customer picks freely (or leaves it blank). You can still lock a field to force one answer, or hide specific options."}
               </p>
             </div>
             <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
@@ -307,8 +337,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {availableFields.map((field) => {
-              const isIncluded = field.isBase || includedCustomFieldIds.has(field.id);
+              const isIncluded = includedFieldIds.has(field.id);
               const isLocked = lockedFieldIds.has(field.id);
+              const isPaired = PAIRED_INCLUSION_SLUGS.has(field.slug);
               const draft = drafts[field.id] ?? { optionIds: [], text: "", number: "" };
               const hasOptions = fieldHasOptions(field.type);
               const isSizeField = field.slug === SIZE_FIELD_SLUG;
@@ -337,23 +368,26 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                       )}
                     </label>
 
-                    {!field.isBase && (
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem" }}>
-                        <input
-                          type="checkbox"
-                          name="includedFieldIds"
-                          value={field.id}
-                          checked={isIncluded}
-                          onChange={() => toggleIncluded(field.id)}
-                        />
-                        Include in this design
-                      </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem" }}>
+                      <input
+                        type="checkbox"
+                        name="includedFieldIds"
+                        value={field.id}
+                        checked={isIncluded}
+                        onChange={() => toggleIncluded(field.id)}
+                      />
+                      Include in this design
+                    </label>
+                    {isPaired && (
+                      <span style={{ color: "var(--text-soft)", fontSize: "0.8rem" }}>
+                        Cake Style and Size are linked — enabling/disabling one does the same to the other.
+                      </span>
                     )}
 
                     {isIncluded && field.type === "single_select" && (
                       <select
                         name={`option_${field.id}`}
-                        required
+                        required={isCatalog}
                         value={draft.optionIds[0] ?? ""}
                         onChange={(e) => selectSingleOption(field.id, e.target.value ? Number(e.target.value) : undefined)}
                       >
@@ -431,7 +465,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                             No options yet — add some from Catalog.
                           </span>
                         )}
-                        {includedFieldsMissingValueIds.has(field.id) && (
+                        {missingRequiredDefaultIds.has(field.id) && (
                           <span style={{ color: "var(--pink-600)", fontSize: "0.8rem" }}>
                             Needs at least one default selection before this can be saved.
                           </span>
@@ -486,60 +520,82 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           </div>
         </div>
 
-        <div className="admin-form-row" style={{ alignItems: "flex-end" }}>
-          <div className="admin-field">
-            <label>Standard price (sum of field values)</label>
-            <div style={{ padding: "9px 0", fontWeight: 600 }}>{formatCents(standardPriceCents)}</div>
-          </div>
-          <div className="admin-field">
-            <label>Charged price ($)</label>
-            <input
-              name="chargedPriceDollars"
-              type="number"
-              step="0.01"
-              required
-              value={chargedDollars}
-              onChange={(e) => setChargedDollars(e.target.value)}
-              style={{ minWidth: 110 }}
-            />
-          </div>
-          <div className="admin-field">
-            <label>Design premium (computed)</label>
-            <div style={{ padding: "9px 0", fontWeight: 600, color: "var(--pink-600)" }}>
-              {formatCents(premiumCents)}
+        {isCatalog ? (
+          <div className="admin-form-row" style={{ alignItems: "flex-end" }}>
+            <div className="admin-field">
+              <label>Standard price (sum of field values)</label>
+              <div style={{ padding: "9px 0", fontWeight: 600 }}>{formatCents(standardPriceCents)}</div>
+            </div>
+            <div className="admin-field">
+              <label>Charged price ($)</label>
+              <input
+                name="chargedPriceDollars"
+                type="number"
+                step="0.01"
+                required
+                value={chargedDollars}
+                onChange={(e) => setChargedDollars(e.target.value)}
+                style={{ minWidth: 110 }}
+              />
+            </div>
+            <div className="admin-field">
+              <label>Design premium (computed)</label>
+              <div style={{ padding: "9px 0", fontWeight: 600, color: "var(--pink-600)" }}>
+                {formatCents(premiumCents)}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          // quote flows have no fixed price — the baker quotes by hand once
+          // the request comes in — so chargedPriceDollars is just pinned to 0
+          <input type="hidden" name="chargedPriceDollars" value="0" />
+        )}
 
-        <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <input type="checkbox" id="published" name="published" value="1" defaultChecked={design?.published} />
-          <label htmlFor="published" style={{ margin: 0 }}>
-            Published (visible to customers)
-          </label>
-        </div>
+        {isCatalog ? (
+          <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" id="published" name="published" value="1" defaultChecked={design?.published} />
+            <label htmlFor="published" style={{ margin: 0 }}>
+              Published (visible to customers)
+            </label>
+          </div>
+        ) : (
+          // the two quote flows are always reachable, never unlisted like a
+          // catalog product
+          <input type="hidden" name="published" value="1" />
+        )}
+
+        {!design && portfolioPhoto && (
+          <div className="admin-field">
+            <label>From Portfolio</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <img
+                src={portfolioPhoto.path}
+                alt=""
+                width={72}
+                height={72}
+                style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
+              />
+              <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
+                This photo will become the design&apos;s primary photo, and will be removed from the
+                Portfolio once you save.
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="admin-field">
-          <label>{design ? "Add more photos" : "Photos"}</label>
+          <label>{design || portfolioPhoto ? "Add more photos" : "Photos"}</label>
           <input type="file" name="photos" accept="image/*" multiple />
         </div>
 
         <div>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={!allBaseAnswered || includedFieldsMissingValue.length > 0}
-          >
+          <button type="submit" className="btn btn-primary" disabled={missingRequiredDefaults.length > 0}>
             {design ? "Save Design" : "Create Design"}
           </button>
-          {includedFieldsMissingValue.length > 0 && (
+          {missingRequiredDefaults.length > 0 && (
             <p style={{ color: "var(--pink-600)", fontSize: "0.85rem", marginTop: 6 }}>
-              Give a default value for: {includedFieldsMissingValue.map((f) => f.name).join(", ")} — or
-              uncheck &quot;Include in this design&quot; if you don&apos;t want to use it.
-            </p>
-          )}
-          {missingBaseFields.length > 0 && (
-            <p style={{ color: "var(--pink-600)", fontSize: "0.85rem", marginTop: 6 }}>
-              Pick a value for: {missingBaseFields.map((f) => f.name).join(", ")} before saving.
+              Give a default value for: {missingRequiredDefaults.map((f) => f.name).join(", ")} — or uncheck
+              &quot;Include in this design&quot; if you don&apos;t want to use it.
             </p>
           )}
         </div>
@@ -596,7 +652,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           onCreated={(field) => {
             setAvailableFields((prev) => [...prev, field]);
             setDrafts((prev) => ({ ...prev, [field.id]: { optionIds: [], text: "", number: "" } }));
-            setIncludedCustomFieldIds((prev) => new Set(prev).add(field.id));
+            setIncludedFieldIds((prev) => new Set(prev).add(field.id));
             setShowFieldModal(false);
           }}
         />

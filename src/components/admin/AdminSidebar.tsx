@@ -7,8 +7,11 @@ import { logout } from "../../app/account/actions";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard" },
+  { href: "/admin/homepage", label: "Homepage" },
   { href: "/admin/orders", label: "Orders" },
+  { href: "/admin/quotes", label: "Quotes" },
   { href: "/admin/designs", label: "Designs" },
+  { href: "/admin/portfolio", label: "Portfolio" },
   { href: "/admin/categories", label: "Categories" },
   { href: "/admin/catalog", label: "Catalog" },
   { href: "/admin/constraints", label: "Constraints" },

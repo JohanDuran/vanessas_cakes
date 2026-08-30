@@ -3,6 +3,7 @@ import { desc } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designPhotos, designs } from "../../../../db/schema";
 import { formatCents } from "../../../../lib/pricing";
+import { isDesignKind } from "../../../../lib/fields";
 import { setDesignFeatured, setDesignPublished } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,8 @@ export default async function DesignsListPage() {
           <tbody>
             {allDesigns.map((d) => {
               const photo = primaryPhotoByDesign.get(d.id);
+              const kind = isDesignKind(d.kind) ? d.kind : "catalog";
+              const isCatalog = kind === "catalog";
               return (
                 <tr key={d.id}>
                   <td>
@@ -74,31 +77,36 @@ export default async function DesignsListPage() {
                   </td>
                   <td>
                     <Link href={`/admin/designs/${d.id}/edit`}>{d.name}</Link>
+                    {!isCatalog && <span className="field-type-tag">quote</span>}
                   </td>
-                  <td>{formatCents(d.chargedPriceCents)}</td>
-                  <td>{formatCents(d.premiumCents)}</td>
-                  <td>{d.published ? "Published" : "Draft"}</td>
+                  <td>{isCatalog ? formatCents(d.chargedPriceCents) : "—"}</td>
+                  <td>{isCatalog ? formatCents(d.premiumCents) : "—"}</td>
+                  <td>{isCatalog ? (d.published ? "Published" : "Draft") : "Always reachable"}</td>
                   <td>
-                    <form action={setDesignPublished}>
-                      <input type="hidden" name="id" value={d.id} />
-                      <input type="hidden" name="published" value={d.published ? 0 : 1} />
-                      <button type="submit" className="admin-btn-sm admin-btn-sm--ghost">
-                        {d.published ? "Unpublish" : "Publish"}
-                      </button>
-                    </form>
+                    {isCatalog && (
+                      <form action={setDesignPublished}>
+                        <input type="hidden" name="id" value={d.id} />
+                        <input type="hidden" name="published" value={d.published ? 0 : 1} />
+                        <button type="submit" className="admin-btn-sm admin-btn-sm--ghost">
+                          {d.published ? "Unpublish" : "Publish"}
+                        </button>
+                      </form>
+                    )}
                   </td>
                   <td>
-                    <form action={setDesignFeatured}>
-                      <input type="hidden" name="id" value={d.id} />
-                      <input type="hidden" name="featured" value={d.featured ? 0 : 1} />
-                      <button
-                        type="submit"
-                        className={`admin-btn-sm ${d.featured ? "admin-btn-sm--danger" : "admin-btn-sm--ghost"}`}
-                        title="Show this design in the homepage carousel"
-                      >
-                        {d.featured ? "★ Featured" : "☆ Feature"}
-                      </button>
-                    </form>
+                    {isCatalog && (
+                      <form action={setDesignFeatured}>
+                        <input type="hidden" name="id" value={d.id} />
+                        <input type="hidden" name="featured" value={d.featured ? 0 : 1} />
+                        <button
+                          type="submit"
+                          className={`admin-btn-sm ${d.featured ? "admin-btn-sm--danger" : "admin-btn-sm--ghost"}`}
+                          title="Show this design in the homepage carousel"
+                        >
+                          {d.featured ? "★ Featured" : "☆ Feature"}
+                        </button>
+                      </form>
+                    )}
                   </td>
                 </tr>
               );

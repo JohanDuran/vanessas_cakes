@@ -26,10 +26,10 @@ type Props = {
 };
 
 /** A design's actual fields — same rule as the wizard's own fieldsForDesign:
- *  every base field, plus whichever custom fields the design included. */
+ *  whichever fields (base or custom) the design included. */
 function fieldsForItem(fields: FieldDTO[], design: DesignSummaryDTO | undefined): FieldDTO[] {
-  if (!design) return fields.filter((f) => f.isBase);
-  return fields.filter((f) => f.isBase || design.includedFieldIds.includes(f.id));
+  if (!design) return [];
+  return fields.filter((f) => design.includedFieldIds.includes(f.id));
 }
 
 function summarizeItem(
@@ -39,7 +39,8 @@ function summarizeItem(
   tierPresets: TierPresetDTO[],
   designs: DesignSummaryDTO[]
 ) {
-  const design = item.designId ? designs.find((d) => d.id === item.designId) : undefined;
+  const design = designs.find((d) => d.id === item.designId);
+  const isQuote = design ? design.kind !== "catalog" : false;
   const optionById = new Map(options.map((o) => [o.id, o]));
   const presetsByOptionId = new Map(tierPresets.map((p) => [p.fieldOptionId, p]));
   const itemFields = fieldsForItem(fields, design);
@@ -74,13 +75,14 @@ function summarizeItem(
 
   const flatOptions = options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
   const flatFields = itemFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
-  const priceCents = item.isCustom
+  const priceCents = isQuote
     ? 0
     : computeTotalCents(item.answers, design?.premiumCents ?? 0, flatOptions, flatFields);
 
   return {
-    name: item.isCustom ? "Custom Cake Quote" : (design?.name ?? "Unknown design"),
+    name: isQuote ? "Custom Cake Quote" : (design?.name ?? "Unknown design"),
     photo: design?.photos[0],
+    isQuote,
     lines,
     priceCents,
   };
@@ -94,14 +96,12 @@ export default function CartView({ fields, options, designs, tierPresets, availa
   const [formErrors, setFormErrors] = useState<string[]>([]);
   const [paymentPlan, setPaymentPlan] = useState<"full" | "deposit">("full");
 
-  const hasCatalogItem = cart.items.some((i) => !i.isCustom);
-  const subtotalCents = cart.items.reduce(
-    (sum, item) => sum + summarizeItem(item, fields, options, tierPresets, designs).priceCents,
-    0
-  );
+  const summaries = new Map(cart.items.map((item) => [item.clientId, summarizeItem(item, fields, options, tierPresets, designs)]));
+  const hasCatalogItem = cart.items.some((i) => !summaries.get(i.clientId)?.isQuote);
+  const subtotalCents = cart.items.reduce((sum, item) => sum + (summaries.get(item.clientId)?.priceCents ?? 0), 0);
   // mirrors the server's requiresPayment check in submitCart — a deposit only
   // makes sense when the whole cart is a known-price online charge
-  const canChoosePaymentPlan = !cart.items.some((i) => i.isCustom) && subtotalCents > 0;
+  const canChoosePaymentPlan = !cart.items.some((i) => summaries.get(i.clientId)?.isQuote) && subtotalCents > 0;
   const depositCents = Math.round(subtotalCents / 2);
 
   const fileInputsRef = useRef<Record<string, HTMLInputElement | null>>({});
@@ -116,7 +116,11 @@ export default function CartView({ fields, options, designs, tierPresets, availa
   }, [cart.items]);
 
   const handleEdit = (item: CartItem) => {
-    const target = item.isCustom ? "/order/custom" : `/order/${item.designId}`;
+    // both quote-kind designs are edited through the same /order/custom
+    // route regardless of which one this item points at — the wizard
+    // reconstructs the rest of its state from the cartItem param
+    const isQuote = summaries.get(item.clientId)?.isQuote ?? false;
+    const target = isQuote ? "/order/custom" : `/order/${item.designId}`;
     router.push(`${target}?cartItem=${item.clientId}`);
   };
 
@@ -158,9 +162,9 @@ export default function CartView({ fields, options, designs, tierPresets, availa
     cart.items.map((item) => ({
       clientId: item.clientId,
       designId: item.designId,
-      isCustom: item.isCustom,
       answers: item.answers,
       dbId: item.dbId ?? null,
+      lockedReferenceImagePath: item.lockedReferenceImagePath ?? null,
     }))
   );
 
@@ -180,7 +184,7 @@ export default function CartView({ fields, options, designs, tierPresets, availa
         <input type="hidden" name="paymentPlan" value={canChoosePaymentPlan ? paymentPlan : "full"} />
         {cart.items.map(
           (item) =>
-            item.isCustom &&
+            summaries.get(item.clientId)?.isQuote &&
             item.referenceImages.length > 0 && (
               <input
                 key={item.clientId}
@@ -216,7 +220,7 @@ export default function CartView({ fields, options, designs, tierPresets, availa
                       </li>
                     ))}
                   </ul>
-                  {!item.isCustom && <div className="cart-item__price">{formatCents(summary.priceCents)}</div>}
+                  {!summary.isQuote && <div className="cart-item__price">{formatCents(summary.priceCents)}</div>}
                 </div>
                 <div className="cart-item__actions">
                   <button type="button" className="btn btn-outline" onClick={() => handleEdit(item)}>

@@ -27,13 +27,14 @@ export default async function AdminDashboardPage() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const upcomingEndKey = toDateKey(new Date(now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000));
 
-  const [allOrders, allItems, allDesigns, { settings, orderCountsByDate }] = await Promise.all([
+  const [allOrdersRaw, allItems, allDesigns, { settings, orderCountsByDate }] = await Promise.all([
     await db
       .select({
         id: orders.id,
         customerName: orders.customerName,
         totalPriceCents: orders.totalPriceCents,
         status: orders.status,
+        quoteStatus: orders.quoteStatus,
         createdAt: orders.createdAt,
         pickupDate: orders.pickupDate,
         pickupTime: orders.pickupTime,
@@ -42,7 +43,11 @@ export default async function AdminDashboardPage() {
       .orderBy(desc(orders.createdAt))
       ,
     await db
-      .select({ orderId: orderItems.orderId, designName: designs.name, sortOrder: orderItems.sortOrder })
+      .select({
+        orderId: orderItems.orderId,
+        designName: designs.name,
+        sortOrder: orderItems.sortOrder,
+      })
       .from(orderItems)
       .leftJoin(designs, eq(orderItems.designId, designs.id))
       ,
@@ -57,7 +62,14 @@ export default async function AdminDashboardPage() {
     itemNamesByOrder.set(item.orderId, list);
   }
 
+  // A quote lives under /admin/quotes until accepted, then /admin/orders —
+  // see orders.quoteStatus in src/db/schema.ts. Split here so dashboard
+  // stats/links route correctly.
+  const allOrders = allOrdersRaw.filter((o) => o.quoteStatus == null || o.quoteStatus === "accepted");
+  const allQuotes = allOrdersRaw.filter((o) => o.quoteStatus != null && o.quoteStatus !== "accepted");
+
   const newOrders = allOrders.filter((o) => o.status === "new");
+  const newQuotes = allQuotes.filter((o) => o.quoteStatus === "new");
   const ordersThisMonth = allOrders.filter((o) => o.createdAt >= monthStart);
   const revenueThisMonthCents = ordersThisMonth.reduce((sum, o) => sum + o.totalPriceCents, 0);
 
@@ -91,6 +103,13 @@ export default async function AdminDashboardPage() {
           </Link>
         </div>
         <div className="admin-stat">
+          <span className="admin-stat__label">New Quotes</span>
+          <span className="admin-stat__value">{newQuotes.length}</span>
+          <Link href="/admin/quotes" className="admin-stat__link">
+            Review quotes
+          </Link>
+        </div>
+        <div className="admin-stat">
           <span className="admin-stat__label">Revenue This Month</span>
           <span className="admin-stat__value">{formatCents(revenueThisMonthCents)}</span>
           <span className="admin-stat__hint">{ordersThisMonth.length} order{ordersThisMonth.length === 1 ? "" : "s"}</span>
@@ -112,8 +131,10 @@ export default async function AdminDashboardPage() {
       <div className="admin-dashboard-grid">
         <div className="admin-card">
           <h2 className="admin-card__title">Needs Attention</h2>
-          {newOrders.length === 0 && capacityAlerts.length === 0 ? (
-            <p style={{ color: "var(--text-soft)" }}>You&apos;re all caught up — no new orders or capacity alerts.</p>
+          {newOrders.length === 0 && newQuotes.length === 0 && capacityAlerts.length === 0 ? (
+            <p style={{ color: "var(--text-soft)" }}>
+              You&apos;re all caught up — no new orders, quotes, or capacity alerts.
+            </p>
           ) : (
             <ul className="admin-alert-list">
               {newOrders.slice(0, 5).map((o) => (
@@ -121,6 +142,14 @@ export default async function AdminDashboardPage() {
                   <Link href={`/admin/orders/${o.id}`}>
                     <span className="admin-alert-list__badge admin-alert-list__badge--new">New</span>
                     {o.customerName} · {summarizeItemNames(itemNamesByOrder.get(o.id) ?? [])} · {formatCents(o.totalPriceCents)}
+                  </Link>
+                </li>
+              ))}
+              {newQuotes.slice(0, 5).map((o) => (
+                <li key={`quote-${o.id}`} className="admin-alert-list__item">
+                  <Link href={`/admin/orders/${o.id}`}>
+                    <span className="admin-alert-list__badge admin-alert-list__badge--new">New Quote</span>
+                    {o.customerName} · {summarizeItemNames(itemNamesByOrder.get(o.id) ?? [])}
                   </Link>
                 </li>
               ))}
@@ -136,6 +165,11 @@ export default async function AdminDashboardPage() {
               {newOrders.length > 5 && (
                 <li className="admin-alert-list__item admin-alert-list__item--more">
                   <Link href="/admin/orders">+{newOrders.length - 5} more new order{newOrders.length - 5 === 1 ? "" : "s"}</Link>
+                </li>
+              )}
+              {newQuotes.length > 5 && (
+                <li className="admin-alert-list__item admin-alert-list__item--more">
+                  <Link href="/admin/quotes">+{newQuotes.length - 5} more new quote{newQuotes.length - 5 === 1 ? "" : "s"}</Link>
                 </li>
               )}
             </ul>

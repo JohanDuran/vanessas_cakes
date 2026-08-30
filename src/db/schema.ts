@@ -160,22 +160,48 @@ export const cakeCategories = pgTable("cake_categories", {
     .default(sql`(extract(epoch from now()) * 1000)::bigint`),
 });
 
-export const designs = pgTable("designs", {
+export const designs = pgTable(
+  "designs",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    chargedPriceCents: integer("charged_price_cents").notNull(),
+    // server-computed: chargedPriceCents - sum(standard prices of the design's field values)
+    premiumCents: integer("premium_cents").notNull().default(0),
+    published: boolean("published").notNull().default(false),
+    // admin-curated pick for the homepage hero carousel — never automatic, so
+    // the homepage only ever shows cakes the admin explicitly chose to feature
+    featured: boolean("featured").notNull().default(false),
+    featuredSortOrder: integer("featured_sort_order").notNull().default(0),
+    // catalog | custom | custom_portfolio — see src/lib/fields.ts DesignKind.
+    // catalog is an ordinary priced product; the other two are singleton
+    // quote-request flows (at most one of each, enforced by the partial
+    // unique index below), configured for fields the same way a catalog
+    // design is but with no required defaults or charged price.
+    kind: text("kind").notNull().default("catalog"),
+    createdAt: bigint("created_at", { mode: "number" })
+      .notNull()
+      .default(sql`(extract(epoch from now()) * 1000)::bigint`),
+    updatedAt: bigint("updated_at", { mode: "number" })
+      .notNull()
+      .default(sql`(extract(epoch from now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("designs_kind_singleton_idx").on(t.kind).where(sql`${t.kind} <> 'catalog'`),
+  ]
+);
+
+/** An admin-uploaded inspiration photo with no price/description — shown on the
+ *  public Portfolio page until an admin "configures" it into a priced design (see
+ *  saveDesign's portfolioPhotoId handling), at which point its row is deleted and
+ *  the same storage path becomes that design's photo instead. `path` stores the
+ *  full public Supabase Storage URL, same convention as design_photos below. */
+export const portfolioPhotos = pgTable("portfolio_photos", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description"),
-  chargedPriceCents: integer("charged_price_cents").notNull(),
-  // server-computed: chargedPriceCents - sum(standard prices of the design's field values)
-  premiumCents: integer("premium_cents").notNull().default(0),
-  published: boolean("published").notNull().default(false),
-  // admin-curated pick for the homepage hero carousel — never automatic, so
-  // the homepage only ever shows cakes the admin explicitly chose to feature
-  featured: boolean("featured").notNull().default(false),
-  featuredSortOrder: integer("featured_sort_order").notNull().default(0),
+  path: text("path").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" })
-    .notNull()
-    .default(sql`(extract(epoch from now()) * 1000)::bigint`),
-  updatedAt: bigint("updated_at", { mode: "number" })
     .notNull()
     .default(sql`(extract(epoch from now()) * 1000)::bigint`),
 });
@@ -341,6 +367,18 @@ export const orders = pgTable(
     pickupTime: text("pickup_time"), // HH:MM, 24h
     // only set on custom-cake quote requests: call | sms | whatsapp | email
     contactPreference: text("contact_preference"),
+    // Only meaningful for quote orders (an order with a custom-design item —
+    // see designs.kind) — null for regular catalog orders. Lifecycle: new (no
+    // price set yet) -> calculated (admin saved notes + a price) ->
+    // awaiting_confirmation (admin marked it sent to the customer) ->
+    // accepted | rejected. rejected can be recalculated back to "calculated"
+    // to send a revised price. Once "accepted", the order is a real priced
+    // order — it moves from /admin/quotes to /admin/orders — see the
+    // quoteStatus filtering in orders/page.tsx and quotes/page.tsx.
+    quoteStatus: text("quote_status"),
+    // Admin's free-form notes on how they arrived at the quoted price — set
+    // together with quoteStatus/totalPriceCents via saveQuotePrice.
+    quoteNotes: text("quote_notes"),
     // not_required: cart had a custom-quote item or totaled $0, no online charge
     // is collected — the pre-Stripe "we'll contact you" flow. pending: a Stripe
     // Checkout Session was created and we're waiting on its webhook. paid: the
@@ -382,14 +420,17 @@ export const orders = pgTable(
   ]
 );
 
-/** One configured cake within a checkout — one row per cart item. Null
- *  designId means this item is a custom-cake quote request. */
+/** One configured cake within a checkout — one row per cart item. Always
+ *  points at a design; a custom-cake quote request points at one of the two
+ *  singleton quote-kind designs (see designs.kind) rather than a catalog one. */
 export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id")
     .notNull()
     .references(() => orders.id, { onDelete: "cascade" }),
-  designId: integer("design_id").references(() => designs.id, { onDelete: "restrict" }),
+  designId: integer("design_id")
+    .notNull()
+    .references(() => designs.id, { onDelete: "restrict" }),
   priceCents: integer("price_cents").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" })
@@ -466,6 +507,20 @@ export const pickupDateOverrides = pgTable("pickup_date_overrides", {
 export const siteSettings = pgTable("site_settings", {
   id: serial("id").primaryKey(),
   maintenanceMode: boolean("maintenance_mode").notNull().default(false),
+  // Homepage "Our Story" section content, editable from /admin/homepage.
+  // Null fields fall back to the built-in defaults in db/queries.ts —
+  // storyImagePath null means "show the generated illustration" instead
+  // of an uploaded photo.
+  storyHeading: text("story_heading"),
+  storyParagraph1: text("story_paragraph_1"),
+  storyParagraph2: text("story_paragraph_2"),
+  storyImagePath: text("story_image_path"),
+  storyStat1Label: text("story_stat_1_label"),
+  storyStat1Value: text("story_stat_1_value"),
+  storyStat2Label: text("story_stat_2_label"),
+  storyStat2Value: text("story_stat_2_value"),
+  storyStat3Label: text("story_stat_3_label"),
+  storyStat3Value: text("story_stat_3_value"),
   updatedAt: bigint("updated_at", { mode: "number" })
     .notNull()
     .default(sql`(extract(epoch from now()) * 1000)::bigint`),
@@ -483,8 +538,12 @@ export const cartItems = pgTable("cart_items", {
   userId: uuid("user_id")
     .notNull()
     .references(() => profiles.id, { onDelete: "cascade" }),
-  designId: integer("design_id").references(() => designs.id, { onDelete: "cascade" }),
-  isCustom: boolean("is_custom").notNull().default(false),
+  // always points at a design — catalog or one of the two singleton
+  // quote-kind designs (see designs.kind); "is this a quote" is
+  // design.kind !== 'catalog', not a separate flag.
+  designId: integer("design_id")
+    .notNull()
+    .references(() => designs.id, { onDelete: "cascade" }),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" })
     .notNull()

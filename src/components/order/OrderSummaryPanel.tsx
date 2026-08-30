@@ -14,6 +14,7 @@ type Props = {
   lockedFieldIds: Set<number>;
   isCustom: boolean;
   referenceImages: File[];
+  lockedReferenceImagePath?: string | null;
   isEditingCartItem: boolean;
   onAddToCart: () => void;
   onEditStep: (fieldId: number) => void;
@@ -29,6 +30,7 @@ export default function OrderSummaryPanel({
   lockedFieldIds,
   isCustom,
   referenceImages,
+  lockedReferenceImagePath,
   isEditingCartItem,
   onAddToCart,
   onEditStep,
@@ -91,7 +93,11 @@ export default function OrderSummaryPanel({
           <li>
             <span className="order-summary__axis">Reference images</span>
             <span className="order-summary__item">
-              {referenceImages.length > 0 ? `${referenceImages.length} attached` : "None"}
+              {lockedReferenceImagePath
+                ? "1 from your Portfolio pick"
+                : referenceImages.length > 0
+                  ? `${referenceImages.length} attached`
+                  : "None"}
             </span>
             <span className="order-summary__item-price" />
             <button type="button" className="order-summary__edit" onClick={onEditCustom}>

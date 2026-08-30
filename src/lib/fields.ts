@@ -83,6 +83,23 @@ export function isCakeStyleKind(value: string): value is CakeStyleKind {
   return (CAKE_STYLE_KINDS as readonly string[]).includes(value);
 }
 
+/** What a design row represents: `catalog` is an ordinary priced product
+ *  (today's only kind, and the only one creatable via "+ New Design").
+ *  `custom`/`custom_portfolio` are the two singleton quote-request flows —
+ *  seeded once (see the migration that adds `designs.kind`), never
+ *  created/deleted via the admin UI, and configured for fields the same way
+ *  a catalog design is (see DesignForm) but with no required default values
+ *  and no charged price. `custom_portfolio` is the one reached from a
+ *  Portfolio photo's "Get a Quote" button — same field config mechanism,
+ *  just a different reference-image UX (locked photo, no upload). */
+export const DESIGN_KINDS = ["catalog", "custom", "custom_portfolio"] as const;
+
+export type DesignKind = (typeof DESIGN_KINDS)[number];
+
+export function isDesignKind(value: string): value is DesignKind {
+  return (DESIGN_KINDS as readonly string[]).includes(value);
+}
+
 /** Valid tier counts for a tier_size preset (field_options.tier_level_count
  *  historically, tierPresets.levelCount today) — no longer tied to a
  *  standalone "number of tiers" wizard step. */

@@ -10,14 +10,21 @@ export type CartItem = {
   clientId: string;
   /** set once this item is persisted server-side — its DB primary key */
   dbId?: number;
-  designId: number | null;
-  isCustom: boolean;
+  /** always points at a design — catalog or one of the two singleton
+   *  quote-kind designs; "is this a quote" is a design.kind lookup, not a
+   *  separate flag. */
+  designId: number;
   answers: Answers;
   /** newly attached files not yet uploaded — always [] for an item loaded
    *  from the DB (its images already live on disk, see referenceImagePaths) */
   referenceImages: File[];
   /** already-uploaded reference photos, set only for DB-backed custom items */
   referenceImagePaths?: string[];
+  /** an already-uploaded photo (e.g. a Portfolio pick via "Get a Quote") attached
+   *  to this custom quote as-is — no re-upload needed, and the wizard disallows
+   *  additional attachments while this is set. Only meaningful pre-checkout; once
+   *  persisted it just becomes another row in referenceImagePaths. */
+  lockedReferenceImagePath?: string | null;
 };
 
 export type ContactFields = { name: string; email: string; phone: string; comments: string };
@@ -44,7 +51,7 @@ const EMPTY_CONTACT: ContactFields = { name: "", email: "", phone: "", comments:
  *  signed in, so a stale guest cart can never bleed into someone's account. */
 const GUEST_CART_KEY = "vanessa_guest_cart";
 
-type StoredGuestItem = { clientId: string; designId: number | null; isCustom: boolean; answers: Answers };
+type StoredGuestItem = { clientId: string; designId: number; answers: Answers };
 
 function makeClientId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -56,7 +63,6 @@ function dtoToCartItem(dto: CartItemDTO): CartItem {
     clientId: `db-${dto.id}`,
     dbId: dto.id,
     designId: dto.designId,
-    isCustom: dto.isCustom,
     answers: dto.answers,
     referenceImages: [],
     referenceImagePaths: dto.referenceImagePaths,
@@ -76,10 +82,9 @@ function readGuestCartFromStorage(): CartItem[] {
 
 function writeGuestCartToStorage(items: CartItem[]) {
   try {
-    const payload: StoredGuestItem[] = items.map(({ clientId, designId, isCustom, answers }) => ({
+    const payload: StoredGuestItem[] = items.map(({ clientId, designId, answers }) => ({
       clientId,
       designId,
-      isCustom,
       answers,
     }));
     localStorage.setItem(GUEST_CART_KEY, JSON.stringify(payload));
@@ -106,7 +111,12 @@ async function mergeGuestCartIntoDb(guestItems: CartItem[]): Promise<CartItem[]>
   formData.set(
     "items",
     JSON.stringify(
-      guestItems.map((i) => ({ localId: i.clientId, designId: i.designId, isCustom: i.isCustom, answers: i.answers }))
+      guestItems.map((i) => ({
+        localId: i.clientId,
+        designId: i.designId,
+        answers: i.answers,
+        lockedReferenceImagePath: i.lockedReferenceImagePath ?? null,
+      }))
     )
   );
   for (const item of guestItems) {
@@ -232,15 +242,22 @@ export function CartProvider({
 
       if (user) {
         const formData = new FormData();
-        formData.set("designId", item.designId != null ? String(item.designId) : "");
-        formData.set("isCustom", String(item.isCustom));
+        formData.set("designId", String(item.designId));
         formData.set("answers", JSON.stringify(item.answers));
+        formData.set("lockedReferenceImagePath", item.lockedReferenceImagePath ?? "");
         item.referenceImages.forEach((f) => formData.append("referenceImages", f));
         addCartItemAction(formData).then(({ id, referenceImagePaths }) => {
           setItems((prev) =>
             prev.map((i) =>
               i.clientId === clientId
-                ? { ...i, clientId: `db-${id}`, dbId: id, referenceImages: [], referenceImagePaths }
+                ? {
+                    ...i,
+                    clientId: `db-${id}`,
+                    dbId: id,
+                    referenceImages: [],
+                    referenceImagePaths,
+                    lockedReferenceImagePath: null,
+                  }
                 : i
             )
           );
@@ -266,13 +283,17 @@ export function CartProvider({
           const merged = { ...current, ...patch };
           const formData = new FormData();
           formData.set("id", String(current.dbId));
-          formData.set("designId", merged.designId != null ? String(merged.designId) : "");
-          formData.set("isCustom", String(merged.isCustom));
+          formData.set("designId", String(merged.designId));
           formData.set("answers", JSON.stringify(merged.answers));
+          formData.set("lockedReferenceImagePath", merged.lockedReferenceImagePath ?? "");
           (patch.referenceImages ?? []).forEach((f) => formData.append("referenceImages", f));
           updateCartItemAction(formData).then(({ referenceImagePaths }) => {
             setItems((prev) =>
-              prev.map((i) => (i.clientId === clientId ? { ...i, referenceImages: [], referenceImagePaths } : i))
+              prev.map((i) =>
+                i.clientId === clientId
+                  ? { ...i, referenceImages: [], referenceImagePaths, lockedReferenceImagePath: null }
+                  : i
+              )
             );
           });
         }

@@ -13,9 +13,8 @@ export default function Footer() {
         <p className="footer__tag">Handmade pastel cakes, baked fresh every day.</p>
         <nav className="footer__links">
           <a href="/#story">Our Story</a>
-          <Link href="/gallery">Gallery</Link>
-          <a href="/#reviews">Reviews</a>
-          <Link href="/gallery">Design a Cake</Link>
+          <Link href="/gallery">Shop our Collection</Link>
+          <a href="/#social">Follow Us</a>
         </nav>
         <p className="footer__copy">© {new Date().getFullYear()} Vanessa's cake. All sweetness reserved.</p>
       </div>

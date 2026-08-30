@@ -1,4 +1,4 @@
-import type { CakeStyleKind, FieldType, TierLevelCount } from "./fields";
+import type { CakeStyleKind, DesignKind, FieldType, TierLevelCount } from "./fields";
 import type { Answers } from "./pricing";
 
 export type FieldDTO = {
@@ -68,6 +68,10 @@ export type DesignSummaryDTO = {
   id: number;
   name: string;
   description: string | null;
+  /** catalog | custom | custom_portfolio — see DesignKind. Only catalog
+   *  designs are browsable products; the other two are the singleton
+   *  quote-request flows. */
+  kind: DesignKind;
   chargedPriceCents: number;
   premiumCents: number;
   /** all photos, primary first, then by sort order — empty if none uploaded */

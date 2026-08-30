@@ -1,13 +1,18 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { cakeCategories, fieldOptions, fields, tierPresets, tierPresetLevels } from "../../../../../db/schema";
+import { cakeCategories, fieldOptions, fields, portfolioPhotos, tierPresets, tierPresetLevels } from "../../../../../db/schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../lib/fields";
 import DesignForm, { type FieldSummary } from "../../../../../components/admin/DesignForm";
 import { buildTierPresetSummaries } from "../tierPresetSummary";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewDesignPage() {
+export default async function NewDesignPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ portfolioPhotoId?: string }>;
+}) {
+  const { portfolioPhotoId } = await searchParams;
   const [allFields, allOptions, allTierPresetRows, allTierPresetLevelRows, categories] = await Promise.all([
     db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
     db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
@@ -20,6 +25,12 @@ export default async function NewDesignPage() {
       .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
       .then((r) => r),
   ]);
+
+  // stale id (already configured or deleted) just falls back to a normal blank form
+  const id = portfolioPhotoId ? Number(portfolioPhotoId) : NaN;
+  const sourcePhoto = Number.isInteger(id)
+    ? await db.select().from(portfolioPhotos).where(eq(portfolioPhotos.id, id)).then((r) => r[0])
+    : undefined;
 
   const optionsByField = new Map<number, typeof allOptions>();
   for (const opt of allOptions) {
@@ -63,7 +74,12 @@ export default async function NewDesignPage() {
       <p className="admin-main__subtitle">
         Fill in every field&apos;s default value, then set what was actually charged.
       </p>
-      <DesignForm fields={fieldSummaries} tierPresets={tierPresetSummaries} categories={categories} />
+      <DesignForm
+        fields={fieldSummaries}
+        tierPresets={tierPresetSummaries}
+        categories={categories}
+        portfolioPhoto={sourcePhoto ? { id: sourcePhoto.id, path: sourcePhoto.path } : undefined}
+      />
     </>
   );
 }

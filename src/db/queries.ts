@@ -26,8 +26,9 @@ import {
   cartItems,
   cartItemSelections,
   cartItemReferenceImages,
+  siteSettings,
 } from "./schema";
-import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../lib/fields";
+import { baseFieldRank, isCakeStyleKind, isDesignKind, isFieldType, isTierLevelCount, type DesignKind, type FieldType } from "../lib/fields";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import type { Answers } from "../lib/pricing";
 import type {
@@ -173,6 +174,67 @@ export async function loadFeaturedDesigns(): Promise<FeaturedDesignDTO[]> {
     chargedPriceCents: d.chargedPriceCents,
     photo: primaryPhotoByDesign.get(d.id) ?? null,
   }));
+}
+
+export const DEFAULT_STORY_HEADING = "Baked from a tiny kitchen, made with a lot of heart";
+export const DEFAULT_STORY_PARAGRAPH_1 =
+  "Vanessa's cake started in 2013 in a cramped apartment kitchen with one oven and " +
+  "a big dream: to make cakes that felt like a warm hug. What began with birthday " +
+  "orders for neighbors has grown into a full pastel-colored studio — but every " +
+  "cake is still mixed, layered, and frosted by hand.";
+export const DEFAULT_STORY_PARAGRAPH_2 =
+  "We believe dessert should be playful. That's why our cakes lean into soft " +
+  "colors, whimsical toppings, and a signature pink donut on every box — a little " +
+  "reminder to enjoy the sweeter side of life.";
+export const DEFAULT_STORY_STATS: { label: string; value: string }[] = [
+  { label: "Years Baking", value: "12+" },
+  { label: "Cakes Delivered", value: "8,400+" },
+  { label: "5-Star Reviews", value: "1,900+" },
+];
+
+export type StoryContentDTO = {
+  heading: string;
+  paragraph1: string;
+  paragraph2: string;
+  imagePath: string | null;
+  stats: { label: string; value: string }[];
+};
+
+/** Homepage "Our Story" section content — editable from /admin/homepage
+ *  (see updateStoryContent in that route's actions.ts for the write side).
+ *  Null fields on the (at most one) site_settings row fall back to the
+ *  copy that used to be hardcoded in StorySection.tsx. */
+export async function loadStoryContent(): Promise<StoryContentDTO> {
+  const row = await withDbRetry(() =>
+    db
+      .select({
+        storyHeading: siteSettings.storyHeading,
+        storyParagraph1: siteSettings.storyParagraph1,
+        storyParagraph2: siteSettings.storyParagraph2,
+        storyImagePath: siteSettings.storyImagePath,
+        storyStat1Label: siteSettings.storyStat1Label,
+        storyStat1Value: siteSettings.storyStat1Value,
+        storyStat2Label: siteSettings.storyStat2Label,
+        storyStat2Value: siteSettings.storyStat2Value,
+        storyStat3Label: siteSettings.storyStat3Label,
+        storyStat3Value: siteSettings.storyStat3Value,
+      })
+      .from(siteSettings)
+      .limit(1)
+      .then((r) => r[0]),
+  );
+
+  return {
+    heading: row?.storyHeading || DEFAULT_STORY_HEADING,
+    paragraph1: row?.storyParagraph1 || DEFAULT_STORY_PARAGRAPH_1,
+    paragraph2: row?.storyParagraph2 || DEFAULT_STORY_PARAGRAPH_2,
+    imagePath: row?.storyImagePath ?? null,
+    stats: [
+      { label: row?.storyStat1Label || DEFAULT_STORY_STATS[0].label, value: row?.storyStat1Value || DEFAULT_STORY_STATS[0].value },
+      { label: row?.storyStat2Label || DEFAULT_STORY_STATS[1].label, value: row?.storyStat2Value || DEFAULT_STORY_STATS[1].value },
+      { label: row?.storyStat3Label || DEFAULT_STORY_STATS[2].label, value: row?.storyStat3Value || DEFAULT_STORY_STATS[2].value },
+    ],
+  };
 }
 
 /** Everything the customer-facing order flow (wizard + gallery) needs:
@@ -338,6 +400,7 @@ export async function loadOrderData() {
     id: d.id,
     name: d.name,
     description: d.description,
+    kind: isDesignKind(d.kind) ? d.kind : "catalog",
     chargedPriceCents: d.chargedPriceCents,
     premiumCents: d.premiumCents,
     photos: photosByDesign.get(d.id) ?? [],
@@ -364,8 +427,11 @@ export async function loadOrderData() {
 
 export type OrderItemDetailDTO = {
   id: number;
-  designId: number | null;
-  designName: string | null;
+  designId: number;
+  designName: string;
+  /** catalog | custom | custom_portfolio — see DesignKind. A quote item is
+   *  designKind !== "catalog", not designId == null. */
+  designKind: DesignKind;
   priceCents: number;
   selections: {
     fieldId: number;
@@ -429,10 +495,13 @@ async function loadOrderItemDetails(order: typeof orders.$inferSelect) {
   const fieldById = new Map(allFieldRows.map((f) => [f.id, f]));
   const designById = new Map(designRows.map((d) => [d.id, d]));
 
-  const itemDetails: OrderItemDetailDTO[] = items.map((item) => ({
+  const itemDetails: OrderItemDetailDTO[] = items.map((item) => {
+    const itemDesign = designById.get(item.designId);
+    return {
     id: item.id,
     designId: item.designId,
-    designName: item.designId ? (designById.get(item.designId)?.name ?? "Unknown design") : null,
+    designName: itemDesign?.name ?? "Unknown design",
+    designKind: itemDesign && isDesignKind(itemDesign.kind) ? itemDesign.kind : "catalog",
     priceCents: item.priceCents,
     selections: selections
       .filter((s) => s.orderItemId === item.id)
@@ -444,7 +513,8 @@ async function loadOrderItemDetails(order: typeof orders.$inferSelect) {
         priceCentsSnapshot: s.priceCentsSnapshot,
       })),
     referenceImagePaths: referenceImages.filter((img) => img.orderItemId === item.id).map((img) => img.path),
-  }));
+    };
+  });
 
   return { order, items: itemDetails };
 }
@@ -498,8 +568,10 @@ export async function requireAdmin(): Promise<CurrentUserDTO> {
 
 export type CartItemDTO = {
   id: number;
-  designId: number | null;
-  isCustom: boolean;
+  /** always points at a design — catalog or one of the two singleton
+   *  quote-kind designs; callers cross-reference designSummaries/`designs`
+   *  for `kind` to tell a quote item from a catalog one. */
+  designId: number;
   answers: Answers;
   /** already-uploaded reference photos for a custom-cake item, primary
    *  first — carried through to order_reference_images at checkout instead
@@ -553,7 +625,6 @@ export async function getCartItemsForUser(userId: string): Promise<CartItemDTO[]
     return {
       id: item.id,
       designId: item.designId,
-      isCustom: item.isCustom,
       answers,
       referenceImagePaths: images.filter((im) => im.cartItemId === item.id).map((im) => im.path),
     };

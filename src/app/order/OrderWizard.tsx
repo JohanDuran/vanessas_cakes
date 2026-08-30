@@ -29,38 +29,45 @@ type Props = {
   designs: DesignSummaryDTO[];
   constraintPairs: ConstraintPair[];
   tierPresets: TierPresetDTO[];
-  /** When set (gallery entry point), the design step is skipped and locked. */
+  /** When set (gallery entry point, or either Custom Cake entry point), the
+   *  design step is skipped and locked. Every route that renders this wizard
+   *  supplies one — catalog designs, and the two singleton quote-kind
+   *  designs ("Custom Cake" / "Custom Cake — From a Photo", see
+   *  src/app/order/custom/page.tsx). */
   lockedDesign?: DesignSummaryDTO;
   /** When set alongside lockedDesign, pre-selects this size before the wizard opens. */
   initialSizeId?: number;
-  /** When set (the "Custom Cake" menu entry point), the wizard opens straight
-   *  into the custom-cake flow instead of the design picker. */
-  startCustom?: boolean;
+  /** When set (a Portfolio photo's "Get a Quote" button), that photo is locked in
+   *  as the custom quote's sole reference image and attachments are disabled. */
+  portfolioReferenceImage?: { id: number; path: string } | null;
 };
 
 type State = {
   designId: number | null;
-  isCustom: boolean;
   answers: Answers;
-  // 0 = design picker, 1 = custom-cake quote (only when isCustom), then one
-  // step per design field, then review — see FIELD_STEP_START/REVIEW_STEP below
+  // 0 = design picker, 1 = custom-cake quote step (only when the resolved
+  // design's kind !== "catalog"), then one step per design field, then
+  // review — see FIELD_STEP_START/REVIEW_STEP below
   step: number;
+  // highest step index the customer has validated their way past (via Next),
+  // or Infinity when editing an already-completed cart item. Anything up to
+  // this mark is "unlocked" and can be jumped to directly, in either
+  // direction, from the stepper — Next/Back still move one step at a time.
+  maxStepReached: number;
 };
 
 type Action =
   | { type: "SELECT_DESIGN"; design: DesignSummaryDTO }
-  | { type: "SELECT_CUSTOM" }
   | { type: "SET_OPTIONS"; fieldId: number; optionIds: number[] }
   | { type: "SET_TEXT"; fieldId: number; value: string }
   | { type: "SET_NUMBER"; fieldId: number; value: string }
   | { type: "GOTO"; step: number };
 
-/** A design's actual fields: every base field (always required), plus
- *  whichever custom fields the admin included (with or without a default
- *  answer), in canonical/catalog order. A custom-cake quote has no catalog
- *  design, so this naturally reduces to just the base fields. */
+/** A design's actual fields: whichever fields (base or custom) the admin
+ *  included for this design, in canonical/catalog order — see
+ *  DesignForm's unified "Include in this design" checkbox. */
 function fieldsForDesign(fields: FieldDTO[], design: DesignSummaryDTO): FieldDTO[] {
-  return fields.filter((f) => f.isBase || design.includedFieldIds.includes(f.id));
+  return fields.filter((f) => design.includedFieldIds.includes(f.id));
 }
 
 /** Whether the customer has actually answered this field — used to gate the
@@ -74,25 +81,8 @@ function isFieldAnswered(field: FieldDTO, answer: Answers[number] | undefined): 
   return true;
 }
 
-/** Placeholder "design" for the custom-cake flow — has no catalog id, price,
- *  or photos, and no default field answers (fieldsForDesign then yields just
- *  the base fields, all left for the customer to optionally fill in). */
-const CUSTOM_DESIGN: DesignSummaryDTO = {
-  id: -1,
-  name: "Custom Cake",
-  description: null,
-  chargedPriceCents: 0,
-  premiumCents: 0,
-  photos: [],
-  fieldValues: {},
-  lockedFieldIds: [],
-  excludedOptionIds: [],
-  categoryIds: [],
-  includedFieldIds: [],
-};
-
 /** Step index reserved for the custom-cake quote step — only reachable when
- *  isCustom is true. */
+ *  the resolved design's kind !== "catalog". */
 const CUSTOM_STEP = 1;
 
 /** Runs both answer-consistency passes in sequence: clearing options excluded
@@ -113,19 +103,11 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
         return {
           ...state,
           designId: action.design.id,
-          isCustom: false,
           answers: resolveAll({ ...action.design.fieldValues }, pairs, cakeStyleCtx),
           step: 1,
+          maxStepReached: 1,
         };
       }
-      case "SELECT_CUSTOM":
-        return {
-          ...state,
-          designId: null,
-          isCustom: true,
-          answers: resolveAll({}, pairs, cakeStyleCtx),
-          step: CUSTOM_STEP,
-        };
       case "SET_OPTIONS":
         return {
           ...state,
@@ -152,7 +134,7 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
         };
       }
       case "GOTO":
-        return { ...state, step: action.step };
+        return { ...state, step: action.step, maxStepReached: Math.max(state.maxStepReached, action.step) };
       default:
         return state;
     }
@@ -167,7 +149,7 @@ export default function OrderWizard({
   tierPresets,
   lockedDesign,
   initialSizeId,
-  startCustom,
+  portfolioReferenceImage,
 }: Props) {
   const cakeStyleCtx = useMemo(
     () => buildCakeStyleContext(fields, options, tierPresets),
@@ -196,14 +178,20 @@ export default function OrderWizard({
             ...(initialSizeId && sizeField ? { [sizeField.id]: { type: "options", optionIds: [initialSizeId] } } : {}),
           }
         : {});
+    const initialStep = lockedDesign ? 1 : 0;
     return {
       designId: lockedDesign?.id ?? null,
-      isCustom: editingItem?.isCustom ?? !!startCustom,
       answers: resolveAll(answers, constraintPairs, cakeStyleCtx),
-      step: lockedDesign ? 1 : startCustom ? CUSTOM_STEP : 0,
+      step: initialStep,
+      // editing an already-completed cart item means every step is already
+      // filled in, so the whole flow is unlocked for jumping around
+      maxStepReached: editingItem ? Infinity : initialStep,
     };
   });
   const [referenceImages, setReferenceImages] = useState<File[]>(editingItem?.referenceImages ?? []);
+  const [lockedReferenceImagePath] = useState<string | null>(
+    () => editingItem?.lockedReferenceImagePath ?? portfolioReferenceImage?.path ?? null
+  );
   const router = useRouter();
 
   const optionsByField = useMemo(() => {
@@ -212,8 +200,8 @@ export default function OrderWizard({
     return map;
   }, [fields, options]);
 
-  const selectedDesign =
-    lockedDesign ?? (state.isCustom ? CUSTOM_DESIGN : designs.find((d) => d.id === state.designId) ?? null);
+  const selectedDesign = lockedDesign ?? designs.find((d) => d.id === state.designId) ?? null;
+  const isQuote = selectedDesign != null && selectedDesign.kind !== "catalog";
 
   const designFields = useMemo(
     () => (selectedDesign ? fieldsForDesign(fields, selectedDesign) : []),
@@ -221,8 +209,8 @@ export default function OrderWizard({
   );
 
   // step numbering: 0 is design, 1 is the custom-cake quote step (only when
-  // isCustom), then one step per design field, then review
-  const FIELD_STEP_START = state.isCustom ? CUSTOM_STEP + 1 : 1;
+  // isQuote), then one step per design field, then review
+  const FIELD_STEP_START = isQuote ? CUSTOM_STEP + 1 : 1;
   const REVIEW_STEP = FIELD_STEP_START + designFields.length;
 
   const currentField =
@@ -230,7 +218,7 @@ export default function OrderWizard({
       ? designFields[state.step - FIELD_STEP_START]
       : null;
   const currentAnswer = currentField ? state.answers[currentField.id] : undefined;
-  const isCustomQuoteStep = state.isCustom && state.step === CUSTOM_STEP;
+  const isCustomQuoteStep = isQuote && state.step === CUSTOM_STEP;
   const isReview = state.step === REVIEW_STEP;
 
   const lockedFieldIdSet = useMemo(() => new Set(selectedDesign?.lockedFieldIds ?? []), [selectedDesign]);
@@ -262,18 +250,18 @@ export default function OrderWizard({
     const fieldSteps = designFields
       .map((_, idx) => idx + FIELD_STEP_START)
       .filter((i) => !skippedFieldIdSet.has(designFields[i - FIELD_STEP_START].id));
-    return [...(state.isCustom ? [CUSTOM_STEP] : []), ...fieldSteps, REVIEW_STEP];
-  }, [designFields, skippedFieldIdSet, FIELD_STEP_START, REVIEW_STEP, state.isCustom]);
+    return [...(isQuote ? [CUSTOM_STEP] : []), ...fieldSteps, REVIEW_STEP];
+  }, [designFields, skippedFieldIdSet, FIELD_STEP_START, REVIEW_STEP, isQuote]);
 
   const stepLabels = [
     "Design",
-    ...(state.isCustom ? ["Custom Cake Quote"] : []),
+    ...(isQuote ? ["Custom Cake Quote"] : []),
     ...designFields.map((f) => f.name),
     "Review",
   ];
   const visibleSteps = stepLabels.map((label, i) => ({ label, i })).filter(({ i }) => {
     if (i === 0) return !lockedDesign;
-    if (state.isCustom && i === CUSTOM_STEP) return true;
+    if (isQuote && i === CUSTOM_STEP) return true;
     if (i >= FIELD_STEP_START && i < REVIEW_STEP) return !skippedFieldIdSet.has(designFields[i - FIELD_STEP_START].id);
     return true;
   });
@@ -306,30 +294,16 @@ export default function OrderWizard({
     fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
   );
   const nextDisabled =
-    !state.isCustom &&
+    !isQuote &&
     currentField != null &&
     (currentField.type === "single_select" ||
       ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
     !isFieldAnswered(currentField, currentAnswer);
 
-  const handleAddToCart = () => {
-    const item = {
-      designId: state.isCustom ? null : selectedDesign?.id ?? null,
-      isCustom: state.isCustom,
-      answers: state.answers,
-      referenceImages,
-    };
-    if (editingItem) {
-      cart.updateItem(editingItem.clientId, item);
-    } else {
-      cart.addItem(item);
-    }
-    router.push("/cart");
-  };
-
-  // Design selection now happens entirely on /gallery — every route that
-  // renders this wizard supplies lockedDesign or startCustom. This is just a
-  // safety net for the (should-never-happen) case neither is set.
+  // Design selection now happens entirely on /gallery and /portfolio — every
+  // route that renders this wizard supplies lockedDesign (a catalog design,
+  // or one of the two singleton quote-kind designs). This is just a safety
+  // net for the (should-never-happen) case none is set.
   if (!selectedDesign) {
     return (
       <main className="order-page">
@@ -347,6 +321,21 @@ export default function OrderWizard({
     );
   }
 
+  const handleAddToCart = () => {
+    const item = {
+      designId: selectedDesign.id,
+      answers: state.answers,
+      referenceImages,
+      lockedReferenceImagePath,
+    };
+    if (editingItem) {
+      cart.updateItem(editingItem.clientId, item);
+    } else {
+      cart.addItem(item);
+    }
+    router.push("/cart");
+  };
+
   return (
     <main className="order-page">
       <header className="order-hero order-hero--compact">
@@ -357,7 +346,10 @@ export default function OrderWizard({
       </header>
 
       <div className="container">
-        <DesignPhotoCarousel photos={selectedDesign.photos} alt={selectedDesign.name} />
+        <DesignPhotoCarousel
+          photos={lockedReferenceImagePath ? [lockedReferenceImagePath] : selectedDesign.photos}
+          alt={selectedDesign.name}
+        />
       </div>
 
       <div className="container order-layout">
@@ -367,10 +359,13 @@ export default function OrderWizard({
           </div>
           <div className="order-stepper__track">
             {visibleSteps.map(({ label, i }, idx) => {
-              // steps ahead of where the customer currently is are shown but not
-              // jumpable — forward movement goes through the Next button so
-              // customers can't skip validation on later steps
-              const isFuture = i !== 0 && i > state.step;
+              // steps beyond the furthest one the customer has validated their
+              // way past are shown but not jumpable — reaching them still goes
+              // through the Next button so customers can't skip validation on
+              // steps they haven't gotten to yet. Anything already unlocked
+              // (behind or ahead of the current step) is a direct one-click
+              // jump, in either direction.
+              const isFuture = i !== 0 && i > state.maxStepReached;
               return (
                 <button
                   key={label}
@@ -402,7 +397,7 @@ export default function OrderWizard({
                     !excludedOptionIdSet.has(o.id)
                 )}
                 selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
-                hidePrice={state.isCustom}
+                hidePrice={isQuote}
                 onToggle={(optionId) => {
                   const currentIds = currentAnswer?.type === "options" ? currentAnswer.optionIds : [];
                   const nextIds =
@@ -423,7 +418,7 @@ export default function OrderWizard({
                 options={sizeStepOptions}
                 presetsByOptionId={cakeStyleCtx.presetsByOptionId}
                 selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
-                hidePrice={state.isCustom}
+                hidePrice={isQuote}
                 onToggle={(optionId) =>
                   dispatch({ type: "SET_OPTIONS", fieldId: currentField.id, optionIds: [optionId] })
                 }
@@ -433,7 +428,7 @@ export default function OrderWizard({
                 field={currentField}
                 options={sizeStepOptions}
                 selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
-                hidePrice={state.isCustom}
+                hidePrice={isQuote}
                 onToggle={(optionId) =>
                   dispatch({ type: "SET_OPTIONS", fieldId: currentField.id, optionIds: [optionId] })
                 }
@@ -458,7 +453,11 @@ export default function OrderWizard({
           )}
 
           {isCustomQuoteStep && (
-            <CustomCakeQuoteStep images={referenceImages} onImagesChange={setReferenceImages} />
+            <CustomCakeQuoteStep
+              images={referenceImages}
+              onImagesChange={setReferenceImages}
+              lockedImagePath={lockedReferenceImagePath}
+            />
           )}
 
           {isReview && (
@@ -469,8 +468,9 @@ export default function OrderWizard({
               options={options}
               tierPresets={tierPresets}
               lockedFieldIds={lockedFieldIdSet}
-              isCustom={state.isCustom}
+              isCustom={isQuote}
               referenceImages={referenceImages}
+              lockedReferenceImagePath={lockedReferenceImagePath}
               isEditingCartItem={!!editingItem}
               onAddToCart={handleAddToCart}
               onEditStep={(fieldId) => {
@@ -501,7 +501,7 @@ export default function OrderWizard({
         </div>
       </div>
 
-      {!isReview && !state.isCustom && (
+      {!isReview && !isQuote && (
         <div className="order-subtotal-bar">
           <div className="container order-subtotal-bar__inner">
             <span className="order-subtotal-bar__label">Subtotal</span>
@@ -515,7 +515,7 @@ export default function OrderWizard({
          screen, so a customer never has to scroll a tall step to find them */}
       {!isReview && (
         <div className="order-mobile-bar">
-          {!state.isCustom && (
+          {!isQuote && (
             <div className="order-mobile-bar__subtotal">
               <span>Subtotal</span>
               <span>{formatCents(subtotalCents)}</span>

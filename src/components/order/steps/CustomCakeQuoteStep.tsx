@@ -5,9 +5,12 @@ import { useEffect, useRef, useState } from "react";
 type Props = {
   images: File[];
   onImagesChange: (files: File[]) => void;
+  /** set when this quote started from a Portfolio photo's "Get a Quote" button —
+   *  that photo is the fixed reference image and no other attachments are allowed. */
+  lockedImagePath?: string | null;
 };
 
-export default function CustomCakeQuoteStep({ images, onImagesChange }: Props) {
+export default function CustomCakeQuoteStep({ images, onImagesChange, lockedImagePath }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
@@ -31,34 +34,52 @@ export default function CustomCakeQuoteStep({ images, onImagesChange }: Props) {
       </div>
 
       <div className="wizard-field">
-        <label htmlFor="customQuoteImages">Reference images (optional)</label>
-        <input
-          ref={fileInputRef}
-          id="customQuoteImages"
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            if (files.length > 0) onImagesChange([...images, ...files]);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-          }}
-        />
-        {previewUrls.length > 0 && (
-          <div className="custom-quote__previews">
-            {previewUrls.map((url, i) => (
-              <div key={url} className="custom-quote__preview">
-                <img src={url} alt={`Reference ${i + 1}`} />
-                <button
-                  type="button"
-                  aria-label="Remove image"
-                  onClick={() => onImagesChange(images.filter((_, idx) => idx !== i))}
-                >
-                  ×
-                </button>
+        <label htmlFor={lockedImagePath ? undefined : "customQuoteImages"}>
+          {lockedImagePath ? "Reference image" : "Reference images (optional)"}
+        </label>
+        {lockedImagePath ? (
+          <>
+            <p className="custom-quote__locked-note">
+              This is the photo you picked from our Portfolio — attachments aren't available for
+              portfolio quotes.
+            </p>
+            <div className="custom-quote__previews">
+              <div className="custom-quote__preview">
+                <img src={lockedImagePath} alt="Your Portfolio pick" />
               </div>
-            ))}
-          </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <input
+              ref={fileInputRef}
+              id="customQuoteImages"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length > 0) onImagesChange([...images, ...files]);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+            />
+            {previewUrls.length > 0 && (
+              <div className="custom-quote__previews">
+                {previewUrls.map((url, i) => (
+                  <div key={url} className="custom-quote__preview">
+                    <img src={url} alt={`Reference ${i + 1}`} />
+                    <button
+                      type="button"
+                      aria-label="Remove image"
+                      onClick={() => onImagesChange(images.filter((_, idx) => idx !== i))}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
