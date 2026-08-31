@@ -519,8 +519,6 @@ export const siteSettings = pgTable("site_settings", {
   storyStat1Value: text("story_stat_1_value"),
   storyStat2Label: text("story_stat_2_label"),
   storyStat2Value: text("story_stat_2_value"),
-  storyStat3Label: text("story_stat_3_label"),
-  storyStat3Value: text("story_stat_3_value"),
   updatedAt: bigint("updated_at", { mode: "number" })
     .notNull()
     .default(sql`(extract(epoch from now()) * 1000)::bigint`),

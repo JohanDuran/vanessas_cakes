@@ -18,8 +18,6 @@ export async function updateStoryContent(formData: FormData) {
   const stat1Value = String(formData.get("stat1Value") ?? "").trim();
   const stat2Label = String(formData.get("stat2Label") ?? "").trim();
   const stat2Value = String(formData.get("stat2Value") ?? "").trim();
-  const stat3Label = String(formData.get("stat3Label") ?? "").trim();
-  const stat3Value = String(formData.get("stat3Value") ?? "").trim();
   const removePhoto = formData.get("removePhoto") === "on";
   const photo = formData.get("photo");
   const newPhotoFile = photo instanceof File && photo.size > 0 ? photo : null;
@@ -33,7 +31,7 @@ export async function updateStoryContent(formData: FormData) {
     if (!heading) throw new Error("Heading is required.");
     if (!paragraph1) throw new Error("Paragraph 1 is required.");
     if (!paragraph2) throw new Error("Paragraph 2 is required.");
-    if (!stat1Label || !stat1Value || !stat2Label || !stat2Value || !stat3Label || !stat3Value) {
+    if (!stat1Label || !stat1Value || !stat2Label || !stat2Value) {
       throw new Error("Every stat needs both a value and a label.");
     }
 
@@ -62,8 +60,6 @@ export async function updateStoryContent(formData: FormData) {
       storyStat1Value: stat1Value,
       storyStat2Label: stat2Label,
       storyStat2Value: stat2Value,
-      storyStat3Label: stat3Label,
-      storyStat3Value: stat3Value,
       updatedAt: Date.now(),
     };
 

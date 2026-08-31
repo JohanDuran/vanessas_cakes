@@ -31,7 +31,7 @@ export default async function HomepageSettingsPage() {
           <div className="admin-field">
             <label>Stats</label>
             <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", marginBottom: 8 }}>
-              The 3 numbers shown under the story text (e.g. &quot;12+ Years Baking&quot;).
+              The numbers shown under the story text (e.g. &quot;12+ Years Baking&quot;).
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {story.stats.map((stat, i) => (

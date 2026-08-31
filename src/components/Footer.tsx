@@ -10,7 +10,7 @@ export default function Footer() {
           <Donut size={40} />
           <span>Vanessa's cake</span>
         </div>
-        <p className="footer__tag">Handmade pastel cakes, baked fresh every day.</p>
+        <p className="footer__tag">Homestead handmane cakes, baked fresh every day with a lot of love.</p>
         <nav className="footer__links">
           <a href="/#story">Our Story</a>
           <Link href="/gallery">Shop our Collection</Link>

@@ -50,6 +50,13 @@
       "when": 1788066549418,
       "tag": "0006_outgoing_dreaming_celestial",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788141492734,
+      "tag": "0007_right_centennial",
+      "breakpoints": true
     }
   ]
 }

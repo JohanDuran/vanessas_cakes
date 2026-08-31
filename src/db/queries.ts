@@ -189,7 +189,6 @@ export const DEFAULT_STORY_PARAGRAPH_2 =
 export const DEFAULT_STORY_STATS: { label: string; value: string }[] = [
   { label: "Years Baking", value: "12+" },
   { label: "Cakes Delivered", value: "8,400+" },
-  { label: "5-Star Reviews", value: "1,900+" },
 ];
 
 export type StoryContentDTO = {
@@ -216,8 +215,6 @@ export async function loadStoryContent(): Promise<StoryContentDTO> {
         storyStat1Value: siteSettings.storyStat1Value,
         storyStat2Label: siteSettings.storyStat2Label,
         storyStat2Value: siteSettings.storyStat2Value,
-        storyStat3Label: siteSettings.storyStat3Label,
-        storyStat3Value: siteSettings.storyStat3Value,
       })
       .from(siteSettings)
       .limit(1)
@@ -232,7 +229,6 @@ export async function loadStoryContent(): Promise<StoryContentDTO> {
     stats: [
       { label: row?.storyStat1Label || DEFAULT_STORY_STATS[0].label, value: row?.storyStat1Value || DEFAULT_STORY_STATS[0].value },
       { label: row?.storyStat2Label || DEFAULT_STORY_STATS[1].label, value: row?.storyStat2Value || DEFAULT_STORY_STATS[1].value },
-      { label: row?.storyStat3Label || DEFAULT_STORY_STATS[2].label, value: row?.storyStat3Value || DEFAULT_STORY_STATS[2].value },
     ],
   };
 }
