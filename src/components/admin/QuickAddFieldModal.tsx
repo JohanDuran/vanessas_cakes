@@ -47,6 +47,7 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
         name: saved.name,
         type: saved.type as FieldType,
         isBase: false,
+        showInDesignForm: false,
         active: true,
         required: saved.required,
         additionalPriceCents: saved.additionalPriceCents,

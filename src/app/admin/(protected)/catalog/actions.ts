@@ -80,6 +80,7 @@ const fieldSettingsSchema = z.object({
   hasShapeDiagram: z.coerce.number().optional(),
   required: z.coerce.number().optional(),
   additionalPriceDollars: z.string().optional(),
+  showInDesignForm: z.coerce.number().optional(),
 });
 
 export async function saveFieldSettings(formData: FormData) {
@@ -106,6 +107,7 @@ export async function saveFieldSettings(formData: FormData) {
           dollarsToCents(parsed.additionalPriceDollars || "0"),
           0
         ),
+        showInDesignForm: Boolean(parsed.showInDesignForm),
         updatedAt: Date.now(),
       })
       .where(eq(fields.id, parsed.id))

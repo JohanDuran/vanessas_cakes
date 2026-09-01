@@ -86,6 +86,7 @@ export default async function EditDesignPage({
       name: f.name,
       type: f.type as FieldType,
       isBase: f.isBase,
+      showInDesignForm: f.showInDesignForm,
       active: f.active,
       required: f.required,
       additionalPriceCents: f.additionalPriceCents,

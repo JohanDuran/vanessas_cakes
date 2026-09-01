@@ -25,6 +25,9 @@ export type FieldSummary = {
   name: string;
   type: FieldType;
   isBase: boolean;
+  /** admin-controlled: always shown in every design's configuration list —
+   *  see fields.showInDesignForm. Distinct from isBase. */
+  showInDesignForm: boolean;
   active: boolean;
   required: boolean;
   additionalPriceCents: number;
@@ -92,7 +95,24 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const [chargedDollars, setChargedDollars] = useState(
     design ? (design.chargedPriceCents / 100).toFixed(2) : ""
   );
-  const [availableFields, setAvailableFields] = useState<FieldSummary[]>(fields);
+  // shown by default: base fields (admin-flagged in Catalog) plus, when
+  // editing, whatever this design already uses — everything else stays
+  // hidden until picked from the "Add existing field" dropdown below, so the
+  // form doesn't get more crowded every time a new custom field is added
+  const [availableFields, setAvailableFields] = useState<FieldSummary[]>(() =>
+    fields.filter((f) => f.showInDesignForm || (design?.includedFieldIds.includes(f.id) ?? false))
+  );
+  const hiddenFields = useMemo(
+    () => fields.filter((f) => !availableFields.some((af) => af.id === f.id)),
+    [fields, availableFields]
+  );
+  const addExistingField = (fieldId: number) => {
+    const field = fields.find((f) => f.id === fieldId);
+    if (!field) return;
+    setAvailableFields((prev) => [...prev, field]);
+    setDrafts((prev) => (prev[field.id] ? prev : { ...prev, [field.id]: { optionIds: [], text: "", number: "" } }));
+    setIncludedFieldIds((prev) => new Set(prev).add(field.id));
+  };
   const [drafts, setDrafts] = useState<Record<number, Draft>>(() => {
     const init: Record<number, Draft> = {};
     for (const f of fields) init[f.id] = draftFromAnswer(design?.fieldValues[f.id]);
@@ -463,9 +483,28 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                   : "Include the fields this quote flow should ask about — no default value is required, the customer picks freely (or leaves it blank). You can still lock a field to force one answer, or hide specific options."}
               </p>
             </div>
-            <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
-              + Add Field
-            </button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {hiddenFields.length > 0 && (
+                <select
+                  value=""
+                  aria-label="Add an existing field"
+                  onChange={(e) => {
+                    const id = Number(e.target.value);
+                    if (id) addExistingField(id);
+                  }}
+                >
+                  <option value="">+ Add existing field…</option>
+                  {hiddenFields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
+                + Add Field
+              </button>
+            </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

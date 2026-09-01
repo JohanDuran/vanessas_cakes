@@ -35,8 +35,15 @@ export const fields = pgTable("fields", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
-  type: text("type").notNull(), // single_select | multi_select | number | text
+  type: text("type").notNull(), // single_select | multi_select | number | text | per_size
   isBase: boolean("is_base").notNull().default(false),
+  // admin-controlled, independent of isBase (which also locks this field's
+  // type and marks it structurally required — see catalog/[fieldId]/page.tsx
+  // and pricing.ts's priceRangeForDesign). When true, this field is always
+  // shown in every design's configuration list without needing to be added
+  // there first — see DesignForm's availableFields and its "Add existing
+  // field" dropdown for fields left false.
+  showInDesignForm: boolean("show_in_design_form").notNull().default(false),
   active: boolean("active").notNull().default(true),
   // opt-in: this field's options get the shape/dimension diagram visual in
   // the order wizard, and the matching editable columns in the admin

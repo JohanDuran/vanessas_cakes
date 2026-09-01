@@ -368,6 +368,24 @@ export default async function FieldDetailPage({
               </label>
             </div>
           )}
+          <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              id="showInDesignForm"
+              name="showInDesignForm"
+              value="1"
+              defaultChecked={field.showInDesignForm}
+            />
+            <label htmlFor="showInDesignForm" style={{ margin: 0 }}>
+              Base field — always show this field when configuring any design
+            </label>
+          </div>
+          {!field.showInDesignForm && (
+            <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
+              Left unchecked, this field stays hidden in a design&apos;s configuration until an
+              admin adds it there via &quot;Add existing field&quot;.
+            </p>
+          )}
           {(field.type === "text" || field.type === "number") && (
             <div className="admin-form-row">
               <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
