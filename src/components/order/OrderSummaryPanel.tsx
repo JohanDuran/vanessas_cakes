@@ -2,14 +2,24 @@
 
 import { type ReactNode } from "react";
 import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
-import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
+import {
+  computeTotalCents,
+  formatCents,
+  resolveFieldPriceCents,
+  resolvePriceableFields,
+  type Answers,
+} from "../../lib/pricing";
 import PriceDelta from "./PriceDelta";
 
 type Props = {
   design: DesignSummaryDTO;
   designFields: FieldDTO[];
   answers: Answers;
+  /** already resolved for this design — see OrderWizard's resolvedOptions */
   options: FieldOptionDTO[];
+  /** the design's currently-answered `size` option, if any — per_size
+   *  fields this design made size-varying price off this */
+  currentSizeOptionId?: number;
   tierPresets: TierPresetDTO[];
   lockedFieldIds: Set<number>;
   isCustom: boolean;
@@ -26,6 +36,7 @@ export default function OrderSummaryPanel({
   designFields,
   answers,
   options,
+  currentSizeOptionId,
   tierPresets,
   lockedFieldIds,
   isCustom,
@@ -39,8 +50,18 @@ export default function OrderSummaryPanel({
   const optionById = new Map(options.map((o) => [o.id, o]));
   const presetsByOptionId = new Map(tierPresets.map((p) => [p.fieldOptionId, p]));
   const flatOptions = options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-  const flatFields = designFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
-  const total = computeTotalCents(answers, design.premiumCents, flatOptions, flatFields);
+  const flatFields = resolvePriceableFields(
+    design,
+    designFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+  );
+  const total = computeTotalCents(
+    answers,
+    design.premiumCents,
+    flatOptions,
+    flatFields,
+    design.perSizeFieldPrices,
+    currentSizeOptionId
+  );
 
   return (
     <div className="wizard-step order-summary">
@@ -71,10 +92,21 @@ export default function OrderSummaryPanel({
             }
           } else if (answer?.type === "text") {
             valueLabel = answer.value || "—";
-            if (answer.value && !isCustom) priceNode = <PriceDelta cents={field.additionalPriceCents} />;
+            if (answer.value && !isCustom) {
+              priceNode = <PriceDelta cents={resolveFieldPriceCents(field.id, flatFields)} />;
+            }
           } else if (answer?.type === "number") {
             valueLabel = String(answer.value);
-            if (!isCustom) priceNode = <PriceDelta cents={field.additionalPriceCents} />;
+            if (!isCustom) priceNode = <PriceDelta cents={resolveFieldPriceCents(field.id, flatFields)} />;
+          } else if (answer?.type === "toggle") {
+            valueLabel = answer.value ? "Yes" : "No";
+            if (answer.value && !isCustom) {
+              priceNode = (
+                <PriceDelta
+                  cents={resolveFieldPriceCents(field.id, flatFields, design.perSizeFieldPrices, currentSizeOptionId)}
+                />
+              );
+            }
           }
           return (
             <li key={field.id}>

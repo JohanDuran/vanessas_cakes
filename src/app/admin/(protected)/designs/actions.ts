@@ -6,8 +6,11 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import {
   designExcludedOptions,
+  designFieldPrices,
+  designFieldSizePrices,
   designFieldValues,
   designLockedFields,
+  designOptionPrices,
   designCategories,
   designPhotos,
   designs,
@@ -21,7 +24,7 @@ import {
 import { requireAdmin } from "../../../../db/queries";
 import { selectionsViolateConstraints } from "../../../../lib/constraints";
 import { buildCakeStyleContext } from "../../../../lib/cakeStyle";
-import { computeStandardPriceCents, type Answers } from "../../../../lib/pricing";
+import { computeStandardPriceCents, resolvePriceableFields, resolvePriceableOptions, type Answers } from "../../../../lib/pricing";
 import {
   CAKE_STYLE_FIELD_SLUG,
   SIZE_FIELD_SLUG,
@@ -195,8 +198,50 @@ export async function saveDesign(formData: FormData) {
       );
     }
 
-    const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-    const flatFields = allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
+    // this design's own price overrides — an input only exists in the
+    // submitted form for a field the admin currently has included (see
+    // DesignForm's isIncluded-gated price inputs), so nothing here can ever
+    // touch a field this design doesn't use
+    const optionPriceOverrides: Record<number, number> = {};
+    for (const opt of allOptions) {
+      const raw = formData.get(`optionPrice_${opt.id}`);
+      if (raw == null || raw === "") continue;
+      optionPriceOverrides[opt.id] = dollarsToCents(String(raw));
+    }
+    const fieldPriceOverrides: Record<number, number> = {};
+    for (const field of allFields) {
+      if (fieldHasOptions(field.type)) continue;
+      const raw = formData.get(`fieldPrice_${field.id}`);
+      if (raw == null || raw === "") continue;
+      fieldPriceOverrides[field.id] = dollarsToCents(String(raw));
+    }
+    const sizeVaryingFieldIds = new Set(
+      formData
+        .getAll("sizeVaryingFieldIds")
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n))
+    );
+    const perSizeFieldPrices: Record<number, Record<number, number>> = {};
+    const sizeOptions = sizeField ? allOptions.filter((o) => o.fieldId === sizeField.id) : [];
+    for (const field of allFields) {
+      if (field.type !== "per_size" || !sizeVaryingFieldIds.has(field.id)) continue;
+      const bySize: Record<number, number> = {};
+      for (const sizeOpt of sizeOptions) {
+        const raw = formData.get(`sizePrice_${field.id}_${sizeOpt.id}`);
+        bySize[sizeOpt.id] = raw != null && raw !== "" ? dollarsToCents(String(raw)) : 0;
+      }
+      perSizeFieldPrices[field.id] = bySize;
+    }
+    const priceOverrides = { optionPriceOverrides, fieldPriceOverrides, perSizeFieldPrices };
+
+    const flatOptions = resolvePriceableOptions(
+      priceOverrides,
+      allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }))
+    );
+    const flatFields = resolvePriceableFields(
+      priceOverrides,
+      allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+    );
     const standardPriceCents = computeStandardPriceCents(answers, flatOptions, flatFields);
     // quote-kind designs have no fixed price — the baker quotes by hand once
     // the request comes in — regardless of what the (hidden, always "0")
@@ -319,6 +364,28 @@ export async function saveDesign(formData: FormData) {
       await tx.delete(designCategories).where(eq(designCategories.designId, designId!));
       for (const categoryId of categoryIds) {
         await tx.insert(designCategories).values({ designId: designId!, categoryId });
+      }
+
+      await tx.delete(designOptionPrices).where(eq(designOptionPrices.designId, designId!));
+      for (const [fieldOptionIdStr, priceCents] of Object.entries(optionPriceOverrides)) {
+        await tx.insert(designOptionPrices).values({ designId: designId!, fieldOptionId: Number(fieldOptionIdStr), priceCents });
+      }
+
+      await tx.delete(designFieldPrices).where(eq(designFieldPrices.designId, designId!));
+      for (const [fieldIdStr, priceCents] of Object.entries(fieldPriceOverrides)) {
+        await tx.insert(designFieldPrices).values({ designId: designId!, fieldId: Number(fieldIdStr), priceCents });
+      }
+
+      await tx.delete(designFieldSizePrices).where(eq(designFieldSizePrices.designId, designId!));
+      for (const [fieldIdStr, bySize] of Object.entries(perSizeFieldPrices)) {
+        for (const [sizeOptionIdStr, priceCents] of Object.entries(bySize)) {
+          await tx.insert(designFieldSizePrices).values({
+            designId: designId!,
+            fieldId: Number(fieldIdStr),
+            sizeOptionId: Number(sizeOptionIdStr),
+            priceCents,
+          });
+        }
       }
     });
 

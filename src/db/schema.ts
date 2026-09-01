@@ -637,6 +637,8 @@ export const cartItemSelections = pgTable("cart_item_selections", {
   fieldOptionId: integer("field_option_id").references(() => fieldOptions.id, { onDelete: "cascade" }),
   textValue: text("text_value"),
   numberValue: integer("number_value"),
+  // per_size fields only: the customer's plain opt-in/opt-out
+  booleanValue: boolean("boolean_value"),
 });
 
 /** Reference photos already uploaded for a custom-cake cart item — copied
@@ -669,6 +671,8 @@ export const orderSelections = pgTable(
     }),
     textValue: text("text_value"),
     numberValue: integer("number_value"),
+    // per_size fields only: the customer's plain opt-in/opt-out
+    booleanValue: boolean("boolean_value"),
     labelSnapshot: text("label_snapshot").notNull(),
     priceCentsSnapshot: integer("price_cents_snapshot").notNull().default(0),
   },

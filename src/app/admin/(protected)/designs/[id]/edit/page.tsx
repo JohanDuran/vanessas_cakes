@@ -6,8 +6,11 @@ import {
   constraintPairs,
   designCategories,
   designExcludedOptions,
+  designFieldPrices,
+  designFieldSizePrices,
   designFieldValues,
   designLockedFields,
+  designOptionPrices,
   designPhotos,
   designs,
   fieldOptions,
@@ -16,7 +19,7 @@ import {
   tierPresetLevels,
 } from "../../../../../../db/schema";
 import { baseFieldRank, isCakeStyleKind, isDesignKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../../lib/fields";
-import type { Answers } from "../../../../../../lib/pricing";
+import { buildDesignPriceOverrides, type Answers } from "../../../../../../lib/pricing";
 import DesignForm, { type FieldSummary } from "../../../../../../components/admin/DesignForm";
 import { buildTierPresetSummaries } from "../../tierPresetSummary";
 
@@ -46,6 +49,9 @@ export default async function EditDesignPage({
     categories,
     designCategoryRows,
     pairs,
+    optionPriceRows,
+    fieldPriceRows,
+    sizePriceRows,
   ] = await Promise.all([
     db.select().from(fields).then((r) => r),
     db.select().from(fieldOptions).then((r) => r),
@@ -63,7 +69,12 @@ export default async function EditDesignPage({
       .then((r) => r),
     db.select().from(designCategories).where(eq(designCategories.designId, designId)).then((r) => r),
     db.select().from(constraintPairs).then((r) => r),
+    db.select().from(designOptionPrices).where(eq(designOptionPrices.designId, designId)).then((r) => r),
+    db.select().from(designFieldPrices).where(eq(designFieldPrices.designId, designId)).then((r) => r),
+    db.select().from(designFieldSizePrices).where(eq(designFieldSizePrices.designId, designId)).then((r) => r),
   ]);
+
+  const priceOverrides = buildDesignPriceOverrides(designId, optionPriceRows, fieldPriceRows, sizePriceRows);
 
   const optionsByField = new Map<number, typeof allOptions>();
   for (const opt of allOptions) {
@@ -141,6 +152,9 @@ export default async function EditDesignPage({
           categoryIds: designCategoryRows.map((r) => r.categoryId),
           includedFieldIds,
           photos: photos.map((p) => ({ id: p.id, path: p.path, isPrimary: p.isPrimary })),
+          optionPriceOverrides: priceOverrides.optionPriceOverrides,
+          fieldPriceOverrides: priceOverrides.fieldPriceOverrides,
+          perSizeFieldPrices: priceOverrides.perSizeFieldPrices,
         }}
       />
     </>

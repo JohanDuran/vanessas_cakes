@@ -12,6 +12,7 @@ const answerSchema = z.union([
   z.object({ type: z.literal("options"), optionIds: z.array(z.number()) }),
   z.object({ type: z.literal("text"), value: z.string() }),
   z.object({ type: z.literal("number"), value: z.number() }),
+  z.object({ type: z.literal("toggle"), value: z.boolean() }),
 ]);
 const answersSchema = z.record(z.string(), answerSchema);
 
@@ -49,8 +50,10 @@ async function insertSelections(cartItemId: number, answers: Answers) {
       }
     } else if (answer.type === "text") {
       await db.insert(cartItemSelections).values({ cartItemId, fieldId, textValue: answer.value });
-    } else {
+    } else if (answer.type === "number") {
       await db.insert(cartItemSelections).values({ cartItemId, fieldId, numberValue: answer.value });
+    } else {
+      await db.insert(cartItemSelections).values({ cartItemId, fieldId, booleanValue: answer.value });
     }
   }
 }

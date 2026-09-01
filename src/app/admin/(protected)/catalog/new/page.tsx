@@ -36,11 +36,11 @@ export default function NewFieldPage() {
           <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <input type="checkbox" id="required" name="required" value="1" />
             <label htmlFor="required" style={{ margin: 0 }}>
-              Required (Text/Number only)
+              Required (Text/Number/Per Size only)
             </label>
           </div>
           <div className="admin-field">
-            <label>Additional price ($, Text/Number only)</label>
+            <label>Additional price ($, Text/Number/Per Size only)</label>
             <input
               name="additionalPriceDollars"
               type="number"

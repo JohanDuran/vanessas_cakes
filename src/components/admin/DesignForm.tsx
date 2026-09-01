@@ -68,6 +68,11 @@ type Props = {
      *  given — see DesignSummaryDTO.includedFieldIds */
     includedFieldIds: number[];
     photos: Photo[];
+    /** this design's own price overrides — see DesignSummaryDTO for the
+     *  same shape. Empty for a design that's never had any set. */
+    optionPriceOverrides: Record<number, number>;
+    fieldPriceOverrides: Record<number, number>;
+    perSizeFieldPrices: Record<number, Record<number, number>>;
   };
 };
 
@@ -146,6 +151,61 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   );
   const [showFieldModal, setShowFieldModal] = useState(false);
 
+  // This design's own price for each option — defaults to the design's
+  // existing override, or the catalog price if it's never had one. Seeded
+  // from the full `fields` prop (not just availableFields) so a field
+  // picked later from "Add existing field" already has a draft ready.
+  const [optionPriceDrafts, setOptionPriceDrafts] = useState<Record<number, string>>(() => {
+    const init: Record<number, string> = {};
+    for (const f of fields) {
+      for (const o of f.options) {
+        init[o.id] = ((design?.optionPriceOverrides[o.id] ?? o.priceCents) / 100).toFixed(2);
+      }
+    }
+    return init;
+  });
+  // Same idea, for text/number/per_size fields' single flat price.
+  const [fieldPriceDrafts, setFieldPriceDrafts] = useState<Record<number, string>>(() => {
+    const init: Record<number, string> = {};
+    for (const f of fields) {
+      if (fieldHasOptions(f.type)) continue;
+      init[f.id] = ((design?.fieldPriceOverrides[f.id] ?? f.additionalPriceCents) / 100).toFixed(2);
+    }
+    return init;
+  });
+  // per_size fields this design has made size-varying — presence in this set
+  // means design_field_size_prices rows get written for it instead of the
+  // flat fieldPriceDrafts value (see saveDesign)
+  const [sizeVaryingFieldIds, setSizeVaryingFieldIds] = useState<Set<number>>(
+    () =>
+      new Set(
+        fields
+          .filter((f) => f.type === "per_size" && Object.keys(design?.perSizeFieldPrices[f.id] ?? {}).length > 0)
+          .map((f) => f.id)
+      )
+  );
+  const sizeField = fields.find((f) => f.slug === SIZE_FIELD_SLUG);
+  const [perSizePriceDrafts, setPerSizePriceDrafts] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of fields) {
+      if (f.type !== "per_size") continue;
+      for (const sizeOpt of sizeField?.options ?? []) {
+        const existing = design?.perSizeFieldPrices[f.id]?.[sizeOpt.id];
+        const fallback = design?.fieldPriceOverrides[f.id] ?? f.additionalPriceCents;
+        init[`${f.id}:${sizeOpt.id}`] = ((existing ?? fallback) / 100).toFixed(2);
+      }
+    }
+    return init;
+  });
+  const toggleSizeVarying = (fieldId: number) => {
+    setSizeVaryingFieldIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldId)) next.delete(fieldId);
+      else next.add(fieldId);
+      return next;
+    });
+  };
+
   const setDraft = (fieldId: number, patch: Partial<Draft>) => {
     setDrafts((prev) => ({ ...prev, [fieldId]: { ...prev[fieldId], ...patch } }));
   };
@@ -219,9 +279,19 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     return answers;
   }, [availableFields, drafts, includedFieldIds]);
 
+  // this design's own drafted prices, not the catalog ones — keeps the
+  // standard-price preview below in sync with whatever the admin is
+  // currently typing into the "Prices for this design" inputs
   const allOptionsFlat = useMemo(
-    () => availableFields.flatMap((f) => f.options.map((o) => ({ id: o.id, fieldId: f.id, priceCents: o.priceCents }))),
-    [availableFields]
+    () =>
+      availableFields.flatMap((f) =>
+        f.options.map((o) => ({
+          id: o.id,
+          fieldId: f.id,
+          priceCents: Math.round(Number(optionPriceDrafts[o.id] ?? "0") * 100),
+        }))
+      ),
+    [availableFields, optionPriceDrafts]
   );
 
   // `size`'s available options depend on the drafted cake_style answer
@@ -328,8 +398,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const missingRequiredDefaultIds = new Set(missingRequiredDefaults.map((f) => f.id));
 
   const allFieldsFlat: PriceableField[] = useMemo(
-    () => availableFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents })),
-    [availableFields]
+    () =>
+      availableFields.map((f) => ({
+        id: f.id,
+        additionalPriceCents: Math.round(Number(fieldPriceDrafts[f.id] ?? "0") * 100),
+      })),
+    [availableFields, fieldPriceDrafts]
   );
 
   const standardPriceCents = useMemo(
@@ -541,12 +615,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                       {isCatalog && isIncluded && hasOptions && (
                         <span className="field-type-tag">Required</span>
                       )}
-                      {(field.type === "text" || field.type === "number") && field.required && (
-                        <span className="field-type-tag">Required</span>
-                      )}
-                      {(field.type === "text" || field.type === "number") && field.additionalPriceCents > 0 && (
-                        <span className="field-type-tag">+{formatCents(field.additionalPriceCents)}</span>
-                      )}
+                      {(field.type === "text" || field.type === "number" || field.type === "per_size") &&
+                        field.required && <span className="field-type-tag">Required</span>}
+                      {(field.type === "text" || field.type === "number" || field.type === "per_size") &&
+                        field.additionalPriceCents > 0 && (
+                          <span className="field-type-tag">catalog default +{formatCents(field.additionalPriceCents)}</span>
+                        )}
                     </label>
 
                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem" }}>
@@ -620,6 +694,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         placeholder="Default value"
                         style={{ minWidth: 120 }}
                       />
+                    )}
+
+                    {isIncluded && field.type === "per_size" && (
+                      <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
+                        No default needed — the customer opts in or out; set its price below.
+                      </span>
                     )}
 
                   </div>
@@ -696,6 +776,93 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                           </span>
                         )}
                       </div>
+                    </div>
+                  )}
+
+                  {isIncluded && hasOptions && (
+                    <div className="recipe-axis-row__exclude">
+                      <span className="recipe-axis-row__exclude-label">Prices for this design:</span>
+                      <div className="recipe-axis-row__exclude-list">
+                        {field.options.map((opt) => (
+                          <label key={opt.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            {opt.name}
+                            <input
+                              type="number"
+                              step="0.01"
+                              name={`optionPrice_${opt.id}`}
+                              value={optionPriceDrafts[opt.id] ?? ""}
+                              onChange={(e) =>
+                                setOptionPriceDrafts((prev) => ({ ...prev, [opt.id]: e.target.value }))
+                              }
+                              style={{ width: 80 }}
+                            />
+                          </label>
+                        ))}
+                        {field.options.length === 0 && (
+                          <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
+                            No options yet — add some from Catalog.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isIncluded && !hasOptions && (
+                    <div className="recipe-axis-row__exclude">
+                      <span className="recipe-axis-row__exclude-label">
+                        {field.type === "per_size" ? "Flat price for this design:" : "Price for this design:"}
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name={`fieldPrice_${field.id}`}
+                        value={fieldPriceDrafts[field.id] ?? ""}
+                        onChange={(e) => setFieldPriceDrafts((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                        style={{ width: 80 }}
+                        disabled={field.type === "per_size" && sizeVaryingFieldIds.has(field.id)}
+                      />
+                    </div>
+                  )}
+
+                  {isIncluded && field.type === "per_size" && (
+                    <div className="recipe-axis-row__exclude">
+                      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          name="sizeVaryingFieldIds"
+                          value={field.id}
+                          checked={sizeVaryingFieldIds.has(field.id)}
+                          onChange={() => toggleSizeVarying(field.id)}
+                        />
+                        Vary this price by cake size instead
+                      </label>
+                      {sizeVaryingFieldIds.has(field.id) && (
+                        <div className="recipe-axis-row__exclude-list">
+                          {(sizeField?.options ?? []).map((sizeOpt) => (
+                            <label key={sizeOpt.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {sizeOpt.name}
+                              <input
+                                type="number"
+                                step="0.01"
+                                name={`sizePrice_${field.id}_${sizeOpt.id}`}
+                                value={perSizePriceDrafts[`${field.id}:${sizeOpt.id}`] ?? ""}
+                                onChange={(e) =>
+                                  setPerSizePriceDrafts((prev) => ({
+                                    ...prev,
+                                    [`${field.id}:${sizeOpt.id}`]: e.target.value,
+                                  }))
+                                }
+                                style={{ width: 80 }}
+                              />
+                            </label>
+                          ))}
+                          {(sizeField?.options.length ?? 0) === 0 && (
+                            <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
+                              No sizes configured yet — add some from Catalog.
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -812,6 +979,14 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             setAvailableFields((prev) => [...prev, field]);
             setDrafts((prev) => ({ ...prev, [field.id]: { optionIds: [], text: "", number: "" } }));
             setIncludedFieldIds((prev) => new Set(prev).add(field.id));
+            setOptionPriceDrafts((prev) => {
+              const next = { ...prev };
+              for (const o of field.options) next[o.id] = (o.priceCents / 100).toFixed(2);
+              return next;
+            });
+            if (!fieldHasOptions(field.type)) {
+              setFieldPriceDrafts((prev) => ({ ...prev, [field.id]: (field.additionalPriceCents / 100).toFixed(2) }));
+            }
             setShowFieldModal(false);
           }}
         />

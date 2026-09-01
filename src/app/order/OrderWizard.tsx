@@ -12,7 +12,7 @@ import {
   sizeOptionsForStyle,
   type CakeStyleContext,
 } from "../../lib/cakeStyle";
-import { computeTotalCents, formatCents, type Answers } from "../../lib/pricing";
+import { computeTotalCents, formatCents, resolveFieldPriceCents, type Answers } from "../../lib/pricing";
 import { SIZE_FIELD_SLUG } from "../../lib/fields";
 import { useCart } from "../../lib/cart/CartContext";
 import DesignPhotoCarousel from "../../components/order/DesignPhotoCarousel";
@@ -20,6 +20,7 @@ import FieldOptionStep from "../../components/order/steps/FieldOptionStep";
 import TierPresetStep from "../../components/order/steps/TierPresetStep";
 import TextFieldStep from "../../components/order/steps/TextFieldStep";
 import NumberFieldStep from "../../components/order/steps/NumberFieldStep";
+import ToggleFieldStep from "../../components/order/steps/ToggleFieldStep";
 import CustomCakeQuoteStep from "../../components/order/steps/CustomCakeQuoteStep";
 import OrderSummaryPanel from "../../components/order/OrderSummaryPanel";
 
@@ -61,6 +62,7 @@ type Action =
   | { type: "SET_OPTIONS"; fieldId: number; optionIds: number[] }
   | { type: "SET_TEXT"; fieldId: number; value: string }
   | { type: "SET_NUMBER"; fieldId: number; value: string }
+  | { type: "SET_TOGGLE"; fieldId: number; value: boolean }
   | { type: "GOTO"; step: number };
 
 /** A design's actual fields: whichever fields (base or custom) the admin
@@ -77,6 +79,7 @@ function isFieldAnswered(field: FieldDTO, answer: Answers[number] | undefined): 
   if (!answer) return false;
   if (field.type === "text") return answer.type === "text" && answer.value.trim() !== "";
   if (field.type === "number") return answer.type === "number";
+  if (field.type === "per_size") return answer.type === "toggle";
   if (field.type === "single_select") return answer.type === "options" && answer.optionIds.length > 0;
   return true;
 }
@@ -150,6 +153,11 @@ function makeReducer(pairs: ConstraintPair[], cakeStyleCtx: CakeStyleContext | n
           answers: { ...state.answers, [action.fieldId]: { type: "number", value: Number(action.value) } },
         };
       }
+      case "SET_TOGGLE":
+        return {
+          ...state,
+          answers: { ...state.answers, [action.fieldId]: { type: "toggle", value: action.value } },
+        };
       case "GOTO":
         return { ...state, step: action.step, maxStepReached: Math.max(state.maxStepReached, action.step) };
       default:
@@ -211,14 +219,34 @@ export default function OrderWizard({
   );
   const router = useRouter();
 
-  const optionsByField = useMemo(() => {
-    const map = new Map<number, FieldOptionDTO[]>();
-    for (const f of fields) map.set(f.id, options.filter((o) => o.fieldId === f.id));
-    return map;
-  }, [fields, options]);
-
   const selectedDesign = lockedDesign ?? designs.find((d) => d.id === state.designId) ?? null;
   const isQuote = selectedDesign != null && selectedDesign.kind !== "catalog";
+
+  // this design's own prices, not the raw catalog ones — see
+  // resolvePriceableOptions/resolvePriceableFields in lib/pricing.ts
+  const resolvedOptions = useMemo(
+    () =>
+      selectedDesign
+        ? options.map((o) => ({ ...o, priceCents: selectedDesign.optionPriceOverrides[o.id] ?? o.priceCents }))
+        : options,
+    [options, selectedDesign]
+  );
+  const resolvedFieldsFlat = useMemo(
+    () =>
+      selectedDesign
+        ? fields.map((f) => ({
+            id: f.id,
+            additionalPriceCents: selectedDesign.fieldPriceOverrides[f.id] ?? f.additionalPriceCents,
+          }))
+        : fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents })),
+    [fields, selectedDesign]
+  );
+
+  const optionsByField = useMemo(() => {
+    const map = new Map<number, FieldOptionDTO[]>();
+    for (const f of fields) map.set(f.id, resolvedOptions.filter((o) => o.fieldId === f.id));
+    return map;
+  }, [fields, resolvedOptions]);
 
   const designFields = useMemo(
     () => (selectedDesign ? fieldsForDesign(fields, selectedDesign) : []),
@@ -304,11 +332,21 @@ export default function OrderWizard({
     dispatch({ type: "GOTO", step: prev });
   };
 
+  // per_size fields price off whichever `size` option is currently answered
+  // for this design, if any
+  const currentSizeOptionId = useMemo(() => {
+    if (!sizeField) return undefined;
+    const a = state.answers[sizeField.id];
+    return a?.type === "options" ? a.optionIds[0] : undefined;
+  }, [sizeField, state.answers]);
+
   const subtotalCents = computeTotalCents(
     state.answers,
     selectedDesign?.premiumCents ?? 0,
-    options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
-    fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+    resolvedOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+    resolvedFieldsFlat,
+    selectedDesign?.perSizeFieldPrices,
+    currentSizeOptionId
   );
 
   // Size step only: everything else already answered, priced up (including
@@ -321,15 +359,18 @@ export default function OrderWizard({
     return computeTotalCents(
       answersWithoutSize,
       selectedDesign?.premiumCents ?? 0,
-      options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
-      fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+      resolvedOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+      resolvedFieldsFlat,
+      selectedDesign?.perSizeFieldPrices,
+      currentSizeOptionId
     );
-  }, [isSizeStep, sizeField, state.answers, selectedDesign, options, fields]);
+  }, [isSizeStep, sizeField, state.answers, selectedDesign, resolvedOptions, resolvedFieldsFlat, currentSizeOptionId]);
   const nextDisabled =
     !isQuote &&
     currentField != null &&
     (currentField.type === "single_select" ||
-      ((currentField.type === "text" || currentField.type === "number") && currentField.required)) &&
+      ((currentField.type === "text" || currentField.type === "number" || currentField.type === "per_size") &&
+        currentField.required)) &&
     !isFieldAnswered(currentField, currentAnswer);
 
   // Design selection now happens entirely on /gallery and /portfolio — every
@@ -491,6 +532,20 @@ export default function OrderWizard({
             />
           )}
 
+          {currentField && currentField.type === "per_size" && (
+            <ToggleFieldStep
+              field={currentField}
+              value={currentAnswer?.type === "toggle" ? currentAnswer.value : undefined}
+              priceCents={resolveFieldPriceCents(
+                currentField.id,
+                resolvedFieldsFlat,
+                selectedDesign?.perSizeFieldPrices,
+                currentSizeOptionId
+              )}
+              onChange={(value) => dispatch({ type: "SET_TOGGLE", fieldId: currentField.id, value })}
+            />
+          )}
+
           {isCustomQuoteStep && (
             <CustomCakeQuoteStep
               images={referenceImages}
@@ -504,7 +559,8 @@ export default function OrderWizard({
               design={selectedDesign}
               designFields={designFields.filter((f) => !skippedFieldIdSet.has(f.id))}
               answers={state.answers}
-              options={options}
+              options={resolvedOptions}
+              currentSizeOptionId={currentSizeOptionId}
               tierPresets={tierPresets}
               lockedFieldIds={lockedFieldIdSet}
               isCustom={isQuote}

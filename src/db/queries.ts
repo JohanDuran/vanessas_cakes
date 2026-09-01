@@ -7,6 +7,9 @@ import {
   fieldOptionDimensions,
   designExcludedOptions,
   designLockedFields,
+  designOptionPrices,
+  designFieldPrices,
+  designFieldSizePrices,
   designPhotos,
   designFieldValues,
   designCategories,
@@ -251,6 +254,9 @@ export async function loadOrderData() {
     allTierPresetLevelRows,
     activeCategories,
     allDesignCategoryRows,
+    allDesignOptionPriceRows,
+    allDesignFieldPriceRows,
+    allDesignFieldSizePriceRows,
   ] = await withDbRetry(() =>
     Promise.all([
       db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
@@ -275,6 +281,9 @@ export async function loadOrderData() {
         .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
         .then((r) => r),
       db.select().from(designCategories).then((r) => r),
+      db.select().from(designOptionPrices).then((r) => r),
+      db.select().from(designFieldPrices).then((r) => r),
+      db.select().from(designFieldSizePrices).then((r) => r),
     ]),
   );
 
@@ -392,6 +401,29 @@ export async function loadOrderData() {
     categoryIdsByDesign.set(row.designId, list);
   }
 
+  const optionPriceOverridesByDesign = new Map<number, Record<number, number>>();
+  for (const row of allDesignOptionPriceRows) {
+    const map = optionPriceOverridesByDesign.get(row.designId) ?? {};
+    map[row.fieldOptionId] = row.priceCents;
+    optionPriceOverridesByDesign.set(row.designId, map);
+  }
+
+  const fieldPriceOverridesByDesign = new Map<number, Record<number, number>>();
+  for (const row of allDesignFieldPriceRows) {
+    const map = fieldPriceOverridesByDesign.get(row.designId) ?? {};
+    map[row.fieldId] = row.priceCents;
+    fieldPriceOverridesByDesign.set(row.designId, map);
+  }
+
+  const perSizeFieldPricesByDesign = new Map<number, Record<number, Record<number, number>>>();
+  for (const row of allDesignFieldSizePriceRows) {
+    const byField = perSizeFieldPricesByDesign.get(row.designId) ?? {};
+    const bySize = byField[row.fieldId] ?? {};
+    bySize[row.sizeOptionId] = row.priceCents;
+    byField[row.fieldId] = bySize;
+    perSizeFieldPricesByDesign.set(row.designId, byField);
+  }
+
   const designSummaries: DesignSummaryDTO[] = publishedDesigns.map((d) => ({
     id: d.id,
     name: d.name,
@@ -405,6 +437,9 @@ export async function loadOrderData() {
     excludedOptionIds: excludedByDesign.get(d.id) ?? [],
     categoryIds: categoryIdsByDesign.get(d.id) ?? [],
     includedFieldIds: Array.from(includedFieldIdsByDesign.get(d.id) ?? []),
+    optionPriceOverrides: optionPriceOverridesByDesign.get(d.id) ?? {},
+    fieldPriceOverrides: fieldPriceOverridesByDesign.get(d.id) ?? {},
+    perSizeFieldPrices: perSizeFieldPricesByDesign.get(d.id) ?? {},
   }));
 
   const constraintPairsDTO = pairs.map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
@@ -615,6 +650,8 @@ export async function getCartItemsForUser(userId: string): Promise<CartItemDTO[]
         answers[sel.fieldId] = { type: "text", value: sel.textValue };
       } else if (sel.numberValue != null) {
         answers[sel.fieldId] = { type: "number", value: sel.numberValue };
+      } else if (sel.booleanValue != null) {
+        answers[sel.fieldId] = { type: "toggle", value: sel.booleanValue };
       }
     }
 

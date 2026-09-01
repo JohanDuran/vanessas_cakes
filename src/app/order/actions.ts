@@ -9,7 +9,10 @@ import {
   constraintPairs,
   designExcludedOptions,
   designFieldValues,
+  designFieldPrices,
+  designFieldSizePrices,
   designLockedFields,
+  designOptionPrices,
   designs,
   fieldOptions,
   fields,
@@ -25,7 +28,14 @@ import {
 import { getCurrentUser, loadPickupAvailability } from "../../db/queries";
 import { selectionsViolateConstraints } from "../../lib/constraints";
 import { buildCakeStyleContext } from "../../lib/cakeStyle";
-import { computeTotalCents, type Answers } from "../../lib/pricing";
+import {
+  buildDesignPriceOverrides,
+  computeTotalCents,
+  resolvePriceableFields,
+  resolvePriceableOptions,
+  type Answers,
+  type DesignPriceOverrides,
+} from "../../lib/pricing";
 import { isSlotAvailable } from "../../lib/availability";
 import { isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../lib/fields";
 import { saveUploadedPhoto } from "../../lib/uploads";
@@ -36,6 +46,7 @@ const answerSchema = z.union([
   z.object({ type: z.literal("options"), optionIds: z.array(z.number()) }),
   z.object({ type: z.literal("text"), value: z.string() }),
   z.object({ type: z.literal("number"), value: z.number() }),
+  z.object({ type: z.literal("toggle"), value: z.boolean() }),
 ]);
 
 const cartItemSchema = z.object({
@@ -78,6 +89,12 @@ type ResolvedItem = {
   isQuote: boolean;
   answers: Answers;
   priceCents: number;
+  /** this design's own resolved (catalog price, or its override) prices —
+   *  used again below to snapshot each selection's actual charged price. */
+  overrides: DesignPriceOverrides;
+  resolvedOptionPriceById: Map<number, number>;
+  resolvedFieldPriceById: Map<number, number>;
+  currentSizeOptionId?: number;
 };
 
 /** Validates and re-prices one cart item entirely from trusted server-side
@@ -92,9 +109,12 @@ async function resolveCartItem(
     fieldById: Map<number, typeof fields.$inferSelect>;
     cakeStyleCtx: ReturnType<typeof buildCakeStyleContext>;
     pairs: (typeof constraintPairs.$inferSelect)[];
+    optionPriceRows: (typeof designOptionPrices.$inferSelect)[];
+    fieldPriceRows: (typeof designFieldPrices.$inferSelect)[];
+    sizePriceRows: (typeof designFieldSizePrices.$inferSelect)[];
   }
 ): Promise<{ ok: true; item: ResolvedItem } | { ok: false; error: string }> {
-  const { allFields, allOptions, optionById, fieldById, cakeStyleCtx, pairs } = catalog;
+  const { allFields, allOptions, optionById, cakeStyleCtx, pairs } = catalog;
 
   const design = await db.select().from(designs).where(eq(designs.id, item.designId)).then((r) => r[0]);
   if (!design || !design.published) {
@@ -170,13 +190,17 @@ async function resolveCartItem(
     } else if (field.type === "number") {
       if (raw.type !== "number") continue;
       answers[field.id] = { type: "number", value: raw.value };
+    } else if (field.type === "per_size") {
+      if (raw.type !== "toggle") continue;
+      answers[field.id] = { type: "toggle", value: raw.value };
     }
   }
 
   if (!isQuote) {
     for (const field of designFields) {
       const requiresAnswer =
-        field.type === "single_select" || ((field.type === "text" || field.type === "number") && field.required);
+        field.type === "single_select" ||
+        ((field.type === "text" || field.type === "number" || field.type === "per_size") && field.required);
       if (!requiresAnswer) continue;
       if (!answers[field.id]) return { ok: false, error: `${field.name} is required.` };
     }
@@ -200,9 +224,34 @@ async function resolveCartItem(
     return { ok: false, error: "One of your cakes has a combination that isn't allowed." };
   }
 
-  const flatOptions = allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-  const flatFields = allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
-  const priceCents = computeTotalCents(answers, design.premiumCents, flatOptions, flatFields);
+  const overrides = buildDesignPriceOverrides(
+    design.id,
+    catalog.optionPriceRows,
+    catalog.fieldPriceRows,
+    catalog.sizePriceRows
+  );
+  const resolvedOptions = resolvePriceableOptions(
+    overrides,
+    allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }))
+  );
+  const resolvedFields = resolvePriceableFields(
+    overrides,
+    allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+  );
+  const currentSizeOptionId = cakeStyleCtx
+    ? (() => {
+        const a = answers[cakeStyleCtx.sizeFieldId];
+        return a?.type === "options" ? a.optionIds[0] : undefined;
+      })()
+    : undefined;
+  const priceCents = computeTotalCents(
+    answers,
+    design.premiumCents,
+    resolvedOptions,
+    resolvedFields,
+    overrides.perSizeFieldPrices,
+    currentSizeOptionId
+  );
 
   return {
     ok: true,
@@ -213,6 +262,10 @@ async function resolveCartItem(
       isQuote,
       answers,
       priceCents,
+      overrides,
+      resolvedOptionPriceById: new Map(resolvedOptions.map((o) => [o.id, o.priceCents])),
+      resolvedFieldPriceById: new Map(resolvedFields.map((f) => [f.id, f.additionalPriceCents])),
+      currentSizeOptionId,
     },
   };
 }
@@ -319,10 +372,23 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   }));
   const cakeStyleCtx = buildCakeStyleContext(fieldDTOs, optionDTOs, tierPresetDTOs);
   const pairs = await db.select().from(constraintPairs);
+  const optionPriceRows = await db.select().from(designOptionPrices);
+  const fieldPriceRows = await db.select().from(designFieldPrices);
+  const sizePriceRows = await db.select().from(designFieldSizePrices);
 
   const resolvedItems: ResolvedItem[] = [];
   for (const item of cartInput) {
-    const result = await resolveCartItem(item, { allFields, allOptions, optionById, fieldById, cakeStyleCtx, pairs });
+    const result = await resolveCartItem(item, {
+      allFields,
+      allOptions,
+      optionById,
+      fieldById,
+      cakeStyleCtx,
+      pairs,
+      optionPriceRows,
+      fieldPriceRows,
+      sizePriceRows,
+    });
     if (!result.ok) return { error: result.error };
     resolvedItems.push(result.item);
   }
@@ -398,7 +464,8 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
                 fieldId,
                 fieldOptionId: optionId,
                 labelSnapshot: option.name,
-                priceCentsSnapshot: option.priceCents,
+                // this design's own price for the option, not the raw catalog one
+                priceCentsSnapshot: resolved.resolvedOptionPriceById.get(optionId) ?? option.priceCents,
               })
               ;
           }
@@ -409,17 +476,32 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
               fieldId,
               textValue: answer.value,
               labelSnapshot: answer.value,
-              priceCentsSnapshot: fieldById.get(fieldId)?.additionalPriceCents ?? 0,
+              priceCentsSnapshot: resolved.resolvedFieldPriceById.get(fieldId) ?? 0,
             })
             ;
-        } else {
+        } else if (answer.type === "number") {
           await tx.insert(orderSelections)
             .values({
               orderItemId: insertedItem.id,
               fieldId,
               numberValue: answer.value,
               labelSnapshot: String(answer.value),
-              priceCentsSnapshot: fieldById.get(fieldId)?.additionalPriceCents ?? 0,
+              priceCentsSnapshot: resolved.resolvedFieldPriceById.get(fieldId) ?? 0,
+            })
+            ;
+        } else {
+          if (!answer.value) continue; // declined a per_size add-on — nothing to record
+          const sizePrices = resolved.overrides.perSizeFieldPrices[fieldId];
+          const priceCentsSnapshot = sizePrices
+            ? (resolved.currentSizeOptionId != null ? (sizePrices[resolved.currentSizeOptionId] ?? 0) : 0)
+            : (resolved.resolvedFieldPriceById.get(fieldId) ?? 0);
+          await tx.insert(orderSelections)
+            .values({
+              orderItemId: insertedItem.id,
+              fieldId,
+              booleanValue: answer.value,
+              labelSnapshot: "Yes",
+              priceCentsSnapshot,
             })
             ;
         }

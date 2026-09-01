@@ -4,7 +4,8 @@ import { useActionState, useEffect, useRef, useState, type FormEvent } from "rea
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FieldDTO, FieldOptionDTO, DesignSummaryDTO, TierPresetDTO } from "../../lib/order-types";
-import { computeTotalCents, formatCents } from "../../lib/pricing";
+import { computeTotalCents, formatCents, resolvePriceableFields, resolvePriceableOptions } from "../../lib/pricing";
+import { SIZE_FIELD_SLUG } from "../../lib/fields";
 import type { WeeklyHour, DateOverride, PickupSettings } from "../../lib/availability";
 import { useCart, type CartItem } from "../../lib/cart/CartContext";
 import { useUser } from "../../lib/user/UserContext";
@@ -67,6 +68,9 @@ function summarizeItem(
       } else if (answer.type === "text") {
         if (!answer.value) return null;
         value = answer.value;
+      } else if (answer.type === "toggle") {
+        if (!answer.value) return null;
+        value = "Yes";
       } else {
         value = String(answer.value);
       }
@@ -74,11 +78,26 @@ function summarizeItem(
     })
     .filter((l): l is { label: string; value: string } => l !== null);
 
-  const flatOptions = options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
-  const flatFields = itemFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }));
+  const flatOptions = design
+    ? resolvePriceableOptions(design, options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })))
+    : options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
+  const flatFields = resolvePriceableFields(
+    design ?? { fieldPriceOverrides: {} },
+    itemFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+  );
+  const sizeField = fields.find((f) => f.slug === SIZE_FIELD_SLUG);
+  const currentSizeAnswer = sizeField ? item.answers[sizeField.id] : undefined;
+  const currentSizeOptionId = currentSizeAnswer?.type === "options" ? currentSizeAnswer.optionIds[0] : undefined;
   const priceCents = isQuote
     ? 0
-    : computeTotalCents(item.answers, design?.premiumCents ?? 0, flatOptions, flatFields);
+    : computeTotalCents(
+        item.answers,
+        design?.premiumCents ?? 0,
+        flatOptions,
+        flatFields,
+        design?.perSizeFieldPrices,
+        currentSizeOptionId
+      );
 
   return {
     name: isQuote ? "Custom Cake Quote" : (design?.name ?? "Unknown design"),

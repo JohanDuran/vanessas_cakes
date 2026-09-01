@@ -90,4 +90,18 @@ export type DesignSummaryDTO = {
   excludedOptionIds: number[];
   /** cake categories this design belongs to — empty if the admin picked none */
   categoryIds: number[];
+  /** this design's own price override per select-type option (fieldOptionId
+   *  -> priceCents) — absent entries fall back to the option's catalog
+   *  price. See resolvePriceableOptions in lib/pricing.ts. */
+  optionPriceOverrides: Record<number, number>;
+  /** this design's own flat-price override per text/number/per_size field
+   *  (fieldId -> priceCents) — absent entries fall back to the field's
+   *  catalog additionalPriceCents. Unused for a per_size field that has an
+   *  entry in perSizeFieldPrices instead. See resolvePriceableFields. */
+  fieldPriceOverrides: Record<number, number>;
+  /** per_size fields this design has made size-varying, and their price at
+   *  each size option: fieldId -> sizeOptionId -> priceCents. A per_size
+   *  field with no entry here is flat-priced for this design instead (see
+   *  fieldPriceOverrides). */
+  perSizeFieldPrices: Record<number, Record<number, number>>;
 };
