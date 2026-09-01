@@ -6,6 +6,7 @@ import {
   fieldOptions,
   fieldOptionDimensions,
   designExcludedOptions,
+  designFieldOrder,
   designHiddenFields,
   designLockedFields,
   designOptionPrices,
@@ -289,6 +290,7 @@ export async function loadOrderData() {
     allDesignOptionSizePriceRows,
     allHiddenRows,
     allRequiredRows,
+    allFieldOrderRows,
   ] = await withDbRetry(() =>
     Promise.all([
       db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
@@ -319,6 +321,7 @@ export async function loadOrderData() {
       db.select().from(designOptionSizePrices).then((r) => r),
       db.select().from(designHiddenFields).then((r) => r),
       db.select().from(designRequiredFields).then((r) => r),
+      db.select().from(designFieldOrder).then((r) => r),
     ]),
   );
 
@@ -481,24 +484,48 @@ export async function loadOrderData() {
     requiredByDesign.set(row.designId, list);
   }
 
-  const designSummaries: DesignSummaryDTO[] = publishedDesigns.map((d) => ({
-    id: d.id,
-    name: d.name,
-    description: d.description,
-    kind: isDesignKind(d.kind) ? d.kind : "catalog",
-    photos: photosByDesign.get(d.id) ?? [],
-    fieldValues: fieldValuesByDesign.get(d.id) ?? {},
-    lockedFieldIds: lockedByDesign.get(d.id) ?? [],
-    hiddenFieldIds: hiddenByDesign.get(d.id) ?? [],
-    requiredFieldIds: requiredByDesign.get(d.id) ?? [],
-    excludedOptionIds: excludedByDesign.get(d.id) ?? [],
-    categoryIds: categoryIdsByDesign.get(d.id) ?? [],
-    includedFieldIds: Array.from(includedFieldIdsByDesign.get(d.id) ?? []),
-    optionPriceOverrides: optionPriceOverridesByDesign.get(d.id) ?? {},
-    fieldPriceOverrides: fieldPriceOverridesByDesign.get(d.id) ?? {},
-    perSizeFieldPrices: perSizeFieldPricesByDesign.get(d.id) ?? {},
-    optionSizePrices: optionSizePricesByDesign.get(d.id) ?? {},
-  }));
+  // this design's own field display order, if it's ever been saved through
+  // the admin's field reorder — see design_field_order and DesignForm
+  const fieldOrderByDesign = new Map<number, Map<number, number>>();
+  for (const row of allFieldOrderRows) {
+    const map = fieldOrderByDesign.get(row.designId) ?? new Map<number, number>();
+    map.set(row.fieldId, row.sortOrder);
+    fieldOrderByDesign.set(row.designId, map);
+  }
+  // fallback for a design with no rows in design_field_order at all (never
+  // reordered) — same canonical order the customer would've seen before this
+  // feature existed
+  const canonicalFieldIndex = new Map(fieldSummaries.map((f, i) => [f.id, i]));
+
+  const designSummaries: DesignSummaryDTO[] = publishedDesigns.map((d) => {
+    const orderMap = fieldOrderByDesign.get(d.id);
+    const includedFieldIds = Array.from(includedFieldIdsByDesign.get(d.id) ?? []);
+    if (orderMap && orderMap.size > 0) {
+      includedFieldIds.sort(
+        (a, b) => (orderMap.get(a) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b) ?? Number.MAX_SAFE_INTEGER)
+      );
+    } else {
+      includedFieldIds.sort((a, b) => (canonicalFieldIndex.get(a) ?? 0) - (canonicalFieldIndex.get(b) ?? 0));
+    }
+    return {
+      id: d.id,
+      name: d.name,
+      description: d.description,
+      kind: isDesignKind(d.kind) ? d.kind : "catalog",
+      photos: photosByDesign.get(d.id) ?? [],
+      fieldValues: fieldValuesByDesign.get(d.id) ?? {},
+      lockedFieldIds: lockedByDesign.get(d.id) ?? [],
+      hiddenFieldIds: hiddenByDesign.get(d.id) ?? [],
+      requiredFieldIds: requiredByDesign.get(d.id) ?? [],
+      excludedOptionIds: excludedByDesign.get(d.id) ?? [],
+      categoryIds: categoryIdsByDesign.get(d.id) ?? [],
+      includedFieldIds,
+      optionPriceOverrides: optionPriceOverridesByDesign.get(d.id) ?? {},
+      fieldPriceOverrides: fieldPriceOverridesByDesign.get(d.id) ?? {},
+      perSizeFieldPrices: perSizeFieldPricesByDesign.get(d.id) ?? {},
+      optionSizePrices: optionSizePricesByDesign.get(d.id) ?? {},
+    };
+  });
 
   const constraintPairsDTO = pairs.map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import {
   designExcludedOptions,
+  designFieldOrder,
   designFieldPrices,
   designFieldSizePrices,
   designFieldValues,
@@ -277,6 +278,19 @@ export async function saveDesign(formData: FormData) {
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n));
 
+    // this design's own field display order, in whatever order the admin
+    // left them arranged in — rendered as hidden inputs in that exact DOM
+    // order (see DesignForm), deduped defensively in case the same field id
+    // somehow appears twice
+    const fieldOrderIds = Array.from(
+      new Set(
+        formData
+          .getAll("fieldOrder")
+          .map((v) => Number(v))
+          .filter((n) => Number.isInteger(n))
+      )
+    );
+
     // an option can't be excluded from its own field if it's also that
     // field's current default, or if the whole field is locked (moot)
     const defaultOptionIds = new Set(
@@ -382,6 +396,11 @@ export async function saveDesign(formData: FormData) {
       await tx.delete(designCategories).where(eq(designCategories.designId, designId!));
       for (const categoryId of categoryIds) {
         await tx.insert(designCategories).values({ designId: designId!, categoryId });
+      }
+
+      await tx.delete(designFieldOrder).where(eq(designFieldOrder.designId, designId!));
+      for (let i = 0; i < fieldOrderIds.length; i++) {
+        await tx.insert(designFieldOrder).values({ designId: designId!, fieldId: fieldOrderIds[i], sortOrder: i });
       }
 
       await tx.delete(designOptionPrices).where(eq(designOptionPrices.designId, designId!));

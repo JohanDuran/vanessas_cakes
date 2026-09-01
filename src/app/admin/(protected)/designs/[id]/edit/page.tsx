@@ -6,6 +6,7 @@ import {
   constraintPairs,
   designCategories,
   designExcludedOptions,
+  designFieldOrder,
   designFieldPrices,
   designFieldSizePrices,
   designFieldValues,
@@ -58,6 +59,7 @@ export default async function EditDesignPage({
     optionSizePriceRows,
     hiddenRows,
     requiredRows,
+    fieldOrderRows,
   ] = await Promise.all([
     db.select().from(fields).then((r) => r),
     db.select().from(fieldOptions).then((r) => r),
@@ -81,6 +83,7 @@ export default async function EditDesignPage({
     db.select().from(designOptionSizePrices).where(eq(designOptionSizePrices.designId, designId)).then((r) => r),
     db.select().from(designHiddenFields).where(eq(designHiddenFields.designId, designId)).then((r) => r),
     db.select().from(designRequiredFields).where(eq(designRequiredFields.designId, designId)).then((r) => r),
+    db.select().from(designFieldOrder).where(eq(designFieldOrder.designId, designId)).then((r) => r),
   ]);
 
   const priceOverrides = buildDesignPriceOverrides(
@@ -98,14 +101,25 @@ export default async function EditDesignPage({
     optionsByField.set(opt.fieldId, list);
   }
 
+  // this design's own field order, if it's ever been saved through the
+  // admin's field reorder (see DesignForm) — fields with no row here (never
+  // reordered, or added since) fall back to the canonical catalog order below
+  const fieldOrderById = new Map(fieldOrderRows.map((r) => [r.fieldId, r.sortOrder]));
+
   const fieldSummaries: FieldSummary[] = allFields
     .filter((f) => isFieldType(f.type))
-    .sort(
-      (a, b) =>
+    .sort((a, b) => {
+      const oa = fieldOrderById.get(a.id);
+      const ob = fieldOrderById.get(b.id);
+      if (oa != null && ob != null) return oa - ob;
+      if (oa != null) return -1;
+      if (ob != null) return 1;
+      return (
         baseFieldRank(a.slug) - baseFieldRank(b.slug) ||
         a.sortOrder - b.sortOrder ||
         a.name.localeCompare(b.name)
-    )
+      );
+    })
     .map((f) => ({
       id: f.id,
       slug: f.slug,

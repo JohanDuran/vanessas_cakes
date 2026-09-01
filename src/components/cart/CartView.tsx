@@ -27,11 +27,12 @@ type Props = {
   };
 };
 
-/** A design's actual fields — same rule as the wizard's own fieldsForDesign:
- *  whichever fields (base or custom) the design included. */
+/** A design's actual fields, in this design's own display order — same rule
+ *  as the wizard's own fieldsForDesign (see OrderWizard.tsx). */
 function fieldsForItem(fields: FieldDTO[], design: DesignSummaryDTO | undefined): FieldDTO[] {
   if (!design) return [];
-  return fields.filter((f) => design.includedFieldIds.includes(f.id));
+  const byId = new Map(fields.map((f) => [f.id, f]));
+  return design.includedFieldIds.map((id) => byId.get(id)).filter((f): f is FieldDTO => f != null);
 }
 
 function summarizeItem(

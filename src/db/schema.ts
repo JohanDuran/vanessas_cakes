@@ -330,6 +330,28 @@ export const designExcludedOptions = pgTable(
   ]
 );
 
+/** This design's own display order for its included fields — e.g. a design
+ *  that wants Frosting asked before Filling, even though Filling sorts first
+ *  in the global catalog order (fields.sort_order). Absent entirely for a
+ *  design that's never been reordered (or saved since this table existed),
+ *  in which case the canonical catalog order is used instead — see
+ *  loadOrderData's includedFieldIds sort and OrderWizard's fieldsForDesign,
+ *  the only two places this feeds into the customer-facing step order. */
+export const designFieldOrder = pgTable(
+  "design_field_order",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldId: integer("field_id")
+      .notNull()
+      .references(() => fields.id, { onDelete: "cascade" }),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [uniqueIndex("design_field_order_design_field_idx").on(t.designId, t.fieldId)]
+);
+
 /** A design-specific override of a select-type option's catalog price
  *  (field_options.price_cents) — e.g. Size "Small" costs $10 for one design
  *  but $20 for another. Absent for an (design, option) pair means "use the

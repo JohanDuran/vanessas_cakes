@@ -66,10 +66,14 @@ type Action =
   | { type: "GOTO"; step: number };
 
 /** A design's actual fields: whichever fields (base or custom) the admin
- *  included for this design, in canonical/catalog order — see
- *  DesignForm's unified "Include in this design" checkbox. */
+ *  included for this design, in this design's own display order — see
+ *  DesignForm's unified "Include in this design" checkbox and its field
+ *  reorder controls. design.includedFieldIds already arrives pre-sorted
+ *  (this design's own order if it has one, else canonical catalog order) —
+ *  see loadOrderData. */
 function fieldsForDesign(fields: FieldDTO[], design: DesignSummaryDTO): FieldDTO[] {
-  return fields.filter((f) => design.includedFieldIds.includes(f.id));
+  const byId = new Map(fields.map((f) => [f.id, f]));
+  return design.includedFieldIds.map((id) => byId.get(id)).filter((f): f is FieldDTO => f != null);
 }
 
 /** Whether the customer has actually answered this field — used to gate the
