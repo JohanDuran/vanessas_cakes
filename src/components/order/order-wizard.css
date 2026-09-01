@@ -394,6 +394,16 @@
   color: #2e7d4f;
 }
 
+.price-delta--total {
+  background: var(--pink-100);
+  color: var(--pink-600);
+}
+
+.size-card--selected .price-delta--total {
+  background: var(--pink-500);
+  color: var(--white);
+}
+
 /* nav */
 .order-nav {
   margin-top: auto;

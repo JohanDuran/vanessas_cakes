@@ -2,7 +2,7 @@
 
 import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../../lib/order-types";
 import { totalServesForPreset } from "../../../lib/cakeStyle";
-import { computeOptionDeltaCents } from "../../../lib/pricing";
+import { computeOptionDeltaCents, formatCents } from "../../../lib/pricing";
 import PriceDelta from "../PriceDelta";
 import TierStackDiagram from "./TierStackDiagram";
 
@@ -14,6 +14,10 @@ type Props = {
   selectedIds: number[];
   /** custom-cake quotes don't have fixed pricing yet, so no prices are shown */
   hidePrice?: boolean;
+  /** everything else the customer has answered so far (incl. design premium)
+   *  but excluding this size field's own contribution — see FieldOptionStep's
+   *  matching prop for why: shows each preset's absolute total price. */
+  totalBaseCents?: number;
   onToggle: (optionId: number) => void;
 };
 
@@ -23,6 +27,7 @@ export default function TierPresetStep({
   presetsByOptionId,
   selectedIds,
   hidePrice,
+  totalBaseCents,
   onToggle,
 }: Props) {
   const selectedSet = new Set(selectedIds);
@@ -52,7 +57,14 @@ export default function TierPresetStep({
                   Serves {serves.min ?? "?"}–{serves.max ?? "?"}
                 </span>
               )}
-              {!hidePrice && <PriceDelta cents={deltaFor(item)} selected={isSelected} />}
+              {!hidePrice &&
+                (totalBaseCents != null ? (
+                  <span className="price-delta price-delta--total">
+                    {formatCents(totalBaseCents + item.priceCents)}
+                  </span>
+                ) : (
+                  <PriceDelta cents={deltaFor(item)} selected={isSelected} />
+                ))}
             </button>
           );
         })}

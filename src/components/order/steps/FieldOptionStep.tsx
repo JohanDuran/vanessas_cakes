@@ -1,7 +1,7 @@
 "use client";
 
 import type { FieldDTO, FieldOptionDTO } from "../../../lib/order-types";
-import { computeOptionDeltaCents } from "../../../lib/pricing";
+import { computeOptionDeltaCents, formatCents } from "../../../lib/pricing";
 import PriceDelta from "../PriceDelta";
 import ShapeDiagram from "./ShapeDiagram";
 
@@ -11,10 +11,15 @@ type Props = {
   selectedIds: number[];
   /** custom-cake quotes don't have fixed pricing yet, so no prices are shown */
   hidePrice?: boolean;
+  /** Size field only: everything else the customer has answered so far,
+   *  priced up (including the design's premium) but excluding this field's
+   *  own contribution — lets each card show its absolute total price
+   *  (basePriceCents + that size's own price) instead of a +/- delta. */
+  totalBaseCents?: number;
   onToggle: (optionId: number) => void;
 };
 
-export default function FieldOptionStep({ field, options, selectedIds, hidePrice, onToggle }: Props) {
+export default function FieldOptionStep({ field, options, selectedIds, hidePrice, totalBaseCents, onToggle }: Props) {
   const showDiagram = field.hasShapeDiagram;
   const isMulti = field.type === "multi_select";
   const selectedSet = new Set(selectedIds);
@@ -25,6 +30,13 @@ export default function FieldOptionStep({ field, options, selectedIds, hidePrice
   // PriceDelta renders "Selected" instead of a price for selected options)
   const deltaFor = (item: FieldOptionDTO) =>
     isMulti ? item.priceCents : computeOptionDeltaCents(item.id, selectedIds[0], options);
+
+  const priceNodeFor = (item: FieldOptionDTO, isSelected: boolean) =>
+    totalBaseCents != null ? (
+      <span className="price-delta price-delta--total">{formatCents(totalBaseCents + item.priceCents)}</span>
+    ) : (
+      <PriceDelta cents={deltaFor(item)} selected={isSelected} />
+    );
 
   if (showDiagram) {
     return (
@@ -59,7 +71,7 @@ export default function FieldOptionStep({ field, options, selectedIds, hidePrice
                     Serves {dims?.servesMin ?? "?"}–{dims?.servesMax ?? "?"}
                   </span>
                 )}
-                {!hidePrice && <PriceDelta cents={deltaFor(item)} selected={isSelected} />}
+                {!hidePrice && priceNodeFor(item, isSelected)}
               </button>
             );
           })}
@@ -83,7 +95,7 @@ export default function FieldOptionStep({ field, options, selectedIds, hidePrice
               onClick={() => onToggle(item.id)}
             >
               <span className="option-card__name">{item.name}</span>
-              {!hidePrice && <PriceDelta cents={deltaFor(item)} selected={isSelected} />}
+              {!hidePrice && priceNodeFor(item, isSelected)}
             </button>
           );
         })}

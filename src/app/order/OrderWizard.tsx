@@ -310,6 +310,21 @@ export default function OrderWizard({
     options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
     fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
   );
+
+  // Size step only: everything else already answered, priced up (including
+  // the design's premium) but excluding Size's own contribution — lets the
+  // size step show each card's absolute total price rather than a +/- delta.
+  const sizeStepBaseCents = useMemo(() => {
+    if (!isSizeStep || !sizeField) return 0;
+    const answersWithoutSize = { ...state.answers };
+    delete answersWithoutSize[sizeField.id];
+    return computeTotalCents(
+      answersWithoutSize,
+      selectedDesign?.premiumCents ?? 0,
+      options.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+      fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+    );
+  }, [isSizeStep, sizeField, state.answers, selectedDesign, options, fields]);
   const nextDisabled =
     !isQuote &&
     currentField != null &&
@@ -347,10 +362,15 @@ export default function OrderWizard({
     };
     if (editingItem) {
       cart.updateItem(editingItem.clientId, item);
+      router.push("/cart");
     } else {
       cart.addItem(item);
+      // catalog designs are bought straight from Shop our Collection — after
+      // adding one, send the customer back there to keep browsing instead of
+      // straight to /cart (still the right place for a quote-kind request,
+      // which has no "keep shopping" gallery to return to)
+      router.push(isQuote ? "/cart" : "/gallery");
     }
-    router.push("/cart");
   };
 
   return (
@@ -436,6 +456,7 @@ export default function OrderWizard({
                 presetsByOptionId={cakeStyleCtx.presetsByOptionId}
                 selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
                 hidePrice={isQuote}
+                totalBaseCents={sizeStepBaseCents}
                 onToggle={(optionId) =>
                   dispatch({ type: "SET_OPTIONS", fieldId: currentField.id, optionIds: [optionId] })
                 }
@@ -446,6 +467,7 @@ export default function OrderWizard({
                 options={sizeStepOptions}
                 selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
                 hidePrice={isQuote}
+                totalBaseCents={sizeStepBaseCents}
                 onToggle={(optionId) =>
                   dispatch({ type: "SET_OPTIONS", fieldId: currentField.id, optionIds: [optionId] })
                 }
