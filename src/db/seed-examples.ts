@@ -110,7 +110,6 @@ type DesignSeed = {
   name: string;
   description: string;
   color: [number, number, number];
-  chargedDollars: number;
   // base field slug -> option name; only fields that actually apply to this
   // design need an entry (e.g. tier_levels/tier_size are omitted for every
   // Standard-style example here, same as a real admin would leave them blank)
@@ -125,7 +124,6 @@ const designSeeds: DesignSeed[] = [
     name: "Midnight Choco Drip",
     description: "Rich chocolate layers with a glossy drip finish.",
     color: [107, 66, 38],
-    chargedDollars: 78,
     recipe: {
       cake_style: "Standard",
       size: "Large",
@@ -145,7 +143,6 @@ const designSeeds: DesignSeed[] = [
     name: "Velvet Bloom",
     description: "Classic red velvet dressed in cream-cheese frosting and sugar flowers.",
     color: [193, 53, 94],
-    chargedDollars: 72,
     recipe: {
       cake_style: "Standard",
       size: "Medium",
@@ -162,7 +159,6 @@ const designSeeds: DesignSeed[] = [
     name: "Marble Sprinkle Party",
     description: "Swirled marble crumb, pastel icing, and a shower of sprinkles.",
     color: [227, 214, 251],
-    chargedDollars: 48,
     recipe: {
       cake_style: "Standard",
       size: "Small",
@@ -177,7 +173,6 @@ const designSeeds: DesignSeed[] = [
     name: "Golden Lemon Kiss",
     description: "Zesty lemon cake finished with delicate gold leaf accents.",
     color: [255, 229, 138],
-    chargedDollars: 68,
     recipe: {
       cake_style: "Standard",
       size: "Medium",
@@ -192,7 +187,6 @@ const designSeeds: DesignSeed[] = [
     name: "Carlotta Fiesta",
     description: "A festive Carlotta with salted caramel and macarons on top.",
     color: [230, 145, 60],
-    chargedDollars: 82,
     recipe: {
       cake_style: "Standard",
       size: "Medium",
@@ -310,17 +304,12 @@ async function main() {
       return { field, kind: "number" as const, value: cfv.value, locked: cfv.locked ?? false };
     });
 
-    const chargedCents = Math.round(seed.chargedDollars * 100);
-    const premiumCents = chargedCents - standardCents;
-
     const designId = await db.transaction(async (tx) => {
       const inserted = await tx
         .insert(designs)
         .values({
           name: seed.name,
           description: seed.description,
-          chargedPriceCents: chargedCents,
-          premiumCents,
           published: true,
           updatedAt: Date.now(),
         })
@@ -363,7 +352,7 @@ async function main() {
     await db.insert(designPhotos).values({ designId, path: photoPath, isPrimary: true });
 
     designIdByName.set(seed.name, designId);
-    console.log(`Created design "${seed.name}" (id ${designId}, premium ${(premiumCents / 100).toFixed(2)}).`);
+    console.log(`Created design "${seed.name}" (id ${designId}, price ${(standardCents / 100).toFixed(2)}).`);
   }
 
   const existingPairs = await db.select().from(constraintPairs);
@@ -394,7 +383,6 @@ async function main() {
     if (!designId) throw new Error(`Design not found for order seed: ${seed.designName}`);
 
     const designFieldValueRows = await db.select().from(designFieldValues).where(eq(designFieldValues.designId, designId));
-    const design = (await db.select().from(designs)).find((d) => d.id === designId)!;
 
     // only the fields this design actually answered (base fields that don't
     // apply, e.g. tier_levels/tier_size for a Standard-style design, have no
@@ -418,8 +406,7 @@ async function main() {
       return { field, option };
     });
 
-    const standardCents = selections.reduce((sum, s) => sum + s.option.priceCents, 0);
-    const totalCents = standardCents + design.premiumCents;
+    const totalCents = selections.reduce((sum, s) => sum + s.option.priceCents, 0);
 
     await db.transaction(async (tx) => {
       const insertedOrder = await tx

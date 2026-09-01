@@ -54,9 +54,7 @@ export default async function NewDesignPage({
       name: f.name,
       type: f.type as FieldType,
       isBase: f.isBase,
-      showInDesignForm: f.showInDesignForm,
       active: f.active,
-      required: f.required,
       additionalPriceCents: f.additionalPriceCents,
       options: (optionsByField.get(f.id) ?? []).map((o) => ({
         id: o.id,
@@ -74,7 +72,7 @@ export default async function NewDesignPage({
     <>
       <h1>New Design</h1>
       <p className="admin-main__subtitle">
-        Fill in every field&apos;s default value, then set what was actually charged.
+        Fill in every field&apos;s default value and set its price for this design.
       </p>
       <DesignForm
         fields={fieldSummaries}

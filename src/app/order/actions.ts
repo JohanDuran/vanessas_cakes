@@ -11,8 +11,11 @@ import {
   designFieldValues,
   designFieldPrices,
   designFieldSizePrices,
+  designHiddenFields,
   designLockedFields,
   designOptionPrices,
+  designOptionSizePrices,
+  designRequiredFields,
   designs,
   fieldOptions,
   fields,
@@ -112,6 +115,7 @@ async function resolveCartItem(
     optionPriceRows: (typeof designOptionPrices.$inferSelect)[];
     fieldPriceRows: (typeof designFieldPrices.$inferSelect)[];
     sizePriceRows: (typeof designFieldSizePrices.$inferSelect)[];
+    optionSizePriceRows: (typeof designOptionSizePrices.$inferSelect)[];
   }
 ): Promise<{ ok: true; item: ResolvedItem } | { ok: false; error: string }> {
   const { allFields, allOptions, optionById, cakeStyleCtx, pairs } = catalog;
@@ -150,6 +154,20 @@ async function resolveCartItem(
     )
   );
 
+  // hidden fields have no customer-facing UI at all, so — like locked ones —
+  // their value can only ever be the design's own default
+  const hiddenFieldIds = new Set(
+    (await db.select().from(designHiddenFields).where(eq(designHiddenFields.designId, design.id))).map(
+      (r) => r.fieldId
+    )
+  );
+
+  const requiredFieldIds = new Set(
+    (await db.select().from(designRequiredFields).where(eq(designRequiredFields.designId, design.id))).map(
+      (r) => r.fieldId
+    )
+  );
+
   const excludedOptionIds = new Set(
     (await db.select().from(designExcludedOptions).where(eq(designExcludedOptions.designId, design.id))).map(
       (r) => r.fieldOptionId
@@ -157,10 +175,11 @@ async function resolveCartItem(
   );
 
   // re-validate each field's answer against the trusted catalog — never trust
-  // the client-sent shape; locked fields always fall back to the design's own default
+  // the client-sent shape; locked/hidden fields always fall back to the
+  // design's own default
   const answers: Answers = {};
   for (const field of designFields) {
-    if (lockedFieldIds.has(field.id)) {
+    if (lockedFieldIds.has(field.id) || hiddenFieldIds.has(field.id)) {
       const defaultAnswer = designAnswers[field.id];
       if (defaultAnswer) answers[field.id] = defaultAnswer;
       continue;
@@ -198,11 +217,13 @@ async function resolveCartItem(
 
   if (!isQuote) {
     for (const field of designFields) {
-      const requiresAnswer =
-        field.type === "single_select" ||
-        ((field.type === "text" || field.type === "number" || field.type === "per_size") && field.required);
-      if (!requiresAnswer) continue;
-      if (!answers[field.id]) return { ok: false, error: `${field.name} is required.` };
+      if (!requiredFieldIds.has(field.id)) continue;
+      const answer = answers[field.id];
+      const answered =
+        answer != null &&
+        (answer.type !== "options" || answer.optionIds.length > 0) &&
+        (answer.type !== "text" || answer.value.trim() !== "");
+      if (!answered) return { ok: false, error: `${field.name} is required.` };
     }
 
     // the submitted `size` option must belong to the submitted cake_style
@@ -228,7 +249,8 @@ async function resolveCartItem(
     design.id,
     catalog.optionPriceRows,
     catalog.fieldPriceRows,
-    catalog.sizePriceRows
+    catalog.sizePriceRows,
+    catalog.optionSizePriceRows
   );
   const resolvedOptions = resolvePriceableOptions(
     overrides,
@@ -246,10 +268,10 @@ async function resolveCartItem(
     : undefined;
   const priceCents = computeTotalCents(
     answers,
-    design.premiumCents,
     resolvedOptions,
     resolvedFields,
     overrides.perSizeFieldPrices,
+    overrides.optionSizePrices,
     currentSizeOptionId
   );
 
@@ -358,7 +380,6 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
       isBase: f.isBase,
       sortOrder: f.sortOrder,
       hasShapeDiagram: f.hasShapeDiagram,
-      required: f.required,
       additionalPriceCents: f.additionalPriceCents,
     }));
   const optionDTOs: FieldOptionDTO[] = allOptions.map((o) => ({
@@ -375,6 +396,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
   const optionPriceRows = await db.select().from(designOptionPrices);
   const fieldPriceRows = await db.select().from(designFieldPrices);
   const sizePriceRows = await db.select().from(designFieldSizePrices);
+  const optionSizePriceRows = await db.select().from(designOptionSizePrices);
 
   const resolvedItems: ResolvedItem[] = [];
   for (const item of cartInput) {
@@ -388,6 +410,7 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
       optionPriceRows,
       fieldPriceRows,
       sizePriceRows,
+      optionSizePriceRows,
     });
     if (!result.ok) return { error: result.error };
     resolvedItems.push(result.item);
@@ -458,14 +481,19 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
         if (answer.type === "options") {
           for (const optionId of answer.optionIds) {
             const option = optionById.get(optionId)!;
+            // this design's own price for the option — size-resolved if this
+            // design made the option's field size-varying, else flat
+            const optionSizePrices = resolved.overrides.optionSizePrices[optionId];
+            const priceCentsSnapshot = optionSizePrices
+              ? (resolved.currentSizeOptionId != null ? (optionSizePrices[resolved.currentSizeOptionId] ?? 0) : 0)
+              : (resolved.resolvedOptionPriceById.get(optionId) ?? option.priceCents);
             await tx.insert(orderSelections)
               .values({
                 orderItemId: insertedItem.id,
                 fieldId,
                 fieldOptionId: optionId,
                 labelSnapshot: option.name,
-                // this design's own price for the option, not the raw catalog one
-                priceCentsSnapshot: resolved.resolvedOptionPriceById.get(optionId) ?? option.priceCents,
+                priceCentsSnapshot,
               })
               ;
           }

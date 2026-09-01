@@ -36,24 +36,26 @@ export const fields = pgTable("fields", {
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   type: text("type").notNull(), // single_select | multi_select | number | text | per_size
+  // fully admin-editable (Catalog's "Base field" checkbox), for any field —
+  // means "always shown in every design's configuration list without
+  // needing to be added there first" (see DesignForm's availableFields and
+  // its "Add existing field" dropdown for fields left false), and seeds a
+  // new design's per-field "Required" checkbox as checked by default (see
+  // design_required_fields). Does NOT lock this field's type — that's
+  // separately governed by isBaseFieldSlug (the 7 canonical fields only,
+  // see catalog/[fieldId]/page.tsx), since changing cake_style/size's type
+  // would break the cake-style/tier-preset logic regardless of this flag.
   isBase: boolean("is_base").notNull().default(false),
-  // admin-controlled, independent of isBase (which also locks this field's
-  // type and marks it structurally required — see catalog/[fieldId]/page.tsx
-  // and pricing.ts's priceRangeForDesign). When true, this field is always
-  // shown in every design's configuration list without needing to be added
-  // there first — see DesignForm's availableFields and its "Add existing
-  // field" dropdown for fields left false.
-  showInDesignForm: boolean("show_in_design_form").notNull().default(false),
   active: boolean("active").notNull().default(true),
   // opt-in: this field's options get the shape/dimension diagram visual in
   // the order wizard, and the matching editable columns in the admin
   // catalog table — independent of which field this is (see field_option_dimensions)
   hasShapeDiagram: boolean("has_shape_diagram").notNull().default(false),
-  // text/number fields only: customer must answer before continuing/submitting.
-  // Admin's own design-editor form is intentionally exempt — see DesignForm.
-  required: boolean("required").notNull().default(false),
-  // text/number fields only: flat surcharge added to the order total whenever
-  // the customer actually answers this field (see src/lib/pricing.ts)
+  // text/number/per_size fields only: catalog-level default flat surcharge
+  // added whenever the customer answers/opts into this field — a specific
+  // design can override this (design_field_prices) or make it vary by cake
+  // size instead (design_field_size_prices). Whether an answer is actually
+  // *required* is a per-design setting now — see design_required_fields.
   additionalPriceCents: integer("additional_price_cents").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" })
@@ -173,19 +175,18 @@ export const designs = pgTable(
     id: serial("id").primaryKey(),
     name: text("name").notNull(),
     description: text("description"),
-    chargedPriceCents: integer("charged_price_cents").notNull(),
-    // server-computed: chargedPriceCents - sum(standard prices of the design's field values)
-    premiumCents: integer("premium_cents").notNull().default(0),
     published: boolean("published").notNull().default(false),
     // admin-curated pick for the homepage hero carousel — never automatic, so
     // the homepage only ever shows cakes the admin explicitly chose to feature
     featured: boolean("featured").notNull().default(false),
     featuredSortOrder: integer("featured_sort_order").notNull().default(0),
     // catalog | custom | custom_portfolio — see src/lib/fields.ts DesignKind.
-    // catalog is an ordinary priced product; the other two are singleton
-    // quote-request flows (at most one of each, enforced by the partial
-    // unique index below), configured for fields the same way a catalog
-    // design is but with no required defaults or charged price.
+    // catalog is an ordinary priced product, priced by summing its field
+    // values' resolved prices (see lib/pricing.ts) — there's no separate
+    // "charged price" or premium anymore, the total simply is that sum. The
+    // other two kinds are singleton quote-request flows (at most one of
+    // each, enforced by the partial unique index below), configured for
+    // fields the same way a catalog design is but with no required defaults.
     kind: text("kind").notNull().default("catalog"),
     createdAt: bigint("created_at", { mode: "number" })
       .notNull()
@@ -273,6 +274,44 @@ export const designLockedFields = pgTable(
   (t) => [uniqueIndex("design_locked_fields_design_field_idx").on(t.designId, t.fieldId)]
 );
 
+/** Fields the customer must answer before continuing/submitting, for this
+ *  design specifically — single/multi_select, text, number, and per_size
+ *  fields all use this uniformly now (see OrderWizard's isFieldAnswered).
+ *  Seeded from fields.isBase when a new design is created, but fully
+ *  editable per design from there — see DesignForm. */
+export const designRequiredFields = pgTable(
+  "design_required_fields",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldId: integer("field_id")
+      .notNull()
+      .references(() => fields.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("design_required_fields_design_field_idx").on(t.designId, t.fieldId)]
+);
+
+/** Fields configured on this design but never shown to the customer at any
+ *  point in the order flow (no wizard step, no review line) — admin
+ *  reference only. Implies the same step-skipping as designLockedFields
+ *  (there's no UI for the customer to answer it either way), but unlike a
+ *  merely-locked field, a hidden one never appears in the order summary. */
+export const designHiddenFields = pgTable(
+  "design_hidden_fields",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldId: integer("field_id")
+      .notNull()
+      .references(() => fields.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("design_hidden_fields_design_field_idx").on(t.designId, t.fieldId)]
+);
+
 /** Specific options the customer is not allowed to pick for this particular
  *  design, even though the option is otherwise active globally. */
 export const designExcludedOptions = pgTable(
@@ -357,6 +396,39 @@ export const designFieldSizePrices = pgTable(
   },
   (t) => [
     uniqueIndex("design_field_size_prices_design_field_size_idx").on(t.designId, t.fieldId, t.sizeOptionId),
+  ]
+);
+
+/** A regular select-type option's price at one particular `size` option, for
+ *  one particular design — e.g. Filling "Caramel" is +$2 at Small but +$5 at
+ *  Extra Large, for this design only. An option is "size-varying" for a
+ *  design exactly when it has at least one row here; with none, it falls
+ *  back to designOptionPrices/the catalog flat price instead (see
+ *  resolvePriceableOptions in src/lib/pricing.ts). Distinct from
+ *  designFieldSizePrices, which is field-level and only for per_size-type
+ *  fields (no options of their own) — this is option-level, for any
+ *  single/multi_select field's individual options. */
+export const designOptionSizePrices = pgTable(
+  "design_option_size_prices",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldOptionId: integer("field_option_id")
+      .notNull()
+      .references(() => fieldOptions.id, { onDelete: "cascade" }),
+    sizeOptionId: integer("size_option_id")
+      .notNull()
+      .references(() => fieldOptions.id, { onDelete: "cascade" }),
+    priceCents: integer("price_cents").notNull(),
+  },
+  (t) => [
+    uniqueIndex("design_option_size_prices_design_option_size_idx").on(
+      t.designId,
+      t.fieldOptionId,
+      t.sizeOptionId
+    ),
   ]
 );
 

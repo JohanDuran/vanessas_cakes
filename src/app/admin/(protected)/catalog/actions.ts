@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
-import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, slugify } from "../../../../lib/fields";
+import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, isBaseFieldSlug, slugify } from "../../../../lib/fields";
 import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 /** cake_style is locked to its exact set of seeded options — admins may
@@ -31,13 +31,12 @@ async function uniqueSlug(base: string): Promise<string> {
 const createFieldSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   type: z.enum(FIELD_TYPES),
-  required: z.coerce.number().optional(),
   additionalPriceDollars: z.string().optional(),
 });
 
-/** Required/additional-price only ever apply to text/number/per_size fields —
- *  a select-type field is already required via its native <select> and
- *  priced per-option, so those two inputs are ignored for any other type. */
+/** Additional-price only ever applies to text/number/per_size fields — a
+ *  select-type field is priced per-option instead, so this input is ignored
+ *  for any other type. */
 function textOrNumberOnly<T>(type: string, value: T, fallback: T): T {
   return type === "text" || type === "number" || type === "per_size" ? value : fallback;
 }
@@ -57,7 +56,6 @@ export async function createField(formData: FormData) {
         name: parsed.name,
         type: parsed.type,
         isBase: false,
-        required: textOrNumberOnly(parsed.type, Boolean(parsed.required), false),
         additionalPriceCents: textOrNumberOnly(parsed.type, dollarsToCents(parsed.additionalPriceDollars || "0"), 0),
         updatedAt: Date.now(),
       })
@@ -76,11 +74,10 @@ export async function createField(formData: FormData) {
 const fieldSettingsSchema = z.object({
   id: z.coerce.number().int(),
   name: z.string().trim().min(1, "Name is required"),
-  type: z.enum(FIELD_TYPES).optional(), // absent for base fields (type select is disabled there)
+  type: z.enum(FIELD_TYPES).optional(), // absent for structural fields (type select is disabled there)
   hasShapeDiagram: z.coerce.number().optional(),
-  required: z.coerce.number().optional(),
   additionalPriceDollars: z.string().optional(),
-  showInDesignForm: z.coerce.number().optional(),
+  isBase: z.coerce.number().optional(),
 });
 
 export async function saveFieldSettings(formData: FormData) {
@@ -93,7 +90,10 @@ export async function saveFieldSettings(formData: FormData) {
     const field = await db.select().from(fields).where(eq(fields.id, parsed.id)).then((r) => r[0]);
     if (!field) throw new Error("Field not found.");
 
-    const finalType = field.isBase ? field.type : (parsed.type ?? field.type);
+    // the 7 canonical fields' types are structurally load-bearing regardless
+    // of the (now fully admin-editable) isBase flag — see isStructuralField
+    // in catalog/[fieldId]/page.tsx
+    const finalType = isBaseFieldSlug(field.slug) ? field.type : (parsed.type ?? field.type);
 
     await db.update(fields)
       .set({
@@ -101,13 +101,12 @@ export async function saveFieldSettings(formData: FormData) {
         type: finalType,
         // only select-type fields have options to attach dimensions to
         hasShapeDiagram: fieldHasOptions(finalType) ? Boolean(parsed.hasShapeDiagram) : false,
-        required: textOrNumberOnly(finalType, Boolean(parsed.required), false),
         additionalPriceCents: textOrNumberOnly(
           finalType,
           dollarsToCents(parsed.additionalPriceDollars || "0"),
           0
         ),
-        showInDesignForm: Boolean(parsed.showInDesignForm),
+        isBase: Boolean(parsed.isBase),
         updatedAt: Date.now(),
       })
       .where(eq(fields.id, parsed.id))
@@ -293,7 +292,6 @@ export type QuickField = {
   slug: string;
   name: string;
   type: string;
-  required: boolean;
   additionalPriceCents: number;
   options: { id: number; name: string; priceCents: number }[];
 };
@@ -307,7 +305,6 @@ const quickCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   type: z.enum(FIELD_TYPES),
   optionsJson: z.string().optional(),
-  required: z.coerce.number().optional(),
   additionalPriceDollars: z.string().optional(),
 });
 
@@ -325,7 +322,6 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
   }
 
   const slug = await uniqueSlug(slugify(parsed.name));
-  const required = textOrNumberOnly(parsed.type, Boolean(parsed.required), false);
   const additionalPriceCents = textOrNumberOnly(
     parsed.type,
     dollarsToCents(parsed.additionalPriceDollars || "0"),
@@ -340,7 +336,6 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
         name: parsed.name,
         type: parsed.type,
         isBase: false,
-        required,
         additionalPriceCents,
         updatedAt: Date.now(),
       })
@@ -368,7 +363,6 @@ export async function quickCreateField(formData: FormData): Promise<QuickField> 
     slug,
     name: parsed.name,
     type: parsed.type,
-    required,
     additionalPriceCents,
     options: savedOptions.map((o) => ({ id: o.id, name: o.name, priceCents: o.priceCents })),
   };

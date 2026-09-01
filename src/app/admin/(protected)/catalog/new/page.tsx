@@ -33,12 +33,6 @@ export default function NewFieldPage() {
           </div>
         </div>
         <div className="admin-form-row">
-          <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" id="required" name="required" value="1" />
-            <label htmlFor="required" style={{ margin: 0 }}>
-              Required (Text/Number/Per Size only)
-            </label>
-          </div>
           <div className="admin-field">
             <label>Additional price ($, Text/Number/Per Size only)</label>
             <input
@@ -50,6 +44,10 @@ export default function NewFieldPage() {
             />
           </div>
         </div>
+        <p className="admin-main__subtitle" style={{ margin: 0 }}>
+          Whether customers must answer this field, and its default visibility across designs,
+          are both set from the field&apos;s own settings page after you create it.
+        </p>
         <div>
           <button type="submit" className="btn btn-primary">
             Create Field

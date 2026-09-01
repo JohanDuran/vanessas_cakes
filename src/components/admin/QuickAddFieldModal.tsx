@@ -17,7 +17,6 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
   const [name, setName] = useState("");
   const [type, setType] = useState<FieldType>("text");
   const [options, setOptions] = useState<OptionDraft[]>([]);
-  const [required, setRequired] = useState(false);
   const [additionalPriceDollars, setAdditionalPriceDollars] = useState("0");
   const [submitting, setSubmitting] = useState(false);
 
@@ -38,7 +37,6 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
       formData.set("name", name);
       formData.set("type", type);
       formData.set("optionsJson", JSON.stringify(options));
-      formData.set("required", required ? "1" : "0");
       formData.set("additionalPriceDollars", additionalPriceDollars);
       const saved = await quickCreateField(formData);
       onCreated({
@@ -47,9 +45,7 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
         name: saved.name,
         type: saved.type as FieldType,
         isBase: false,
-        showInDesignForm: false,
         active: true,
-        required: saved.required,
         additionalPriceCents: saved.additionalPriceCents,
         options: saved.options.map((o) => ({ id: o.id, name: o.name, priceCents: o.priceCents, active: true })),
       });
@@ -97,29 +93,16 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
           )}
 
           {!fieldHasOptions(type) && (
-            <>
-              <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <input
-                  type="checkbox"
-                  id="quick-required"
-                  checked={required}
-                  onChange={(e) => setRequired(e.target.checked)}
-                />
-                <label htmlFor="quick-required" style={{ margin: 0 }}>
-                  Required — customer must answer before ordering
-                </label>
-              </div>
-              <div className="admin-field">
-                <label>Additional price ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={additionalPriceDollars}
-                  onChange={(e) => setAdditionalPriceDollars(e.target.value)}
-                  style={{ minWidth: 110 }}
-                />
-              </div>
-            </>
+            <div className="admin-field">
+              <label>Additional price ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={additionalPriceDollars}
+                onChange={(e) => setAdditionalPriceDollars(e.target.value)}
+                style={{ minWidth: 110 }}
+              />
+            </div>
           )}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>

@@ -9,8 +9,11 @@ import {
   designFieldPrices,
   designFieldSizePrices,
   designFieldValues,
+  designHiddenFields,
   designLockedFields,
   designOptionPrices,
+  designOptionSizePrices,
+  designRequiredFields,
   designCategories,
   designPhotos,
   designs,
@@ -24,7 +27,7 @@ import {
 import { requireAdmin } from "../../../../db/queries";
 import { selectionsViolateConstraints } from "../../../../lib/constraints";
 import { buildCakeStyleContext } from "../../../../lib/cakeStyle";
-import { computeStandardPriceCents, resolvePriceableFields, resolvePriceableOptions, type Answers } from "../../../../lib/pricing";
+import { type Answers } from "../../../../lib/pricing";
 import {
   CAKE_STYLE_FIELD_SLUG,
   SIZE_FIELD_SLUG,
@@ -45,7 +48,6 @@ const saveSchema = z.object({
   id: z.coerce.number().int().optional(),
   name: z.string().trim().min(1, "Name is required"),
   description: z.string().trim().optional(),
-  chargedPriceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
   published: z.coerce.number().optional(),
   portfolioPhotoId: z.coerce.number().int().optional(),
 });
@@ -102,7 +104,6 @@ export async function saveDesign(formData: FormData) {
         isBase: f.isBase,
         sortOrder: f.sortOrder,
         hasShapeDiagram: f.hasShapeDiagram,
-        required: f.required,
         additionalPriceCents: f.additionalPriceCents,
       }));
     const optionDTOs: FieldOptionDTO[] = allOptions.map((o) => ({
@@ -160,9 +161,8 @@ export async function saveDesign(formData: FormData) {
     }
 
     // catalog designs price themselves off each included option field's
-    // default (see standardPriceCents below) — an included priced field left
-    // without one would silently inflate the customer's eventual total past
-    // chargedPriceCents once they pick something for it in the wizard. Quote
+    // default — an included priced field left without one would leave gaps
+    // in the design's price wherever it's actually selectable. Quote
     // designs have no fixed price to protect, so nothing is required there.
     if (isCatalog) {
       for (const field of allFields) {
@@ -221,8 +221,8 @@ export async function saveDesign(formData: FormData) {
         .map((v) => Number(v))
         .filter((n) => Number.isInteger(n))
     );
-    const perSizeFieldPrices: Record<number, Record<number, number>> = {};
     const sizeOptions = sizeField ? allOptions.filter((o) => o.fieldId === sizeField.id) : [];
+    const perSizeFieldPrices: Record<number, Record<number, number>> = {};
     for (const field of allFields) {
       if (field.type !== "per_size" || !sizeVaryingFieldIds.has(field.id)) continue;
       const bySize: Record<number, number> = {};
@@ -232,28 +232,44 @@ export async function saveDesign(formData: FormData) {
       }
       perSizeFieldPrices[field.id] = bySize;
     }
-    const priceOverrides = { optionPriceOverrides, fieldPriceOverrides, perSizeFieldPrices };
 
-    const flatOptions = resolvePriceableOptions(
-      priceOverrides,
-      allOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }))
+    // regular select fields (e.g. Filling) whose *options* this design has
+    // made size-varying — see design_option_size_prices
+    const optionSizeVaryingFieldIds = new Set(
+      formData
+        .getAll("optionSizeVaryingFieldIds")
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n))
     );
-    const flatFields = resolvePriceableFields(
-      priceOverrides,
-      allFields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
-    );
-    const standardPriceCents = computeStandardPriceCents(answers, flatOptions, flatFields);
-    // quote-kind designs have no fixed price — the baker quotes by hand once
-    // the request comes in — regardless of what the (hidden, always "0")
-    // chargedPriceDollars field carries
-    const chargedPriceCents = isCatalog ? dollarsToCents(parsed.chargedPriceDollars) : 0;
-    const premiumCents = isCatalog ? chargedPriceCents - standardPriceCents : 0;
+    const optionSizePrices: Record<number, Record<number, number>> = {};
+    for (const field of allFields) {
+      if (!fieldHasOptions(field.type) || !optionSizeVaryingFieldIds.has(field.id)) continue;
+      const optionsForField = allOptions.filter((o) => o.fieldId === field.id);
+      for (const opt of optionsForField) {
+        const bySize: Record<number, number> = {};
+        for (const sizeOpt of sizeOptions) {
+          const raw = formData.get(`optionSizePrice_${opt.id}_${sizeOpt.id}`);
+          bySize[sizeOpt.id] = raw != null && raw !== "" ? dollarsToCents(String(raw)) : 0;
+        }
+        optionSizePrices[opt.id] = bySize;
+      }
+    }
 
     const lockedFieldIds = formData
       .getAll("lockedFieldIds")
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n));
     const lockedFieldIdSet = new Set(lockedFieldIds);
+
+    const hiddenFieldIds = formData
+      .getAll("hiddenFieldIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n));
+
+    const requiredFieldIds = formData
+      .getAll("requiredFieldIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n));
 
     const excludedOptionIdsRaw = formData
       .getAll("excludedOptionIds")
@@ -300,8 +316,6 @@ export async function saveDesign(formData: FormData) {
           .set({
             name: parsed.name,
             description: parsed.description || null,
-            chargedPriceCents,
-            premiumCents,
             published,
             updatedAt: Date.now(),
           })
@@ -315,8 +329,6 @@ export async function saveDesign(formData: FormData) {
           .values({
             name: parsed.name,
             description: parsed.description || null,
-            chargedPriceCents,
-            premiumCents,
             published,
             updatedAt: Date.now(),
           })
@@ -356,6 +368,16 @@ export async function saveDesign(formData: FormData) {
         await tx.insert(designLockedFields).values({ designId: designId!, fieldId });
       }
 
+      await tx.delete(designHiddenFields).where(eq(designHiddenFields.designId, designId!));
+      for (const fieldId of hiddenFieldIds) {
+        await tx.insert(designHiddenFields).values({ designId: designId!, fieldId });
+      }
+
+      await tx.delete(designRequiredFields).where(eq(designRequiredFields.designId, designId!));
+      for (const fieldId of requiredFieldIds) {
+        await tx.insert(designRequiredFields).values({ designId: designId!, fieldId });
+      }
+
       await tx.delete(designExcludedOptions).where(eq(designExcludedOptions.designId, designId!));
       for (const fieldOptionId of excludedOptionIds) {
         await tx.insert(designExcludedOptions).values({ designId: designId!, fieldOptionId });
@@ -382,6 +404,18 @@ export async function saveDesign(formData: FormData) {
           await tx.insert(designFieldSizePrices).values({
             designId: designId!,
             fieldId: Number(fieldIdStr),
+            sizeOptionId: Number(sizeOptionIdStr),
+            priceCents,
+          });
+        }
+      }
+
+      await tx.delete(designOptionSizePrices).where(eq(designOptionSizePrices.designId, designId!));
+      for (const [fieldOptionIdStr, bySize] of Object.entries(optionSizePrices)) {
+        for (const [sizeOptionIdStr, priceCents] of Object.entries(bySize)) {
+          await tx.insert(designOptionSizePrices).values({
+            designId: designId!,
+            fieldOptionId: Number(fieldOptionIdStr),
             sizeOptionId: Number(sizeOptionIdStr),
             priceCents,
           });

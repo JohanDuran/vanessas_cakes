@@ -6,12 +6,16 @@ export type FieldDTO = {
   slug: string;
   name: string;
   type: FieldType;
+  /** admin-editable (Catalog's "Base field" checkbox) — shown by default in
+   *  every design's configuration, and seeds that design's per-field
+   *  "Required" checkbox as checked. See DesignSummaryDTO.requiredFieldIds
+   *  for whether this field is actually required on a given design. */
   isBase: boolean;
   sortOrder: number;
   hasShapeDiagram: boolean;
-  /** text/number fields only: customer must answer before continuing/submitting */
-  required: boolean;
-  /** text/number fields only: flat surcharge added when the customer answers this field */
+  /** text/number/per_size fields only: catalog-level default flat surcharge,
+   *  added whenever the customer answers/opts into this field — see
+   *  DesignSummaryDTO.fieldPriceOverrides for a design's own override */
   additionalPriceCents: number;
 };
 
@@ -70,17 +74,26 @@ export type DesignSummaryDTO = {
   description: string | null;
   /** catalog | custom | custom_portfolio — see DesignKind. Only catalog
    *  designs are browsable products; the other two are the singleton
-   *  quote-request flows. */
+   *  quote-request flows. There's no separate "charged price" anymore — a
+   *  catalog design's total is just the sum of its resolved field prices
+   *  (see lib/pricing.ts). */
   kind: DesignKind;
-  chargedPriceCents: number;
-  premiumCents: number;
   /** all photos, primary first, then by sort order — empty if none uploaded */
   photos: string[];
   /** default answer per field (base fields always have one; custom fields
    *  only if the admin included them in this design) */
   fieldValues: Answers;
-  /** fields the customer can't change for this design — fixed at fieldValues' answer */
+  /** fields the customer can't change for this design — fixed at fieldValues'
+   *  answer, but still shown (read-only) in the order summary */
   lockedFieldIds: number[];
+  /** fields configured on this design but never shown to the customer at any
+   *  point (no wizard step, no review line) — admin reference only. Always
+   *  treated as locked too (there's no UI for the customer to answer it). */
+  hiddenFieldIds: number[];
+  /** fields the customer must answer (or, for multi_select, pick at least
+   *  one option for) before continuing/submitting, for this design
+   *  specifically — see design_required_fields. */
+  requiredFieldIds: number[];
   /** every field this design actually uses — base fields always, custom fields
    *  the admin included (whether or not a default value was given). Distinct
    *  from `fieldValues`' keys, since a custom field can be included with no
@@ -92,7 +105,8 @@ export type DesignSummaryDTO = {
   categoryIds: number[];
   /** this design's own price override per select-type option (fieldOptionId
    *  -> priceCents) — absent entries fall back to the option's catalog
-   *  price. See resolvePriceableOptions in lib/pricing.ts. */
+   *  price, unless the option has an entry in optionSizePrices instead. See
+   *  resolvePriceableOptions in lib/pricing.ts. */
   optionPriceOverrides: Record<number, number>;
   /** this design's own flat-price override per text/number/per_size field
    *  (fieldId -> priceCents) — absent entries fall back to the field's
@@ -104,4 +118,9 @@ export type DesignSummaryDTO = {
    *  field with no entry here is flat-priced for this design instead (see
    *  fieldPriceOverrides). */
   perSizeFieldPrices: Record<number, Record<number, number>>;
+  /** regular select-type options this design has made size-varying, and
+   *  their price at each size option: fieldOptionId -> sizeOptionId ->
+   *  priceCents. An option with no entry here is flat-priced for this
+   *  design instead (see optionPriceOverrides). */
+  optionSizePrices: Record<number, Record<number, number>>;
 };

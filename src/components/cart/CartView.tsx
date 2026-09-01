@@ -92,10 +92,10 @@ function summarizeItem(
     ? 0
     : computeTotalCents(
         item.answers,
-        design?.premiumCents ?? 0,
         flatOptions,
         flatFields,
         design?.perSizeFieldPrices,
+        design?.optionSizePrices,
         currentSizeOptionId
       );
 

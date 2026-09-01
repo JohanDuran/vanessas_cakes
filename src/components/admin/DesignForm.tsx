@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { getHiddenOptionIds, resolveAnswers, selectionsViolateConstraints, type ConstraintPair } from "../../lib/constraints";
-import { computeStandardPriceCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
+import { computeTotalCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
 import type { DesignTierPresetSummary } from "../../app/admin/(protected)/designs/tierPresetSummary";
 import { useToast } from "../ToastProvider";
@@ -24,12 +24,10 @@ export type FieldSummary = {
   slug: string;
   name: string;
   type: FieldType;
+  /** admin-controlled: always shown in every design's configuration list,
+   *  and seeds that design's "Required" checkbox as checked by default. */
   isBase: boolean;
-  /** admin-controlled: always shown in every design's configuration list —
-   *  see fields.showInDesignForm. Distinct from isBase. */
-  showInDesignForm: boolean;
   active: boolean;
-  required: boolean;
   additionalPriceCents: number;
   options: FieldOptionSummary[];
 };
@@ -58,10 +56,13 @@ type Props = {
     /** catalog | custom | custom_portfolio — immutable after creation; the
      *  two non-catalog kinds are seeded once, never created via this form. */
     kind: DesignKind;
-    chargedPriceCents: number;
     published: boolean;
     fieldValues: Answers;
     lockedFieldIds: number[];
+    /** fields configured but never shown to the customer — admin reference only */
+    hiddenFieldIds: number[];
+    /** fields the customer must answer for this design specifically */
+    requiredFieldIds: number[];
     excludedOptionIds: number[];
     categoryIds: number[];
     /** every field this design uses, whether or not a default value was
@@ -73,6 +74,7 @@ type Props = {
     optionPriceOverrides: Record<number, number>;
     fieldPriceOverrides: Record<number, number>;
     perSizeFieldPrices: Record<number, Record<number, number>>;
+    optionSizePrices: Record<number, Record<number, number>>;
   };
 };
 
@@ -97,17 +99,18 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   // new designs are always catalog — the two quote-kind designs are seeded
   // once and only ever reached through their own edit pages, never created here
   const isCatalog = !design || design.kind === "catalog";
-  const [chargedDollars, setChargedDollars] = useState(
-    design ? (design.chargedPriceCents / 100).toFixed(2) : ""
-  );
   // shown by default: base fields (admin-flagged in Catalog) plus, when
   // editing, whatever this design already uses — everything else stays
   // hidden until picked from the "Add existing field" dropdown below, so the
   // form doesn't get more crowded every time a new custom field is added
   const [availableFields, setAvailableFields] = useState<FieldSummary[]>(() =>
-    fields.filter((f) => f.showInDesignForm || (design?.includedFieldIds.includes(f.id) ?? false))
+    fields.filter((f) => f.isBase || (design?.includedFieldIds.includes(f.id) ?? false))
   );
-  const hiddenFields = useMemo(
+  // fields that exist in the catalog but aren't currently shown in this
+  // design's configuration — offered via the "Add existing field" dropdown.
+  // Not to be confused with hiddenFieldIds below (fields shown here but kept
+  // invisible to the *customer*, admin reference only).
+  const unaddedFields = useMemo(
     () => fields.filter((f) => !availableFields.some((af) => af.id === f.id)),
     [fields, availableFields]
   );
@@ -117,6 +120,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     setAvailableFields((prev) => [...prev, field]);
     setDrafts((prev) => (prev[field.id] ? prev : { ...prev, [field.id]: { optionIds: [], text: "", number: "" } }));
     setIncludedFieldIds((prev) => new Set(prev).add(field.id));
+    if (field.isBase) setRequiredFieldIds((prev) => new Set(prev).add(field.id));
   };
   const [drafts, setDrafts] = useState<Record<number, Draft>>(() => {
     const init: Record<number, Draft> = {};
@@ -146,10 +150,44 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     const styleField = fields.find((f) => f.slug === CAKE_STYLE_FIELD_SLUG);
     return new Set(styleField ? [styleField.id] : []);
   });
+  // fields configured but never shown to the customer anywhere — admin
+  // reference only (see design_hidden_fields)
+  const [hiddenFieldIds, setHiddenFieldIds] = useState<Set<number>>(
+    () => new Set(design?.hiddenFieldIds ?? [])
+  );
+  // fields the customer must answer for this design — defaults to whatever
+  // Catalog flagged as a base field for a brand-new design, fully editable
+  // either way (see design_required_fields)
+  const [requiredFieldIds, setRequiredFieldIds] = useState<Set<number>>(
+    () =>
+      new Set(
+        design
+          ? design.requiredFieldIds
+          : fields.filter((f) => f.isBase).map((f) => f.id)
+      )
+  );
   const [excludedOptionIds, setExcludedOptionIds] = useState<Set<number>>(
     new Set(design?.excludedOptionIds ?? [])
   );
   const [showFieldModal, setShowFieldModal] = useState(false);
+
+  const toggleHidden = (fieldId: number) => {
+    setHiddenFieldIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldId)) next.delete(fieldId);
+      else next.add(fieldId);
+      return next;
+    });
+  };
+
+  const toggleRequired = (fieldId: number) => {
+    setRequiredFieldIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldId)) next.delete(fieldId);
+      else next.add(fieldId);
+      return next;
+    });
+  };
 
   // This design's own price for each option — defaults to the design's
   // existing override, or the catalog price if it's never had one. Seeded
@@ -206,6 +244,42 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     });
   };
 
+  // Regular select fields (e.g. Filling) whose *options* this design has
+  // made size-varying — a field-level checkbox turns every one of its
+  // options into a size x price grid instead of one flat price each (see
+  // design_option_size_prices). Distinct from sizeVaryingFieldIds above,
+  // which is only for per_size-type fields (no options of their own).
+  const [optionSizeVaryingFieldIds, setOptionSizeVaryingFieldIds] = useState<Set<number>>(
+    () =>
+      new Set(
+        fields
+          .filter((f) => f.options.some((o) => Object.keys(design?.optionSizePrices[o.id] ?? {}).length > 0))
+          .map((f) => f.id)
+      )
+  );
+  const [optionSizePriceDrafts, setOptionSizePriceDrafts] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of fields) {
+      if (!fieldHasOptions(f.type)) continue;
+      for (const opt of f.options) {
+        for (const sizeOpt of sizeField?.options ?? []) {
+          const existing = design?.optionSizePrices[opt.id]?.[sizeOpt.id];
+          const fallback = design?.optionPriceOverrides[opt.id] ?? opt.priceCents;
+          init[`${opt.id}:${sizeOpt.id}`] = ((existing ?? fallback) / 100).toFixed(2);
+        }
+      }
+    }
+    return init;
+  });
+  const toggleOptionSizeVarying = (fieldId: number) => {
+    setOptionSizeVaryingFieldIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldId)) next.delete(fieldId);
+      else next.add(fieldId);
+      return next;
+    });
+  };
+
   const setDraft = (fieldId: number, patch: Partial<Draft>) => {
     setDrafts((prev) => ({ ...prev, [fieldId]: { ...prev[fieldId], ...patch } }));
   };
@@ -224,6 +298,18 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
       const next = new Set(prev);
       if (next.has(optionId)) next.delete(optionId);
       else next.add(optionId);
+      return next;
+    });
+  };
+
+  const checkAllExcluded = (optionIds: number[]) => {
+    setExcludedOptionIds((prev) => new Set([...prev, ...optionIds]));
+  };
+
+  const uncheckAllExcluded = (optionIds: number[]) => {
+    setExcludedOptionIds((prev) => {
+      const next = new Set(prev);
+      for (const id of optionIds) next.delete(id);
       return next;
     });
   };
@@ -304,7 +390,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
       isBase: f.isBase,
       sortOrder: 0,
       hasShapeDiagram: false,
-      required: f.required,
       additionalPriceCents: f.additionalPriceCents,
     }));
     const optionDTOs = availableFields.flatMap((f) =>
@@ -384,12 +469,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   }, [currentAnswers, constraintPairs]);
 
   // Catalog designs price themselves off each included option field's
-  // default (standardPriceCents below), so every included single/multi
-  // select field needs one — an included priced option left without a
-  // default would silently inflate the customer's eventual total past
-  // chargedPriceCents once they pick something for it in the wizard. Quote
-  // designs (custom / custom_portfolio) have no fixed price to protect, so
-  // nothing is required there — the customer just picks freely.
+  // default (totalCents below), so every included single/multi select field
+  // needs one — an included priced option left without a default would
+  // leave the customer's eventual total silently short once they pick
+  // something for it in the wizard. Quote designs (custom / custom_portfolio)
+  // have no fixed price to protect, so nothing is required there — the
+  // customer just picks freely.
   const missingRequiredDefaults = isCatalog
     ? availableFields.filter(
         (f) => includedFieldIds.has(f.id) && fieldHasOptions(f.type) && effectiveAnswers[f.id] == null
@@ -406,13 +491,16 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     [availableFields, fieldPriceDrafts]
   );
 
-  const standardPriceCents = useMemo(
-    () => computeStandardPriceCents(effectiveAnswers, allOptionsFlat, allFieldsFlat),
+  // This design's price for its own default selections — there's no
+  // separate "charged price" or premium anymore, this simply *is* the
+  // price (see lib/pricing.ts's computeTotalCents). per_size/size-varying
+  // fields never have a default answer (see currentAnswers above), so they
+  // never factor into this preview — matches what a customer sees before
+  // opting into any addon.
+  const totalCents = useMemo(
+    () => computeTotalCents(effectiveAnswers, allOptionsFlat, allFieldsFlat),
     [effectiveAnswers, allOptionsFlat, allFieldsFlat]
   );
-
-  const chargedCents = Math.round(Number(chargedDollars || "0") * 100);
-  const premiumCents = Number.isFinite(chargedCents) ? chargedCents - standardPriceCents : 0;
 
   // A disabled submit button — or a native HTML `required` attribute —
   // gives zero feedback when tapped: the browser just silently blocks the
@@ -426,13 +514,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
     if (!String(formData.get("name") ?? "").trim()) {
       errors.push("Design name is required.");
-    }
-
-    if (isCatalog) {
-      const priceRaw = String(formData.get("chargedPriceDollars") ?? "").trim();
-      if (!priceRaw || Number.isNaN(Number(priceRaw))) {
-        errors.push("Charged price is required.");
-      }
     }
 
     if (missingRequiredDefaults.length > 0) {
@@ -553,12 +634,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
               <p style={{ color: "var(--text-soft)", marginTop: 4, fontSize: "0.9rem" }}>
                 {isCatalog
-                  ? "Include the fields this design uses, and give each included option field a default — the standard price below is the sum of those defaults' catalog prices. You can lock any field so customers can't change it, or hide specific options just for this design."
+                  ? "Include the fields this design uses, and give each included option field a default. You can lock any field so customers can't change it, require an answer, hide it from the customer entirely, or hide specific options just for this design."
                   : "Include the fields this quote flow should ask about — no default value is required, the customer picks freely (or leaves it blank). You can still lock a field to force one answer, or hide specific options."}
               </p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {hiddenFields.length > 0 && (
+              {unaddedFields.length > 0 && (
                 <select
                   value=""
                   aria-label="Add an existing field"
@@ -568,7 +649,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                   }}
                 >
                   <option value="">+ Add existing field…</option>
-                  {hiddenFields.map((f) => (
+                  {unaddedFields.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}
                     </option>
@@ -604,6 +685,14 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               const selectableOptions = (
                 isSizeField ? field.options.filter((opt) => opt.styleKind === styleKind) : field.options
               ).filter((opt) => !constraintHiddenIds.has(opt.id));
+              // this design's currently-drafted Cake Style's sizes only —
+              // used for every price table below that's keyed by size, so a
+              // style change hides prices for sizes that no longer apply,
+              // same as the option pickers above
+              const styleFilteredSizeOptions = (sizeField?.options ?? []).filter((opt) => opt.styleKind === styleKind);
+              // this field's own options, scoped to the drafted style when
+              // it's the size field itself — used for its own price table
+              const priceableOptions = field.options.filter((opt) => !isSizeField || opt.styleKind === styleKind);
 
               return (
                 <div className="recipe-axis-row" key={field.id}>
@@ -612,11 +701,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                       {field.name}
                       {!field.isBase && <span className="field-type-tag">{FIELD_TYPE_LABELS[field.type]}</span>}
                       {!field.active && " (inactive)"}
-                      {isCatalog && isIncluded && hasOptions && (
-                        <span className="field-type-tag">Required</span>
-                      )}
-                      {(field.type === "text" || field.type === "number" || field.type === "per_size") &&
-                        field.required && <span className="field-type-tag">Required</span>}
                       {(field.type === "text" || field.type === "number" || field.type === "per_size") &&
                         field.additionalPriceCents > 0 && (
                           <span className="field-type-tag">catalog default +{formatCents(field.additionalPriceCents)}</span>
@@ -742,21 +826,63 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                   )}
 
                   {isIncluded && (
-                    <label className="recipe-axis-row__lock">
-                      <input
-                        type="checkbox"
-                        name="lockedFieldIds"
-                        value={field.id}
-                        checked={isLocked}
-                        onChange={() => toggleLocked(field.id)}
-                      />
-                      🔒 Lock — customers can&apos;t change this
-                    </label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+                      <label className="recipe-axis-row__lock">
+                        <input
+                          type="checkbox"
+                          name="lockedFieldIds"
+                          value={field.id}
+                          checked={isLocked}
+                          onChange={() => toggleLocked(field.id)}
+                        />
+                        🔒 Lock — customers can&apos;t change this
+                      </label>
+                      <label className="recipe-axis-row__lock">
+                        <input
+                          type="checkbox"
+                          name="requiredFieldIds"
+                          value={field.id}
+                          checked={requiredFieldIds.has(field.id)}
+                          onChange={() => toggleRequired(field.id)}
+                        />
+                        Required — customer must answer
+                      </label>
+                      <label className="recipe-axis-row__lock">
+                        <input
+                          type="checkbox"
+                          name="hiddenFieldIds"
+                          value={field.id}
+                          checked={hiddenFieldIds.has(field.id)}
+                          onChange={() => toggleHidden(field.id)}
+                        />
+                        🙈 Hide from customer (admin reference only)
+                      </label>
+                    </div>
                   )}
 
                   {isIncluded && !isLocked && hasOptions && (
                     <div className="recipe-axis-row__exclude">
-                      <span className="recipe-axis-row__exclude-label">Hide specific options for this design:</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="recipe-axis-row__exclude-label">Hide specific options for this design:</span>
+                        {hideableOptions.length > 0 && (
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              type="button"
+                              className="admin-btn-sm admin-btn-sm--ghost"
+                              onClick={() => checkAllExcluded(hideableOptions.map((opt) => opt.id))}
+                            >
+                              Check all
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-btn-sm admin-btn-sm--ghost"
+                              onClick={() => uncheckAllExcluded(hideableOptions.map((opt) => opt.id))}
+                            >
+                              Uncheck all
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div className="recipe-axis-row__exclude-list">
                         {hideableOptions.map((opt) => (
                           <label key={opt.id}>
@@ -782,28 +908,95 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                   {isIncluded && hasOptions && (
                     <div className="recipe-axis-row__exclude">
                       <span className="recipe-axis-row__exclude-label">Prices for this design:</span>
-                      <div className="recipe-axis-row__exclude-list">
-                        {field.options.map((opt) => (
-                          <label key={opt.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            {opt.name}
-                            <input
-                              type="number"
-                              step="0.01"
-                              name={`optionPrice_${opt.id}`}
-                              value={optionPriceDrafts[opt.id] ?? ""}
-                              onChange={(e) =>
-                                setOptionPriceDrafts((prev) => ({ ...prev, [opt.id]: e.target.value }))
-                              }
-                              style={{ width: 80 }}
-                            />
-                          </label>
-                        ))}
-                        {field.options.length === 0 && (
-                          <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
-                            No options yet — add some from Catalog.
-                          </span>
-                        )}
-                      </div>
+                      {!isSizeField && (
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "4px 0 8px" }}>
+                          <input
+                            type="checkbox"
+                            name="optionSizeVaryingFieldIds"
+                            value={field.id}
+                            checked={optionSizeVaryingFieldIds.has(field.id)}
+                            onChange={() => toggleOptionSizeVarying(field.id)}
+                          />
+                          Vary these prices by cake size
+                        </label>
+                      )}
+                      {priceableOptions.length === 0 ? (
+                        <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
+                          No options yet — add some from Catalog.
+                        </span>
+                      ) : !isSizeField && optionSizeVaryingFieldIds.has(field.id) ? (
+                        <div className="price-table-wrap">
+                          <table className="price-table">
+                            <thead>
+                              <tr>
+                                <th>Option</th>
+                                {styleFilteredSizeOptions.map((sizeOpt) => (
+                                  <th key={sizeOpt.id}>{sizeOpt.name}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {priceableOptions.map((opt) => (
+                                <tr key={opt.id}>
+                                  <td>{opt.name}</td>
+                                  {styleFilteredSizeOptions.map((sizeOpt) => (
+                                    <td key={sizeOpt.id}>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        name={`optionSizePrice_${opt.id}_${sizeOpt.id}`}
+                                        value={optionSizePriceDrafts[`${opt.id}:${sizeOpt.id}`] ?? ""}
+                                        onChange={(e) =>
+                                          setOptionSizePriceDrafts((prev) => ({
+                                            ...prev,
+                                            [`${opt.id}:${sizeOpt.id}`]: e.target.value,
+                                          }))
+                                        }
+                                      />
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                              {styleFilteredSizeOptions.length === 0 && (
+                                <tr>
+                                  <td colSpan={2} style={{ color: "var(--text-soft)" }}>
+                                    Pick a Cake Style with sizes configured first.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="price-table-wrap">
+                          <table className="price-table">
+                            <thead>
+                              <tr>
+                                <th>Option</th>
+                                <th>Price</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {priceableOptions.map((opt) => (
+                                <tr key={opt.id}>
+                                  <td>{opt.name}</td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      name={`optionPrice_${opt.id}`}
+                                      value={optionPriceDrafts[opt.id] ?? ""}
+                                      onChange={(e) =>
+                                        setOptionPriceDrafts((prev) => ({ ...prev, [opt.id]: e.target.value }))
+                                      }
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -837,30 +1030,41 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         Vary this price by cake size instead
                       </label>
                       {sizeVaryingFieldIds.has(field.id) && (
-                        <div className="recipe-axis-row__exclude-list">
-                          {(sizeField?.options ?? []).map((sizeOpt) => (
-                            <label key={sizeOpt.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              {sizeOpt.name}
-                              <input
-                                type="number"
-                                step="0.01"
-                                name={`sizePrice_${field.id}_${sizeOpt.id}`}
-                                value={perSizePriceDrafts[`${field.id}:${sizeOpt.id}`] ?? ""}
-                                onChange={(e) =>
-                                  setPerSizePriceDrafts((prev) => ({
-                                    ...prev,
-                                    [`${field.id}:${sizeOpt.id}`]: e.target.value,
-                                  }))
-                                }
-                                style={{ width: 80 }}
-                              />
-                            </label>
-                          ))}
-                          {(sizeField?.options.length ?? 0) === 0 && (
-                            <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
-                              No sizes configured yet — add some from Catalog.
-                            </span>
-                          )}
+                        <div className="price-table-wrap">
+                          <table className="price-table">
+                            <thead>
+                              <tr>
+                                {styleFilteredSizeOptions.map((sizeOpt) => (
+                                  <th key={sizeOpt.id}>{sizeOpt.name}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                {styleFilteredSizeOptions.map((sizeOpt) => (
+                                  <td key={sizeOpt.id}>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      name={`sizePrice_${field.id}_${sizeOpt.id}`}
+                                      value={perSizePriceDrafts[`${field.id}:${sizeOpt.id}`] ?? ""}
+                                      onChange={(e) =>
+                                        setPerSizePriceDrafts((prev) => ({
+                                          ...prev,
+                                          [`${field.id}:${sizeOpt.id}`]: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </td>
+                                ))}
+                                {styleFilteredSizeOptions.length === 0 && (
+                                  <td style={{ color: "var(--text-soft)" }}>
+                                    Pick a Cake Style with sizes configured first.
+                                  </td>
+                                )}
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>
@@ -874,37 +1078,15 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           </div>
         </div>
 
-        {isCatalog ? (
-          <div className="admin-form-row" style={{ alignItems: "flex-end" }}>
-            <div className="admin-field">
-              <label>Standard price (sum of field values)</label>
-              <div style={{ padding: "9px 0", fontWeight: 600 }}>{formatCents(standardPriceCents)}</div>
-            </div>
-            <div className="admin-field">
-              <label>
-                Charged price ($)
-                <span className="field-type-tag">Required</span>
-              </label>
-              <input
-                name="chargedPriceDollars"
-                type="number"
-                step="0.01"
-                value={chargedDollars}
-                onChange={(e) => setChargedDollars(e.target.value)}
-                style={{ minWidth: 110 }}
-              />
-            </div>
-            <div className="admin-field">
-              <label>Design premium (computed)</label>
-              <div style={{ padding: "9px 0", fontWeight: 600, color: "var(--pink-600)" }}>
-                {formatCents(premiumCents)}
-              </div>
-            </div>
+        {isCatalog && (
+          <div className="admin-field">
+            <label>Price for the default selections above</label>
+            <div style={{ padding: "9px 0", fontWeight: 600 }}>{formatCents(totalCents)}</div>
+            <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: "4px 0 0" }}>
+              This is exactly what a customer pays for this design's defaults — set prices per
+              field/option above to change it. There&apos;s no separate charged price to type in.
+            </p>
           </div>
-        ) : (
-          // quote flows have no fixed price — the baker quotes by hand once
-          // the request comes in — so chargedPriceDollars is just pinned to 0
-          <input type="hidden" name="chargedPriceDollars" value="0" />
         )}
 
         {isCatalog ? (
@@ -982,6 +1164,15 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             setOptionPriceDrafts((prev) => {
               const next = { ...prev };
               for (const o of field.options) next[o.id] = (o.priceCents / 100).toFixed(2);
+              return next;
+            });
+            setOptionSizePriceDrafts((prev) => {
+              const next = { ...prev };
+              for (const o of field.options) {
+                for (const sizeOpt of sizeField?.options ?? []) {
+                  next[`${o.id}:${sizeOpt.id}`] = (o.priceCents / 100).toFixed(2);
+                }
+              }
               return next;
             });
             if (!fieldHasOptions(field.type)) {

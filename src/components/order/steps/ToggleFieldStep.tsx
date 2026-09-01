@@ -10,18 +10,20 @@ type Props = {
    *  this design, or (if this design made it size-varying) its price at
    *  whichever `size` is currently answered elsewhere in the order */
   priceCents: number;
+  /** whether this design requires an answer — see DesignSummaryDTO.requiredFieldIds */
+  required: boolean;
   onChange: (value: boolean) => void;
 };
 
 /** A per_size field's wizard step — a plain opt-in/opt-out, priced either
  *  flat or per the design's currently-selected size (see OrderWizard's
  *  currentSizeOptionId). */
-export default function ToggleFieldStep({ field, value, priceCents, onChange }: Props) {
+export default function ToggleFieldStep({ field, value, priceCents, required, onChange }: Props) {
   return (
     <div className="wizard-step">
       <h2>
         {field.name}
-        {field.required && " *"}
+        {required && " *"}
       </h2>
       <div className="option-grid">
         <button

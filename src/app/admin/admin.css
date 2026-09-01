@@ -472,6 +472,43 @@
   font-size: 0.85rem;
 }
 
+.price-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.price-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.price-table th,
+.price-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--pink-100);
+  white-space: nowrap;
+}
+
+.price-table th {
+  color: var(--text-soft);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.price-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.price-table input[type="number"] {
+  width: 80px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--pink-100);
+  font-family: var(--font-body);
+}
+
 .admin-modal-overlay {
   position: fixed;
   inset: 0;

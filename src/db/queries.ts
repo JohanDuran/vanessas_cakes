@@ -6,10 +6,13 @@ import {
   fieldOptions,
   fieldOptionDimensions,
   designExcludedOptions,
+  designHiddenFields,
   designLockedFields,
   designOptionPrices,
+  designOptionSizePrices,
   designFieldPrices,
   designFieldSizePrices,
+  designRequiredFields,
   designPhotos,
   designFieldValues,
   designCategories,
@@ -31,9 +34,9 @@ import {
   cartItemReferenceImages,
   siteSettings,
 } from "./schema";
-import { baseFieldRank, isCakeStyleKind, isDesignKind, isFieldType, isTierLevelCount, type DesignKind, type FieldType } from "../lib/fields";
+import { baseFieldRank, isCakeStyleKind, isDesignKind, isFieldType, isTierLevelCount, SIZE_FIELD_SLUG, type DesignKind, type FieldType } from "../lib/fields";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import type { Answers } from "../lib/pricing";
+import { computeTotalCents, resolvePriceableFields, resolvePriceableOptions, type Answers } from "../lib/pricing";
 import type {
   CategoryDTO,
   DesignSummaryDTO,
@@ -142,7 +145,8 @@ export type FeaturedDesignDTO = {
   id: number;
   name: string;
   description: string | null;
-  chargedPriceCents: number;
+  /** the design's own default configuration, fully priced (see computeTotalCents) */
+  priceCents: number;
   photo: string | null;
 };
 
@@ -162,7 +166,10 @@ export async function loadFeaturedDesigns(): Promise<FeaturedDesignDTO[]> {
 
   if (featuredDesigns.length === 0) return [];
 
-  const photos = await withDbRetry(() => db.select().from(designPhotos).orderBy(asc(designPhotos.sortOrder)).then((r) => r));
+  const [photos, orderData] = await Promise.all([
+    withDbRetry(() => db.select().from(designPhotos).orderBy(asc(designPhotos.sortOrder)).then((r) => r)),
+    loadOrderData(),
+  ]);
   const primaryPhotoByDesign = new Map<number, string>();
   for (const photo of photos) {
     if (photo.isPrimary || !primaryPhotoByDesign.has(photo.designId)) {
@@ -170,13 +177,35 @@ export async function loadFeaturedDesigns(): Promise<FeaturedDesignDTO[]> {
     }
   }
 
-  return featuredDesigns.map((d) => ({
-    id: d.id,
-    name: d.name,
-    description: d.description,
-    chargedPriceCents: d.chargedPriceCents,
-    photo: primaryPhotoByDesign.get(d.id) ?? null,
-  }));
+  const summaryById = new Map(orderData.designSummaries.map((d) => [d.id, d]));
+  const sizeField = orderData.fields.find((f) => f.slug === SIZE_FIELD_SLUG);
+
+  return featuredDesigns.map((d) => {
+    const summary = summaryById.get(d.id);
+    let priceCents = 0;
+    if (summary) {
+      const sizeAnswer = sizeField ? summary.fieldValues[sizeField.id] : undefined;
+      const currentSizeOptionId = sizeAnswer?.type === "options" ? sizeAnswer.optionIds[0] : undefined;
+      priceCents = computeTotalCents(
+        summary.fieldValues,
+        resolvePriceableOptions(summary, orderData.options),
+        resolvePriceableFields(
+          summary,
+          orderData.fields.map((f) => ({ id: f.id, additionalPriceCents: f.additionalPriceCents }))
+        ),
+        summary.perSizeFieldPrices,
+        summary.optionSizePrices,
+        currentSizeOptionId
+      );
+    }
+    return {
+      id: d.id,
+      name: d.name,
+      description: d.description,
+      priceCents,
+      photo: primaryPhotoByDesign.get(d.id) ?? null,
+    };
+  });
 }
 
 export const DEFAULT_STORY_HEADING = "Baked from a tiny kitchen, made with a lot of heart";
@@ -257,6 +286,9 @@ export async function loadOrderData() {
     allDesignOptionPriceRows,
     allDesignFieldPriceRows,
     allDesignFieldSizePriceRows,
+    allDesignOptionSizePriceRows,
+    allHiddenRows,
+    allRequiredRows,
   ] = await withDbRetry(() =>
     Promise.all([
       db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
@@ -284,6 +316,9 @@ export async function loadOrderData() {
       db.select().from(designOptionPrices).then((r) => r),
       db.select().from(designFieldPrices).then((r) => r),
       db.select().from(designFieldSizePrices).then((r) => r),
+      db.select().from(designOptionSizePrices).then((r) => r),
+      db.select().from(designHiddenFields).then((r) => r),
+      db.select().from(designRequiredFields).then((r) => r),
     ]),
   );
 
@@ -297,7 +332,6 @@ export async function loadOrderData() {
       isBase: f.isBase,
       sortOrder: f.sortOrder,
       hasShapeDiagram: f.hasShapeDiagram,
-      required: f.required,
       additionalPriceCents: f.additionalPriceCents,
     }))
     .sort((a, b) => {
@@ -424,22 +458,46 @@ export async function loadOrderData() {
     perSizeFieldPricesByDesign.set(row.designId, byField);
   }
 
+  const optionSizePricesByDesign = new Map<number, Record<number, Record<number, number>>>();
+  for (const row of allDesignOptionSizePriceRows) {
+    const byOption = optionSizePricesByDesign.get(row.designId) ?? {};
+    const bySize = byOption[row.fieldOptionId] ?? {};
+    bySize[row.sizeOptionId] = row.priceCents;
+    byOption[row.fieldOptionId] = bySize;
+    optionSizePricesByDesign.set(row.designId, byOption);
+  }
+
+  const hiddenByDesign = new Map<number, number[]>();
+  for (const row of allHiddenRows) {
+    const list = hiddenByDesign.get(row.designId) ?? [];
+    list.push(row.fieldId);
+    hiddenByDesign.set(row.designId, list);
+  }
+
+  const requiredByDesign = new Map<number, number[]>();
+  for (const row of allRequiredRows) {
+    const list = requiredByDesign.get(row.designId) ?? [];
+    list.push(row.fieldId);
+    requiredByDesign.set(row.designId, list);
+  }
+
   const designSummaries: DesignSummaryDTO[] = publishedDesigns.map((d) => ({
     id: d.id,
     name: d.name,
     description: d.description,
     kind: isDesignKind(d.kind) ? d.kind : "catalog",
-    chargedPriceCents: d.chargedPriceCents,
-    premiumCents: d.premiumCents,
     photos: photosByDesign.get(d.id) ?? [],
     fieldValues: fieldValuesByDesign.get(d.id) ?? {},
     lockedFieldIds: lockedByDesign.get(d.id) ?? [],
+    hiddenFieldIds: hiddenByDesign.get(d.id) ?? [],
+    requiredFieldIds: requiredByDesign.get(d.id) ?? [],
     excludedOptionIds: excludedByDesign.get(d.id) ?? [],
     categoryIds: categoryIdsByDesign.get(d.id) ?? [],
     includedFieldIds: Array.from(includedFieldIdsByDesign.get(d.id) ?? []),
     optionPriceOverrides: optionPriceOverridesByDesign.get(d.id) ?? {},
     fieldPriceOverrides: fieldPriceOverridesByDesign.get(d.id) ?? {},
     perSizeFieldPrices: perSizeFieldPricesByDesign.get(d.id) ?? {},
+    optionSizePrices: optionSizePricesByDesign.get(d.id) ?? {},
   }));
 
   const constraintPairsDTO = pairs.map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }));

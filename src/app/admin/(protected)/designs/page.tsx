@@ -2,7 +2,6 @@ import Link from "next/link";
 import { desc } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designPhotos, designs } from "../../../../db/schema";
-import { formatCents } from "../../../../lib/pricing";
 import { isDesignKind } from "../../../../lib/fields";
 import { setDesignFeatured, setDesignPublished } from "./actions";
 
@@ -41,8 +40,6 @@ export default async function DesignsListPage() {
             <tr>
               <th></th>
               <th>Name</th>
-              <th>Charged Price</th>
-              <th>Premium</th>
               <th>Status</th>
               <th></th>
               <th></th>
@@ -79,8 +76,6 @@ export default async function DesignsListPage() {
                     <Link href={`/admin/designs/${d.id}/edit`}>{d.name}</Link>
                     {!isCatalog && <span className="field-type-tag">quote</span>}
                   </td>
-                  <td>{isCatalog ? formatCents(d.chargedPriceCents) : "—"}</td>
-                  <td>{isCatalog ? formatCents(d.premiumCents) : "—"}</td>
                   <td>{isCatalog ? (d.published ? "Published" : "Draft") : "Always reachable"}</td>
                   <td>
                     {isCatalog && (
@@ -113,7 +108,7 @@ export default async function DesignsListPage() {
             })}
             {allDesigns.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ color: "var(--text-soft)" }}>
+                <td colSpan={5} style={{ color: "var(--text-soft)" }}>
                   No designs yet — create one above.
                 </td>
               </tr>

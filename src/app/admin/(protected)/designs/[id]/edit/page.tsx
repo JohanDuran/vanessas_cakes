@@ -9,9 +9,12 @@ import {
   designFieldPrices,
   designFieldSizePrices,
   designFieldValues,
+  designHiddenFields,
   designLockedFields,
   designOptionPrices,
+  designOptionSizePrices,
   designPhotos,
+  designRequiredFields,
   designs,
   fieldOptions,
   fields,
@@ -52,6 +55,9 @@ export default async function EditDesignPage({
     optionPriceRows,
     fieldPriceRows,
     sizePriceRows,
+    optionSizePriceRows,
+    hiddenRows,
+    requiredRows,
   ] = await Promise.all([
     db.select().from(fields).then((r) => r),
     db.select().from(fieldOptions).then((r) => r),
@@ -72,9 +78,18 @@ export default async function EditDesignPage({
     db.select().from(designOptionPrices).where(eq(designOptionPrices.designId, designId)).then((r) => r),
     db.select().from(designFieldPrices).where(eq(designFieldPrices.designId, designId)).then((r) => r),
     db.select().from(designFieldSizePrices).where(eq(designFieldSizePrices.designId, designId)).then((r) => r),
+    db.select().from(designOptionSizePrices).where(eq(designOptionSizePrices.designId, designId)).then((r) => r),
+    db.select().from(designHiddenFields).where(eq(designHiddenFields.designId, designId)).then((r) => r),
+    db.select().from(designRequiredFields).where(eq(designRequiredFields.designId, designId)).then((r) => r),
   ]);
 
-  const priceOverrides = buildDesignPriceOverrides(designId, optionPriceRows, fieldPriceRows, sizePriceRows);
+  const priceOverrides = buildDesignPriceOverrides(
+    designId,
+    optionPriceRows,
+    fieldPriceRows,
+    sizePriceRows,
+    optionSizePriceRows
+  );
 
   const optionsByField = new Map<number, typeof allOptions>();
   for (const opt of allOptions) {
@@ -97,9 +112,7 @@ export default async function EditDesignPage({
       name: f.name,
       type: f.type as FieldType,
       isBase: f.isBase,
-      showInDesignForm: f.showInDesignForm,
       active: f.active,
-      required: f.required,
       additionalPriceCents: f.additionalPriceCents,
       options: (optionsByField.get(f.id) ?? []).map((o) => ({
         id: o.id,
@@ -144,10 +157,11 @@ export default async function EditDesignPage({
           name: design.name,
           description: design.description,
           kind: isDesignKind(design.kind) ? design.kind : "catalog",
-          chargedPriceCents: design.chargedPriceCents,
           published: design.published,
           fieldValues,
           lockedFieldIds: lockedRows.map((r) => r.fieldId),
+          hiddenFieldIds: hiddenRows.map((r) => r.fieldId),
+          requiredFieldIds: requiredRows.map((r) => r.fieldId),
           excludedOptionIds: excludedRows.map((r) => r.fieldOptionId),
           categoryIds: designCategoryRows.map((r) => r.categoryId),
           includedFieldIds,
@@ -155,6 +169,7 @@ export default async function EditDesignPage({
           optionPriceOverrides: priceOverrides.optionPriceOverrides,
           fieldPriceOverrides: priceOverrides.fieldPriceOverrides,
           perSizeFieldPrices: priceOverrides.perSizeFieldPrices,
+          optionSizePrices: priceOverrides.optionSizePrices,
         }}
       />
     </>

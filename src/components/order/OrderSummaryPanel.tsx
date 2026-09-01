@@ -6,6 +6,7 @@ import {
   computeTotalCents,
   formatCents,
   resolveFieldPriceCents,
+  resolveOptionPriceCents,
   resolvePriceableFields,
   type Answers,
 } from "../../lib/pricing";
@@ -56,10 +57,10 @@ export default function OrderSummaryPanel({
   );
   const total = computeTotalCents(
     answers,
-    design.premiumCents,
     flatOptions,
     flatFields,
     design.perSizeFieldPrices,
+    design.optionSizePrices,
     currentSizeOptionId
   );
 
@@ -87,7 +88,10 @@ export default function OrderSummaryPanel({
               .filter((name): name is string => Boolean(name));
             valueLabel = names.length > 0 ? names.join(", ") : "—";
             if (names.length > 0 && !isCustom) {
-              const priceCents = answer.optionIds.reduce((sum, id) => sum + (optionById.get(id)?.priceCents ?? 0), 0);
+              const priceCents = answer.optionIds.reduce(
+                (sum, id) => sum + (resolveOptionPriceCents(id, flatOptions, design.optionSizePrices, currentSizeOptionId) ?? 0),
+                0
+              );
               priceNode = formatCents(priceCents);
             }
           } else if (answer?.type === "text") {

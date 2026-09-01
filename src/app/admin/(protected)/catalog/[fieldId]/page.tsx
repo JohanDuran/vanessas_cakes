@@ -9,6 +9,7 @@ import {
   FIELD_TYPE_LABELS,
   SIZE_FIELD_SLUG,
   TIER_LEVEL_COUNTS,
+  isBaseFieldSlug,
   isFieldType,
 } from "../../../../../lib/fields";
 import { createOption, saveFieldSettings, setOptionActive, updateOption } from "../actions";
@@ -64,6 +65,11 @@ export default async function FieldDetailPage({
   const isCakeStyleField = field.slug === CAKE_STYLE_FIELD_SLUG;
   const isLockedOptionSetField = isCakeStyleField;
   const isSizeField = field.slug === SIZE_FIELD_SLUG;
+  // the 7 canonical fields' types are structurally load-bearing (cake-style
+  // and tier-preset logic assume cake_style/size stay single_select) —
+  // locked regardless of the admin-editable "Base field" checkbox below,
+  // which only controls default visibility in a design's configuration now
+  const isStructuralField = isBaseFieldSlug(field.slug);
 
   const standardOptions = isSizeField ? options.filter((o) => o.styleKind === "standard") : [];
   const tallOptions = isSizeField ? options.filter((o) => o.styleKind === "tall") : [];
@@ -326,8 +332,8 @@ export default async function FieldDetailPage({
     <>
       <h1>Catalog · {field.name}</h1>
       <p className="admin-main__subtitle">
-        {field.isBase
-          ? "Built-in field — every design answers this one."
+        {isStructuralField
+          ? "Built-in field — powers cake style/size logic, so its type can't change."
           : "Custom field — attach it to a design from that design's edit page."}
       </p>
 
@@ -341,8 +347,8 @@ export default async function FieldDetailPage({
               <input name="name" defaultValue={field.name} />
             </div>
             <div className="admin-field">
-              <label>Type{field.isBase ? " (fixed)" : ""}</label>
-              <select name="type" defaultValue={field.type} disabled={field.isBase} style={{ minWidth: 220 }}>
+              <label>Type{isStructuralField ? " (fixed)" : ""}</label>
+              <select name="type" defaultValue={field.type} disabled={isStructuralField} style={{ minWidth: 220 }}>
                 {FIELD_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {FIELD_TYPE_LABELS[t]}
@@ -369,41 +375,28 @@ export default async function FieldDetailPage({
             </div>
           )}
           <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <input
-              type="checkbox"
-              id="showInDesignForm"
-              name="showInDesignForm"
-              value="1"
-              defaultChecked={field.showInDesignForm}
-            />
-            <label htmlFor="showInDesignForm" style={{ margin: 0 }}>
-              Base field — always show this field when configuring any design
+            <input type="checkbox" id="isBase" name="isBase" value="1" defaultChecked={field.isBase} />
+            <label htmlFor="isBase" style={{ margin: 0 }}>
+              Base field — always show this field when configuring any design, and default it to
+              Required there
             </label>
           </div>
-          {!field.showInDesignForm && (
+          {!field.isBase && (
             <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
               Left unchecked, this field stays hidden in a design&apos;s configuration until an
               admin adds it there via &quot;Add existing field&quot;.
             </p>
           )}
           {(field.type === "text" || field.type === "number" || field.type === "per_size") && (
-            <div className="admin-form-row">
-              <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <input type="checkbox" id="required" name="required" value="1" defaultChecked={field.required} />
-                <label htmlFor="required" style={{ margin: 0 }}>
-                  Required — customer must answer before ordering
-                </label>
-              </div>
-              <div className="admin-field">
-                <label>{field.type === "per_size" ? "Default price ($)" : "Additional price ($)"}</label>
-                <input
-                  name="additionalPriceDollars"
-                  type="number"
-                  step="0.01"
-                  defaultValue={centsToDollarsStr(field.additionalPriceCents)}
-                  style={{ minWidth: 110 }}
-                />
-              </div>
+            <div className="admin-field">
+              <label>{field.type === "per_size" ? "Default price ($)" : "Additional price ($)"}</label>
+              <input
+                name="additionalPriceDollars"
+                type="number"
+                step="0.01"
+                defaultValue={centsToDollarsStr(field.additionalPriceCents)}
+                style={{ minWidth: 110 }}
+              />
             </div>
           )}
           {field.type === "per_size" && (

@@ -73,14 +73,18 @@ function fieldsForDesign(fields: FieldDTO[], design: DesignSummaryDTO): FieldDTO
 }
 
 /** Whether the customer has actually answered this field — used to gate the
- *  Next button for single_select (always) and text/number fields marked
- *  Required. multi_select is never required-gated. */
+ *  Next button when this design marks the field Required (see
+ *  DesignSummaryDTO.requiredFieldIds). For an options field, "answered"
+ *  means at least one pick (matters for multi_select, which can now be
+ *  required too). */
 function isFieldAnswered(field: FieldDTO, answer: Answers[number] | undefined): boolean {
   if (!answer) return false;
   if (field.type === "text") return answer.type === "text" && answer.value.trim() !== "";
   if (field.type === "number") return answer.type === "number";
   if (field.type === "per_size") return answer.type === "toggle";
-  if (field.type === "single_select") return answer.type === "options" && answer.optionIds.length > 0;
+  if (field.type === "single_select" || field.type === "multi_select") {
+    return answer.type === "options" && answer.optionIds.length > 0;
+  }
   return true;
 }
 
@@ -267,12 +271,20 @@ export default function OrderWizard({
   const isReview = state.step === REVIEW_STEP;
 
   const lockedFieldIdSet = useMemo(() => new Set(selectedDesign?.lockedFieldIds ?? []), [selectedDesign]);
+  const hiddenFieldIdSet = useMemo(() => new Set(selectedDesign?.hiddenFieldIds ?? []), [selectedDesign]);
+  const requiredFieldIdSet = useMemo(() => new Set(selectedDesign?.requiredFieldIds ?? []), [selectedDesign]);
   const excludedOptionIdSet = useMemo(
     () => new Set(selectedDesign?.excludedOptionIds ?? []),
     [selectedDesign]
   );
 
-  const skippedFieldIdSet = lockedFieldIdSet;
+  // hidden fields have no wizard UI either (nothing for the customer to
+  // change), so they skip their step exactly like a locked field — the
+  // difference only shows up in the review, see OrderSummaryPanel below
+  const skippedFieldIdSet = useMemo(
+    () => new Set([...lockedFieldIdSet, ...hiddenFieldIdSet]),
+    [lockedFieldIdSet, hiddenFieldIdSet]
+  );
 
   // the live style kind, used to pick which options/diagram the Size step shows
   const liveStyleKind = useMemo(
@@ -340,38 +352,36 @@ export default function OrderWizard({
     return a?.type === "options" ? a.optionIds[0] : undefined;
   }, [sizeField, state.answers]);
 
+  const resolvedOptionsFlat = resolvedOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents }));
+
   const subtotalCents = computeTotalCents(
     state.answers,
-    selectedDesign?.premiumCents ?? 0,
-    resolvedOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+    resolvedOptionsFlat,
     resolvedFieldsFlat,
     selectedDesign?.perSizeFieldPrices,
+    selectedDesign?.optionSizePrices,
     currentSizeOptionId
   );
 
-  // Size step only: everything else already answered, priced up (including
-  // the design's premium) but excluding Size's own contribution — lets the
-  // size step show each card's absolute total price rather than a +/- delta.
+  // Size step only: everything else already answered, priced up but
+  // excluding Size's own contribution — lets the size step show each card's
+  // absolute total price rather than a +/- delta.
   const sizeStepBaseCents = useMemo(() => {
     if (!isSizeStep || !sizeField) return 0;
     const answersWithoutSize = { ...state.answers };
     delete answersWithoutSize[sizeField.id];
     return computeTotalCents(
       answersWithoutSize,
-      selectedDesign?.premiumCents ?? 0,
-      resolvedOptions.map((o) => ({ id: o.id, fieldId: o.fieldId, priceCents: o.priceCents })),
+      resolvedOptionsFlat,
       resolvedFieldsFlat,
       selectedDesign?.perSizeFieldPrices,
+      selectedDesign?.optionSizePrices,
       currentSizeOptionId
     );
-  }, [isSizeStep, sizeField, state.answers, selectedDesign, resolvedOptions, resolvedFieldsFlat, currentSizeOptionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSizeStep, sizeField, state.answers, selectedDesign, resolvedOptionsFlat, resolvedFieldsFlat, currentSizeOptionId]);
   const nextDisabled =
-    !isQuote &&
-    currentField != null &&
-    (currentField.type === "single_select" ||
-      ((currentField.type === "text" || currentField.type === "number" || currentField.type === "per_size") &&
-        currentField.required)) &&
-    !isFieldAnswered(currentField, currentAnswer);
+    !isQuote && currentField != null && requiredFieldIdSet.has(currentField.id) && !isFieldAnswered(currentField, currentAnswer);
 
   // Design selection now happens entirely on /gallery and /portfolio — every
   // route that renders this wizard supplies lockedDesign (a catalog design,
@@ -520,6 +530,7 @@ export default function OrderWizard({
             <TextFieldStep
               field={currentField}
               value={currentAnswer?.type === "text" ? currentAnswer.value : ""}
+              required={requiredFieldIdSet.has(currentField.id)}
               onChange={(value) => dispatch({ type: "SET_TEXT", fieldId: currentField.id, value })}
             />
           )}
@@ -528,6 +539,7 @@ export default function OrderWizard({
             <NumberFieldStep
               field={currentField}
               value={currentAnswer?.type === "number" ? String(currentAnswer.value) : ""}
+              required={requiredFieldIdSet.has(currentField.id)}
               onChange={(value) => dispatch({ type: "SET_NUMBER", fieldId: currentField.id, value })}
             />
           )}
@@ -542,6 +554,7 @@ export default function OrderWizard({
                 selectedDesign?.perSizeFieldPrices,
                 currentSizeOptionId
               )}
+              required={requiredFieldIdSet.has(currentField.id)}
               onChange={(value) => dispatch({ type: "SET_TOGGLE", fieldId: currentField.id, value })}
             />
           )}
@@ -557,7 +570,7 @@ export default function OrderWizard({
           {isReview && (
             <OrderSummaryPanel
               design={selectedDesign}
-              designFields={designFields.filter((f) => !skippedFieldIdSet.has(f.id))}
+              designFields={designFields.filter((f) => !hiddenFieldIdSet.has(f.id))}
               answers={state.answers}
               options={resolvedOptions}
               currentSizeOptionId={currentSizeOptionId}

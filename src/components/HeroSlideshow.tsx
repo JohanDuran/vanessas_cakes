@@ -114,7 +114,7 @@ export default function HeroSlideshow({ featured = [] }: Props) {
             <h3>{activeFeatured ? activeFeatured.name : active!.name}</h3>
             <p>
               {activeFeatured
-                ? (activeFeatured.description ?? formatCents(activeFeatured.chargedPriceCents))
+                ? (activeFeatured.description ?? formatCents(activeFeatured.priceCents))
                 : active!.description}
             </p>
           </div>
