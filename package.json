@@ -12,6 +12,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:seed-examples": "tsx src/db/seed-examples.ts",
+    "db:add-cake-styles": "tsx src/db/add-cake-styles.ts",
     "admin:create": "tsx src/db/create-admin.ts"
   },
   "dependencies": {

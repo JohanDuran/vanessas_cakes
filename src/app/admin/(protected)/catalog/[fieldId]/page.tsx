@@ -67,6 +67,8 @@ export default async function FieldDetailPage({
 
   const standardOptions = isSizeField ? options.filter((o) => o.styleKind === "standard") : [];
   const tallOptions = isSizeField ? options.filter((o) => o.styleKind === "tall") : [];
+  const carlotaOptions = isSizeField ? options.filter((o) => o.styleKind === "carlota") : [];
+  const tortaChilenaOptions = isSizeField ? options.filter((o) => o.styleKind === "torta_chilena") : [];
   const tieredOptions = isSizeField ? options.filter((o) => o.styleKind === "tiered") : [];
 
   let tierPresetSummaries: TierPresetSummary[] = [];
@@ -115,8 +117,12 @@ export default async function FieldDetailPage({
   }
 
   // reusable "Add option" form + options table for one style-scoped slice of
-  // the `size` field (Standard/Tall), or for a regular non-size field
-  const optionsSection = (sectionOptions: OptionRow[], styleKind?: "standard" | "tall") => {
+  // the `size` field (Standard/Tall/Carlota/Torta Chilena), or for a regular
+  // non-size field
+  const optionsSection = (
+    sectionOptions: OptionRow[],
+    styleKind?: "standard" | "tall" | "carlota" | "torta_chilena"
+  ) => {
     return (
       <>
         {!isLockedOptionSetField && (
@@ -174,7 +180,7 @@ export default async function FieldDetailPage({
 
         {isLockedOptionSetField && (
           <p className="admin-main__subtitle">
-            This field&apos;s 3 options are fixed by the app — you can rename them or change their
+            This field&apos;s options are fixed by the app — you can rename them or change their
             price, but not add, remove, or deactivate any of them.
           </p>
         )}
@@ -388,8 +394,9 @@ export default async function FieldDetailPage({
       {isSizeField && (
         <>
           <p className="admin-main__subtitle">
-            Every cake style has its own independently-priced set of sizes. Standard and Tall are
-            plain molds; Tiered sizes are built as stacked presets below.
+            Every cake style has its own independently-priced set of sizes. Standard, Tall,
+            Carlota, and Torta Chilena are plain molds; Tiered sizes are built as stacked presets
+            below.
           </p>
 
           <h2 style={{ marginTop: 24 }}>Standard sizes</h2>
@@ -397,6 +404,12 @@ export default async function FieldDetailPage({
 
           <h2 style={{ marginTop: 24 }}>Tall sizes</h2>
           {optionsSection(tallOptions, "tall")}
+
+          <h2 style={{ marginTop: 24 }}>Carlota sizes</h2>
+          {optionsSection(carlotaOptions, "carlota")}
+
+          <h2 style={{ marginTop: 24 }}>Torta Chilena sizes</h2>
+          {optionsSection(tortaChilenaOptions, "torta_chilena")}
 
           <h2 style={{ marginTop: 24 }}>Tiered presets</h2>
           <div className="admin-card">

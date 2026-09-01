@@ -92,6 +92,10 @@
   flex-wrap: wrap;
 }
 
+.hero__cake-btn {
+  display: none;
+}
+
 .hero__stage {
   position: relative;
   display: flex;
@@ -241,10 +245,40 @@
   .hero__actions {
     justify-content: center;
   }
+  .hero__cake-btn {
+    display: inline-flex;
+  }
   .hero__nav--prev { left: 4px; }
   .hero__nav--next { right: 4px; }
 
-  .hero__donut {
+  .hero__donut--1,
+  .hero__donut--3,
+  .hero__donut--4 {
+    opacity: 0.5;
+  }
+
+  .hero__donut--1 {
+    top: 80px;
+    left: 8%;
+    width: 34px;
+    height: 34px;
+  }
+
+  .hero__donut--2 {
     display: none;
+  }
+
+  .hero__donut--3 {
+    top: 80px;
+    right: 8%;
+    width: 30px;
+    height: 30px;
+  }
+
+  .hero__donut--4 {
+    bottom: 14px;
+    right: 10%;
+    width: 46px;
+    height: 46px;
   }
 }

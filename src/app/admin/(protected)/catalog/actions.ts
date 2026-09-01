@@ -9,7 +9,7 @@ import { requireAdmin } from "../../../../db/queries";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, slugify } from "../../../../lib/fields";
 import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
-/** cake_style is locked to its exact 3 seeded options — admins may
+/** cake_style is locked to its exact set of seeded options — admins may
  *  rename/re-price them but not add/remove/deactivate. */
 const LOCKED_OPTION_SET_SLUGS = new Set([CAKE_STYLE_FIELD_SLUG]);
 
@@ -147,10 +147,10 @@ const optionShape = {
   tiers: z.string().optional(),
   servesMin: z.string().optional(),
   servesMax: z.string().optional(),
-  // only meaningful for the `size` field — which style (Standard/Tall) this
-  // size option belongs to. Tiered size options are never created here; see
-  // tierPresetActions.ts.
-  styleKind: z.enum(["standard", "tall"]).optional(),
+  // only meaningful for the `size` field — which plain-mold style (Standard/
+  // Tall/Carlota/Torta Chilena) this size option belongs to. Tiered size
+  // options are never created here; see tierPresetActions.ts.
+  styleKind: z.enum(["standard", "tall", "carlota", "torta_chilena"]).optional(),
 };
 
 const createOptionSchema = z.object(optionShape);
@@ -186,7 +186,9 @@ export async function createOption(formData: FormData) {
     }
     const isSizeField = field.slug === SIZE_FIELD_SLUG;
     if (isSizeField && !parsed.styleKind) {
-      throw new Error("Choose Standard or Tall for this size — tiered presets are built below instead.");
+      throw new Error(
+        "Choose Standard, Tall, Carlota, or Torta Chilena for this size — tiered presets are built below instead."
+      );
     }
 
     await db.transaction(async (tx) => {
@@ -271,7 +273,7 @@ export async function setOptionActive(formData: FormData) {
   const parsed = setOptionActiveSchema.parse(Object.fromEntries(formData));
   const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
   if (field && !parsed.active && LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
-    throw new Error(`${field.name}'s 3 options must always stay active.`);
+    throw new Error(`${field.name}'s options must always stay active.`);
   }
   await db.update(fieldOptions)
     .set({ active: Boolean(parsed.active), updatedAt: Date.now() })

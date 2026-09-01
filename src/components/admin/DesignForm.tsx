@@ -90,6 +90,16 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const [drafts, setDrafts] = useState<Record<number, Draft>>(() => {
     const init: Record<number, Draft> = {};
     for (const f of fields) init[f.id] = draftFromAnswer(design?.fieldValues[f.id]);
+    // a brand-new design defaults Cake Style to Standard — a starting point
+    // the admin can change, not a stored setting; silently skipped if the
+    // field or its Standard option isn't present (e.g. removed from the catalog)
+    if (!design) {
+      const styleField = fields.find((f) => f.slug === CAKE_STYLE_FIELD_SLUG);
+      const standardOption = styleField?.options.find((o) => o.styleKind === "standard");
+      if (styleField && standardOption) {
+        init[styleField.id] = { ...init[styleField.id], optionIds: [standardOption.id] };
+      }
+    }
     return init;
   });
   // a brand-new design starts with every base field pre-checked (matching
@@ -98,7 +108,13 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const [includedFieldIds, setIncludedFieldIds] = useState<Set<number>>(
     () => new Set(fields.filter((f) => (design ? design.includedFieldIds.includes(f.id) : f.isBase)).map((f) => f.id))
   );
-  const [lockedFieldIds, setLockedFieldIds] = useState<Set<number>>(new Set(design?.lockedFieldIds ?? []));
+  const [lockedFieldIds, setLockedFieldIds] = useState<Set<number>>(() => {
+    if (design) return new Set(design.lockedFieldIds);
+    // pairs with the Standard default above — same rule: a default the
+    // admin can uncheck, not a stored setting; no-op if the field is missing
+    const styleField = fields.find((f) => f.slug === CAKE_STYLE_FIELD_SLUG);
+    return new Set(styleField ? [styleField.id] : []);
+  });
   const [excludedOptionIds, setExcludedOptionIds] = useState<Set<number>>(
     new Set(design?.excludedOptionIds ?? [])
   );
@@ -397,10 +413,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               const isSizeField = field.slug === SIZE_FIELD_SLUG;
               const hideableOptions = field.options
                 .filter((opt) => !draft.optionIds.includes(opt.id))
-                .map((opt) => ({
-                  ...opt,
-                  label: isSizeField && opt.styleKind ? `${opt.name} (${opt.styleKind})` : opt.name,
-                }));
+                // size options are scoped to the drafted Cake Style, same as
+                // selectableOptions below — hiding an option only makes sense
+                // for sizes that could actually be picked for this style
+                .filter((opt) => !isSizeField || opt.styleKind === styleKind)
+                .map((opt) => ({ ...opt, label: opt.name }));
               const selectableOptions = isSizeField
                 ? field.options.filter((opt) => opt.styleKind === styleKind)
                 : field.options;

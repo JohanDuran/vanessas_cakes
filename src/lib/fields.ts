@@ -19,11 +19,11 @@ export function fieldHasOptions(type: string): boolean {
 
 /** The fields every design must answer, in canonical display order. Seeded
  *  once, never created/deleted via the admin UI, type locked to
- *  single_select. `cake_style` is further locked to an exact 3-option set
+ *  single_select. `cake_style` is further locked to an exact fixed-option set
  *  (see CakeStyleKind) — the admin can edit its options' names/prices but
  *  not add, remove, or deactivate any of them. `size`'s options are scoped
- *  per cake_style kind (standard/tall/tiered) via each option's styleKind —
- *  see src/lib/cakeStyle.ts. `tier_levels`/`tier_size` used to be separate
+ *  per cake_style kind (standard/tall/tiered/carlota/torta_chilena) via each
+ *  option's styleKind — see src/lib/cakeStyle.ts. `tier_levels`/`tier_size` used to be separate
  *  steps for the tiered path; they're retired from the flow (rows kept,
  *  is_base=false, for historical order_selections FK integrity) now that
  *  tiered presets live directly on `size` tagged styleKind="tiered". */
@@ -72,10 +72,12 @@ export const SIZE_FIELD_SLUG: BaseFieldSlug = "size";
  *  options are shown — see src/lib/cakeStyle.ts. */
 export const CAKE_STYLE_FIELD_SLUG: BaseFieldSlug = "cake_style";
 
-/** The 3 fixed values of the cake_style field, tagged on its options via
+/** The fixed values of the cake_style field, tagged on its options via
  *  field_options.style_kind — and reused to tag `size` field options with
- *  which style they belong to (see SIZE_FIELD_SLUG above). */
-export const CAKE_STYLE_KINDS = ["standard", "tall", "tiered"] as const;
+ *  which style they belong to (see SIZE_FIELD_SLUG above). Standard/Tall/
+ *  Carlota/Torta Chilena are plain single-mold sizes; Tiered is the only
+ *  kind built from stacked presets (see src/lib/cakeStyle.ts). */
+export const CAKE_STYLE_KINDS = ["standard", "tall", "tiered", "carlota", "torta_chilena"] as const;
 
 export type CakeStyleKind = (typeof CAKE_STYLE_KINDS)[number];
 

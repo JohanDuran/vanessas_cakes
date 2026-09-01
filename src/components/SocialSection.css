@@ -1,6 +1,6 @@
 .social {
   padding: 100px 0;
-  background: var(--white);
+  background: var(--pink-50);
 }
 
 .social__head {
@@ -19,7 +19,7 @@
 }
 
 .social-card {
-  background: var(--pink-50);
+  background: var(--white);
   border-radius: var(--radius-lg);
   padding: 30px 18px;
   display: flex;

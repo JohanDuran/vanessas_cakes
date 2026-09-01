@@ -60,16 +60,15 @@ export default function HeroSlideshow({ featured = [] }: Props) {
 
       <div className="container hero__inner">
         <div className="hero__copy">
-          <span className="section-eyebrow">Freshly Baked Daily</span>
+          <span className="section-eyebrow">A Homestead Bakery • Freshly Baked Daily</span>
           <h1 className="hero__title">
-            Cakes that taste as <span>sweet</span> as they look
+            Custom Cakes Crafted for Your <span>Special</span> Moments
           </h1>
           <p className="hero__subtitle">
-            Handcrafted pastel cakes for birthdays, weddings, and everyday joy.
-            Explore our favorites, or design your own from scratch.
+            From birthdays and weddings to sweet everyday cravings—we craft custom cakes tailored just for you. Choose a classic favorite or let's create something new together.
           </p>
           <div className="hero__actions">
-            <Link href="/gallery" className="btn btn-primary">
+            <Link href="/gallery" className="btn btn-primary hero__cake-btn">
               🎂 Design Your Cake
             </Link>
           </div>

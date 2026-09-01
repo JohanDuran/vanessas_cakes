@@ -29,6 +29,8 @@ const seedOptions: SeedOption[] = [
   { fieldSlug: "cake_style", name: "Standard", priceCents: 0, sortOrder: 0, styleKind: "standard" },
   { fieldSlug: "cake_style", name: "Tall", priceCents: 0, sortOrder: 1, styleKind: "tall" },
   { fieldSlug: "cake_style", name: "Tiered", priceCents: 0, sortOrder: 2, styleKind: "tiered" },
+  { fieldSlug: "cake_style", name: "Carlota", priceCents: 0, sortOrder: 3, styleKind: "carlota" },
+  { fieldSlug: "cake_style", name: "Torta Chilena", priceCents: 0, sortOrder: 4, styleKind: "torta_chilena" },
 
   // sizes (ported from old `sizes`, with shape/servings visual-aid metadata
   // added) — the atomic single-layer molds for Standard, also referenced
@@ -45,6 +47,20 @@ const seedOptions: SeedOption[] = [
   { fieldSlug: "size", name: "Medium", priceCents: 6700, sortOrder: 1, diameterIn: '8"', shape: "round", tiers: 1, servesMin: 10, servesMax: 14, styleKind: "tall" },
   { fieldSlug: "size", name: "Large", priceCents: 8900, sortOrder: 2, diameterIn: '10"', shape: "round", tiers: 1, servesMin: 18, servesMax: 22, styleKind: "tall" },
   { fieldSlug: "size", name: "Extra Large", priceCents: 11000, sortOrder: 3, diameterIn: '12"', shape: "round", tiers: 1, servesMin: 26, servesMax: 32, styleKind: "tall" },
+
+  // Carlota sizes — small/medium/large only, no Extra Large. Prices/dims
+  // mirror Standard as a placeholder — the owner should tune these via
+  // /admin/catalog once real costs are in.
+  { fieldSlug: "size", name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: '6"', shape: "round", tiers: 1, servesMin: 6, servesMax: 8, styleKind: "carlota" },
+  { fieldSlug: "size", name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: '8"', shape: "round", tiers: 1, servesMin: 10, servesMax: 14, styleKind: "carlota" },
+  { fieldSlug: "size", name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: '10"', shape: "round", tiers: 1, servesMin: 18, servesMax: 22, styleKind: "carlota" },
+
+  // Torta Chilena sizes — small/medium/large only, no Extra Large. Prices/dims
+  // mirror Standard as a placeholder — the owner should tune these via
+  // /admin/catalog once real costs are in.
+  { fieldSlug: "size", name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: '6"', shape: "round", tiers: 1, servesMin: 6, servesMax: 8, styleKind: "torta_chilena" },
+  { fieldSlug: "size", name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: '8"', shape: "round", tiers: 1, servesMin: 10, servesMax: 14, styleKind: "torta_chilena" },
+  { fieldSlug: "size", name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: '10"', shape: "round", tiers: 1, servesMin: 18, servesMax: 22, styleKind: "torta_chilena" },
 
   // cake types — placeholder starter set, no equivalent existed in the old app
   { fieldSlug: "cake_type", name: "Classic Layer Cake", priceCents: 0, sortOrder: 0 },

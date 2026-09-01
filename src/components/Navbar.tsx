@@ -34,9 +34,12 @@ export default function Navbar() {
         </Link>
 
         <nav className={`navbar__links ${open ? "navbar__links--open" : ""}`}>
-          <Link href="/gallery">Shop our Collection</Link>
+          <Link href="/gallery" className="navbar__link--featured">
+            Shop our Collection
+          </Link>
           <Link href="/portfolio">Portfolio</Link>
           <Link href="/order/custom">Custom Cake</Link>
+          <Link href="/contact">Contact Us</Link>
           {user?.isAdmin && <Link href="/admin">Admin</Link>}
           {user ? (
             <>
