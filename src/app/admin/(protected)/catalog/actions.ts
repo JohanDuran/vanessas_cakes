@@ -35,11 +35,11 @@ const createFieldSchema = z.object({
   additionalPriceDollars: z.string().optional(),
 });
 
-/** Required/additional-price only ever apply to text/number fields — a
- *  select-type field is already required via its native <select> and priced
- *  per-option, so those two inputs are ignored for any other type. */
+/** Required/additional-price only ever apply to text/number/per_size fields —
+ *  a select-type field is already required via its native <select> and
+ *  priced per-option, so those two inputs are ignored for any other type. */
 function textOrNumberOnly<T>(type: string, value: T, fallback: T): T {
-  return type === "text" || type === "number" ? value : fallback;
+  return type === "text" || type === "number" || type === "per_size" ? value : fallback;
 }
 
 export async function createField(formData: FormData) {

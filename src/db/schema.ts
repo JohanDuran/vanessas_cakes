@@ -291,6 +291,75 @@ export const designExcludedOptions = pgTable(
   ]
 );
 
+/** A design-specific override of a select-type option's catalog price
+ *  (field_options.price_cents) — e.g. Size "Small" costs $10 for one design
+ *  but $20 for another. Absent for an (design, option) pair means "use the
+ *  catalog price" — see resolvePriceableOptions in src/lib/pricing.ts, the
+ *  single place that applies this fallback. */
+export const designOptionPrices = pgTable(
+  "design_option_prices",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldOptionId: integer("field_option_id")
+      .notNull()
+      .references(() => fieldOptions.id, { onDelete: "cascade" }),
+    priceCents: integer("price_cents").notNull(),
+  },
+  (t) => [uniqueIndex("design_option_prices_design_option_idx").on(t.designId, t.fieldOptionId)]
+);
+
+/** A design-specific override of a text/number/per_size field's flat catalog
+ *  surcharge (fields.additional_price_cents). For a per_size field this is
+ *  only its price when NOT set to vary by size for this design — see
+ *  designFieldSizePrices below. Same fallback-to-catalog rule as
+ *  designOptionPrices. */
+export const designFieldPrices = pgTable(
+  "design_field_prices",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldId: integer("field_id")
+      .notNull()
+      .references(() => fields.id, { onDelete: "cascade" }),
+    priceCents: integer("price_cents").notNull(),
+  },
+  (t) => [uniqueIndex("design_field_prices_design_field_idx").on(t.designId, t.fieldId)]
+);
+
+/** A per_size field's price at one particular `size` option, for one
+ *  particular design — e.g. "Extra Fondant Detail" is +$2 at Small but +$8
+ *  at Large, for this design only. A per_size field is "size-varying" for a
+ *  design exactly when it has at least one row here for that (design,
+ *  field) pair; with none, it falls back to designFieldPrices/the catalog
+ *  flat price instead (see resolvePerSizePrices in src/lib/pricing.ts).
+ *  Configured from that design's own edit page — sizeOptionId always
+ *  belongs to the `size` field, scoped to whichever cake style(s) the
+ *  design itself offers. */
+export const designFieldSizePrices = pgTable(
+  "design_field_size_prices",
+  {
+    id: serial("id").primaryKey(),
+    designId: integer("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fieldId: integer("field_id")
+      .notNull()
+      .references(() => fields.id, { onDelete: "cascade" }),
+    sizeOptionId: integer("size_option_id")
+      .notNull()
+      .references(() => fieldOptions.id, { onDelete: "cascade" }),
+    priceCents: integer("price_cents").notNull(),
+  },
+  (t) => [
+    uniqueIndex("design_field_size_prices_design_field_size_idx").on(t.designId, t.fieldId, t.sizeOptionId),
+  ]
+);
+
 /** Which categories a design belongs to — admin picks zero, one, or many per
  *  design; drives the customer-facing category filter chips. Never a fixed
  *  set, so no `is_base` here unlike design_field_values/fields. */

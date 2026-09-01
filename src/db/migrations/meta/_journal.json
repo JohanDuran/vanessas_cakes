@@ -64,6 +64,13 @@
       "when": 1788228394935,
       "tag": "0008_elite_squadron_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788228685878,
+      "tag": "0009_exotic_colossus",
+      "breakpoints": true
     }
   ]
 }

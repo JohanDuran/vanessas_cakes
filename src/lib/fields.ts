@@ -1,4 +1,4 @@
-export const FIELD_TYPES = ["single_select", "multi_select", "number", "text"] as const;
+export const FIELD_TYPES = ["single_select", "multi_select", "number", "text", "per_size"] as const;
 
 export type FieldType = (typeof FIELD_TYPES)[number];
 
@@ -7,6 +7,12 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   multi_select: "Multiple options (select many)",
   number: "Number",
   text: "Text",
+  // catalog-level, this behaves just like a flat yes/no surcharge (same
+  // shape as text/number's additionalPriceCents) — the only difference is
+  // that a specific design's own configuration can optionally make its
+  // price vary by which `size` the customer picked, instead of one flat
+  // amount. See design_field_size_prices in src/db/schema.ts.
+  per_size: "Per Size (price can vary by cake size)",
 };
 
 export function isFieldType(value: string): value is FieldType {

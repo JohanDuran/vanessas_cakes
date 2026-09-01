@@ -386,7 +386,7 @@ export default async function FieldDetailPage({
               admin adds it there via &quot;Add existing field&quot;.
             </p>
           )}
-          {(field.type === "text" || field.type === "number") && (
+          {(field.type === "text" || field.type === "number" || field.type === "per_size") && (
             <div className="admin-form-row">
               <div className="admin-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" id="required" name="required" value="1" defaultChecked={field.required} />
@@ -395,7 +395,7 @@ export default async function FieldDetailPage({
                 </label>
               </div>
               <div className="admin-field">
-                <label>Additional price ($)</label>
+                <label>{field.type === "per_size" ? "Default price ($)" : "Additional price ($)"}</label>
                 <input
                   name="additionalPriceDollars"
                   type="number"
@@ -405,6 +405,12 @@ export default async function FieldDetailPage({
                 />
               </div>
             </div>
+          )}
+          {field.type === "per_size" && (
+            <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
+              This is just the catalog default. A specific design can override it with one flat
+              price, or make it vary by cake size, from that design&apos;s own edit page.
+            </p>
           )}
         </form>
       </div>
@@ -477,6 +483,16 @@ export default async function FieldDetailPage({
             {field.type === "text" ? "Text" : "Number"} fields don&apos;t have options — customers
             type a value directly. Set a default (and optionally lock it) per design from that
             design&apos;s edit page.
+          </p>
+        </div>
+      )}
+
+      {field.type === "per_size" && (
+        <div className="admin-card">
+          <p style={{ color: "var(--text-soft)" }}>
+            Per Size fields don&apos;t have options — the customer just opts in or out, and the
+            price charged can depend on the cake size, if a design sets it up that way. Configure
+            pricing (flat or per-size) per design, from that design&apos;s edit page.
           </p>
         </div>
       )}
