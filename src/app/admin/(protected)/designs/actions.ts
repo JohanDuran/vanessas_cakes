@@ -140,10 +140,10 @@ export async function saveDesign(formData: FormData) {
       if (field.type === "single_select") {
         const raw = formData.get(`option_${field.id}`);
         const optionId = raw != null ? Number(raw) : NaN;
-        if (!Number.isInteger(optionId)) {
-          if (isCatalog) throw new Error(`${field.name} is required.`);
-          continue;
-        }
+        // a default is optional now — whether the customer must pick one
+        // themselves is governed entirely by design_required_fields (see
+        // OrderWizard's isFieldAnswered/nextDisabled), not by this admin form
+        if (!Number.isInteger(optionId)) continue;
         answers[field.id] = { type: "options", optionIds: [optionId] };
       } else if (field.type === "multi_select") {
         const ids = formData
@@ -157,18 +157,6 @@ export async function saveDesign(formData: FormData) {
       } else if (field.type === "number") {
         const raw = formData.get(`number_${field.id}`);
         if (raw != null && raw !== "") answers[field.id] = { type: "number", value: Number(raw) };
-      }
-    }
-
-    // catalog designs price themselves off each included option field's
-    // default — an included priced field left without one would leave gaps
-    // in the design's price wherever it's actually selectable. Quote
-    // designs have no fixed price to protect, so nothing is required there.
-    if (isCatalog) {
-      for (const field of allFields) {
-        if (!includedFieldIds.has(field.id)) continue;
-        if (!fieldHasOptions(field.type)) continue;
-        if (!answers[field.id]) throw new Error(`${field.name} is required.`);
       }
     }
 
@@ -234,12 +222,15 @@ export async function saveDesign(formData: FormData) {
     }
 
     // regular select fields (e.g. Filling) whose *options* this design has
-    // made size-varying — see design_option_size_prices
+    // made size-varying — see design_option_size_prices. cake_style itself
+    // can never be size-varying (it drives which sizes exist in the first
+    // place, see cakeStyle.ts) — the admin UI never submits this for it, but
+    // strip it here too in case of a tampered/stale form post.
     const optionSizeVaryingFieldIds = new Set(
       formData
         .getAll("optionSizeVaryingFieldIds")
         .map((v) => Number(v))
-        .filter((n) => Number.isInteger(n))
+        .filter((n) => Number.isInteger(n) && n !== cakeStyleField?.id)
     );
     const optionSizePrices: Record<number, Record<number, number>> = {};
     for (const field of allFields) {
@@ -266,10 +257,15 @@ export async function saveDesign(formData: FormData) {
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n));
 
+    // a hidden field can never also be required — the customer never sees it
+    // to answer it, so this can't be satisfied. The admin UI keeps these
+    // mutually exclusive already; this just guards against a tampered/stale
+    // form post carrying both for the same field.
+    const hiddenFieldIdSet = new Set(hiddenFieldIds);
     const requiredFieldIds = formData
       .getAll("requiredFieldIds")
       .map((v) => Number(v))
-      .filter((n) => Number.isInteger(n));
+      .filter((n) => Number.isInteger(n) && !hiddenFieldIdSet.has(n));
 
     const excludedOptionIdsRaw = formData
       .getAll("excludedOptionIds")

@@ -171,16 +171,30 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   );
   const [showFieldModal, setShowFieldModal] = useState(false);
 
+  // Hidden and Required can't both be true for the same field — a field the
+  // customer never sees can't also be something they're forced to answer.
+  // Checking "Hide" always wins and clears "Required"; the Required checkbox
+  // is disabled below while a field is hidden so it can't be re-checked.
   const toggleHidden = (fieldId: number) => {
     setHiddenFieldIds((prev) => {
       const next = new Set(prev);
-      if (next.has(fieldId)) next.delete(fieldId);
-      else next.add(fieldId);
+      if (next.has(fieldId)) {
+        next.delete(fieldId);
+      } else {
+        next.add(fieldId);
+        setRequiredFieldIds((prevRequired) => {
+          if (!prevRequired.has(fieldId)) return prevRequired;
+          const nextRequired = new Set(prevRequired);
+          nextRequired.delete(fieldId);
+          return nextRequired;
+        });
+      }
       return next;
     });
   };
 
   const toggleRequired = (fieldId: number) => {
+    if (hiddenFieldIds.has(fieldId)) return;
     setRequiredFieldIds((prev) => {
       const next = new Set(prev);
       if (next.has(fieldId)) next.delete(fieldId);
@@ -424,10 +438,8 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
   // mirrors the order wizard's resolveAll: a `size` default left over from a
   // different cake_style (picked before a later style change, or inherited
-  // from stale data) must not linger in the draft — otherwise it silently
-  // fails missingRequiredDefaults below with nothing on screen explaining
-  // why Save is disabled. Clearing it here keeps the visible dropdown, the
-  // drafted state, and the validation all in agreement.
+  // from stale data) must not linger in the draft, or the price preview and
+  // the visible dropdown would disagree about what's actually selected.
   useEffect(() => {
     if (!cakeStyleCtx) return;
     const sizeDraft = drafts[cakeStyleCtx.sizeFieldId];
@@ -468,20 +480,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAnswers, constraintPairs]);
 
-  // Catalog designs price themselves off each included option field's
-  // default (totalCents below), so every included single/multi select field
-  // needs one — an included priced option left without a default would
-  // leave the customer's eventual total silently short once they pick
-  // something for it in the wizard. Quote designs (custom / custom_portfolio)
-  // have no fixed price to protect, so nothing is required there — the
-  // customer just picks freely.
-  const missingRequiredDefaults = isCatalog
-    ? availableFields.filter(
-        (f) => includedFieldIds.has(f.id) && fieldHasOptions(f.type) && effectiveAnswers[f.id] == null
-      )
-    : [];
-  const missingRequiredDefaultIds = new Set(missingRequiredDefaults.map((f) => f.id));
-
   const allFieldsFlat: PriceableField[] = useMemo(
     () =>
       availableFields.map((f) => ({
@@ -514,12 +512,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
     if (!String(formData.get("name") ?? "").trim()) {
       errors.push("Design name is required.");
-    }
-
-    if (missingRequiredDefaults.length > 0) {
-      errors.push(
-        `Give a default value for: ${missingRequiredDefaults.map((f) => f.name).join(", ")} — or uncheck "Include in this design" if you don't want to use it.`
-      );
     }
 
     // belt-and-suspenders: the selectors above already filter out any option
@@ -633,9 +625,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             <div>
               <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
               <p style={{ color: "var(--text-soft)", marginTop: 4, fontSize: "0.9rem" }}>
-                {isCatalog
-                  ? "Include the fields this design uses, and give each included option field a default. You can lock any field so customers can't change it, require an answer, hide it from the customer entirely, or hide specific options just for this design."
-                  : "Include the fields this quote flow should ask about — no default value is required, the customer picks freely (or leaves it blank). You can still lock a field to force one answer, or hide specific options."}
+                Include the fields this design uses. Giving a field a default pre-fills that
+                answer for the customer, but it&apos;s optional — leave it blank if none applies.
+                Mark a field Required to force the customer to answer it themselves. You can also
+                lock a field so customers can&apos;t change it, hide it from the customer entirely,
+                or hide specific options just for this design.
               </p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -670,6 +664,10 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               const draft = drafts[field.id] ?? { optionIds: [], text: "", number: "" };
               const hasOptions = fieldHasOptions(field.type);
               const isSizeField = field.slug === SIZE_FIELD_SLUG;
+              // cake_style drives which sizes even exist (see cakeStyle.ts) —
+              // varying its own option prices by size makes no sense, so it
+              // never gets the "vary by cake size" control size fields get
+              const isCakeStyleField = field.slug === CAKE_STYLE_FIELD_SLUG;
               // options that would combine with this design's *other* current
               // defaults to form a pair marked incompatible in Constraints —
               // never offered as a pick for this field's own default (see
@@ -744,11 +742,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         })}
                       </select>
                     )}
-                    {isIncluded && field.type === "single_select" && missingRequiredDefaultIds.has(field.id) && (
-                      <span style={{ color: "var(--pink-600)", fontSize: "0.8rem" }}>
-                        Needs a default value before this can be saved.
-                      </span>
-                    )}
                     {isSizeField && (
                       <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: "4px 0 0" }}>
                         {styleKind == null
@@ -816,11 +809,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                             No options yet — add some from Catalog.
                           </span>
                         )}
-                        {missingRequiredDefaultIds.has(field.id) && (
-                          <span style={{ color: "var(--pink-600)", fontSize: "0.8rem" }}>
-                            Needs at least one default selection before this can be saved.
-                          </span>
-                        )}
                       </div>
                     </div>
                   )}
@@ -837,12 +825,16 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         />
                         🔒 Lock — customers can&apos;t change this
                       </label>
-                      <label className="recipe-axis-row__lock">
+                      <label
+                        className="recipe-axis-row__lock"
+                        title={hiddenFieldIds.has(field.id) ? "A hidden field can't also be required — uncheck \"Hide from customer\" first." : undefined}
+                      >
                         <input
                           type="checkbox"
                           name="requiredFieldIds"
                           value={field.id}
                           checked={requiredFieldIds.has(field.id)}
+                          disabled={hiddenFieldIds.has(field.id)}
                           onChange={() => toggleRequired(field.id)}
                         />
                         Required — customer must answer
@@ -908,7 +900,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                   {isIncluded && hasOptions && (
                     <div className="recipe-axis-row__exclude">
                       <span className="recipe-axis-row__exclude-label">Prices for this design:</span>
-                      {!isSizeField && (
+                      {!isSizeField && !isCakeStyleField && (
                         <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "4px 0 8px" }}>
                           <input
                             type="checkbox"
@@ -924,7 +916,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
                           No options yet — add some from Catalog.
                         </span>
-                      ) : !isSizeField && optionSizeVaryingFieldIds.has(field.id) ? (
+                      ) : !isSizeField && !isCakeStyleField && optionSizeVaryingFieldIds.has(field.id) ? (
                         <div className="price-table-wrap">
                           <table className="price-table">
                             <thead>
