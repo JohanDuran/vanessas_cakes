@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
+import { getHiddenOptionIds, resolveAnswers, selectionsViolateConstraints, type ConstraintPair } from "../../lib/constraints";
 import { computeStandardPriceCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
 import type { DesignTierPresetSummary } from "../../app/admin/(protected)/designs/tierPresetSummary";
@@ -38,6 +39,11 @@ type Props = {
   fields: FieldSummary[];
   tierPresets?: DesignTierPresetSummary[];
   categories?: CategorySummary[];
+  /** admin-defined incompatible-option pairs — filtered out of every
+   *  selector below so a design's own defaults can never combine two
+   *  options marked incompatible in Constraints (see saveDesign's matching
+   *  server-side check). */
+  constraintPairs?: ConstraintPair[];
   /** set when this design is being created from Portfolio's "Configure" button —
    *  its photo becomes this design's photo on save (see saveDesign). Ignored once
    *  a design already exists (editing never re-seeds from a portfolio photo). */
@@ -78,7 +84,7 @@ function draftFromAnswer(answer: Answers[number] | undefined): Draft {
   };
 }
 
-export default function DesignForm({ fields, tierPresets = [], categories = [], portfolioPhoto, design }: Props) {
+export default function DesignForm({ fields, tierPresets = [], categories = [], constraintPairs = [], portfolioPhoto, design }: Props) {
   const { push: pushToast } = useToast();
   // new designs are always catalog — the two quote-kind designs are seeded
   // once and only ever reached through their own edit pages, never created here
@@ -260,11 +266,32 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   // drops the drafted `size` answer once it no longer belongs to the drafted
   // style (e.g. a Tiered preset pick left over from before switching back to
   // Standard) — same rule the order wizard applies, so the price preview
-  // below never double-counts a stale, no-longer-selectable size option
-  const effectiveAnswers: Answers = useMemo(
-    () => (cakeStyleCtx ? applyCakeStyleRules(currentAnswers, cakeStyleCtx) : currentAnswers),
-    [currentAnswers, cakeStyleCtx]
-  );
+  // below never double-counts a stale, no-longer-selectable size option.
+  // Constraint pairs are resolved first, same order the wizard applies them in.
+  const effectiveAnswers: Answers = useMemo(() => {
+    const afterConstraints = resolveAnswers(currentAnswers, constraintPairs);
+    return cakeStyleCtx ? applyCakeStyleRules(afterConstraints, cakeStyleCtx) : afterConstraints;
+  }, [currentAnswers, cakeStyleCtx, constraintPairs]);
+
+  // an admin-picked default that conflicts with a constraint pair (e.g. after
+  // changing a different field's default to something incompatible) must not
+  // linger in the draft — otherwise Save fails server-side with the whole
+  // form reset (see saveDesign's matching check). Mirrors the size-clearing
+  // effect above: keeps the visible selects/checkboxes, the drafted state,
+  // and validation all in agreement.
+  useEffect(() => {
+    const resolved = resolveAnswers(currentAnswers, constraintPairs);
+    for (const field of availableFields) {
+      const before = currentAnswers[field.id];
+      if (before?.type !== "options") continue;
+      const after = resolved[field.id];
+      const afterIds = after?.type === "options" ? after.optionIds : [];
+      if (before.optionIds.length !== afterIds.length || before.optionIds.some((id) => !afterIds.includes(id))) {
+        setDraft(field.id, { optionIds: afterIds });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentAnswers, constraintPairs]);
 
   // Catalog designs price themselves off each included option field's
   // default (standardPriceCents below), so every included single/multi
@@ -320,6 +347,17 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
       );
     }
 
+    // belt-and-suspenders: the selectors above already filter out any option
+    // that would conflict with another field's current default, so this
+    // should be unreachable in normal use — but catching it here (instead of
+    // letting saveDesign's matching check throw) avoids the full-page
+    // redirect that would otherwise wipe out everything drafted in this form
+    if (selectionsViolateConstraints(effectiveAnswers, constraintPairs)) {
+      errors.push(
+        "This combines two options marked incompatible in Constraints — fix it or remove that constraint first."
+      );
+    }
+
     // a brand-new design with no seed photo (no existing design, no
     // Portfolio pick) needs at least one photo of its own — editing or
     // coming from Portfolio already has one, so "Add more photos" stays optional
@@ -347,6 +385,33 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         {!design && portfolioPhoto && (
           <input type="hidden" name="portfolioPhotoId" value={portfolioPhoto.id} />
         )}
+
+        {!design && portfolioPhoto && (
+          <div className="admin-field">
+            <label>From Portfolio</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <img
+                src={portfolioPhoto.path}
+                alt=""
+                width={72}
+                height={72}
+                style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
+              />
+              <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
+                This photo will become the design&apos;s primary photo, and will be removed from the
+                Portfolio once you save.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="admin-field">
+          <label>
+            {design || portfolioPhoto ? "Add more photos" : "Photos"}
+            {!design && !portfolioPhoto && <span className="field-type-tag">Required</span>}
+          </label>
+          <input type="file" name="photos" accept="image/*" multiple />
+        </div>
 
         <div className="admin-form-row">
           <div className="admin-field" style={{ flex: 1, minWidth: 240 }}>
@@ -411,6 +476,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               const draft = drafts[field.id] ?? { optionIds: [], text: "", number: "" };
               const hasOptions = fieldHasOptions(field.type);
               const isSizeField = field.slug === SIZE_FIELD_SLUG;
+              // options that would combine with this design's *other* current
+              // defaults to form a pair marked incompatible in Constraints —
+              // never offered as a pick for this field's own default (see
+              // saveDesign's matching server-side check)
+              const constraintHiddenIds = getHiddenOptionIds(field.id, effectiveAnswers, constraintPairs);
               const hideableOptions = field.options
                 .filter((opt) => !draft.optionIds.includes(opt.id))
                 // size options are scoped to the drafted Cake Style, same as
@@ -418,9 +488,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                 // for sizes that could actually be picked for this style
                 .filter((opt) => !isSizeField || opt.styleKind === styleKind)
                 .map((opt) => ({ ...opt, label: opt.name }));
-              const selectableOptions = isSizeField
-                ? field.options.filter((opt) => opt.styleKind === styleKind)
-                : field.options;
+              const selectableOptions = (
+                isSizeField ? field.options.filter((opt) => opt.styleKind === styleKind) : field.options
+              ).filter((opt) => !constraintHiddenIds.has(opt.id));
 
               return (
                 <div className="recipe-axis-row" key={field.id}>
@@ -519,7 +589,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                     <div className="recipe-axis-row__exclude">
                       <span className="recipe-axis-row__exclude-label">Default selection:</span>
                       <div className="recipe-axis-row__exclude-list">
-                        {field.options.map((opt) => (
+                        {field.options
+                          .filter((opt) => !constraintHiddenIds.has(opt.id))
+                          .map((opt) => (
                           <label key={opt.id}>
                             <input
                               type="checkbox"
@@ -641,33 +713,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           // catalog product
           <input type="hidden" name="published" value="1" />
         )}
-
-        {!design && portfolioPhoto && (
-          <div className="admin-field">
-            <label>From Portfolio</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <img
-                src={portfolioPhoto.path}
-                alt=""
-                width={72}
-                height={72}
-                style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
-              />
-              <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
-                This photo will become the design&apos;s primary photo, and will be removed from the
-                Portfolio once you save.
-              </p>
-            </div>
-          </div>
-        )}
-
-        <div className="admin-field">
-          <label>
-            {design || portfolioPhoto ? "Add more photos" : "Photos"}
-            {!design && !portfolioPhoto && <span className="field-type-tag">Required</span>}
-          </label>
-          <input type="file" name="photos" accept="image/*" multiple />
-        </div>
 
         <div>
           <button type="submit" className="btn btn-primary">

@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { cakeCategories, fieldOptions, fields, portfolioPhotos, tierPresets, tierPresetLevels } from "../../../../../db/schema";
+import { cakeCategories, constraintPairs, fieldOptions, fields, portfolioPhotos, tierPresets, tierPresetLevels } from "../../../../../db/schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../lib/fields";
 import DesignForm, { type FieldSummary } from "../../../../../components/admin/DesignForm";
 import { buildTierPresetSummaries } from "../tierPresetSummary";
@@ -13,7 +13,7 @@ export default async function NewDesignPage({
   searchParams: Promise<{ portfolioPhotoId?: string }>;
 }) {
   const { portfolioPhotoId } = await searchParams;
-  const [allFields, allOptions, allTierPresetRows, allTierPresetLevelRows, categories] = await Promise.all([
+  const [allFields, allOptions, allTierPresetRows, allTierPresetLevelRows, categories, pairs] = await Promise.all([
     db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
     db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
     db.select().from(tierPresets).then((r) => r),
@@ -24,6 +24,7 @@ export default async function NewDesignPage({
       .where(eq(cakeCategories.active, true))
       .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
       .then((r) => r),
+    db.select().from(constraintPairs).then((r) => r),
   ]);
 
   // stale id (already configured or deleted) just falls back to a normal blank form
@@ -78,6 +79,7 @@ export default async function NewDesignPage({
         fields={fieldSummaries}
         tierPresets={tierPresetSummaries}
         categories={categories}
+        constraintPairs={pairs.map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }))}
         portfolioPhoto={sourcePhoto ? { id: sourcePhoto.id, path: sourcePhoto.path } : undefined}
       />
     </>

@@ -85,6 +85,23 @@ function isFieldAnswered(field: FieldDTO, answer: Answers[number] | undefined): 
  *  the resolved design's kind !== "catalog". */
 const CUSTOM_STEP = 1;
 
+/** The first step the wizard should actually land on for a locked design —
+ *  skips past any fields the design locks (customer can't change them, so
+ *  there's nothing to show), landing on the review step if every field is
+ *  locked. Mirrors the skip rule goNext/goBack apply via navigableSteps,
+ *  which the reducer's initial state can't reuse directly since it runs
+ *  before the component body computes those. */
+function firstFieldOrReviewStep(fields: FieldDTO[], design: DesignSummaryDTO): number {
+  if (design.kind !== "catalog") return CUSTOM_STEP;
+  const fieldStepStart = 1;
+  const designFields = fieldsForDesign(fields, design);
+  const lockedSet = new Set(design.lockedFieldIds);
+  for (let i = 0; i < designFields.length; i++) {
+    if (!lockedSet.has(designFields[i].id)) return fieldStepStart + i;
+  }
+  return fieldStepStart + designFields.length; // every field locked -> straight to review
+}
+
 /** Runs both answer-consistency passes in sequence: clearing options excluded
  *  by admin-defined constraint pairs, then clearing size/tier-size answers
  *  left stale by a live cake_style/tier_levels switch. Must run on every
@@ -178,7 +195,7 @@ export default function OrderWizard({
             ...(initialSizeId && sizeField ? { [sizeField.id]: { type: "options", optionIds: [initialSizeId] } } : {}),
           }
         : {});
-    const initialStep = lockedDesign ? 1 : 0;
+    const initialStep = lockedDesign ? firstFieldOrReviewStep(fields, lockedDesign) : 0;
     return {
       designId: lockedDesign?.id ?? null,
       answers: resolveAll(answers, constraintPairs, cakeStyleCtx),

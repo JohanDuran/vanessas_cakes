@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "../../../../../../db";
 import {
   cakeCategories,
+  constraintPairs,
   designCategories,
   designExcludedOptions,
   designFieldValues,
@@ -44,6 +45,7 @@ export default async function EditDesignPage({
     allTierPresetLevelRows,
     categories,
     designCategoryRows,
+    pairs,
   ] = await Promise.all([
     db.select().from(fields).then((r) => r),
     db.select().from(fieldOptions).then((r) => r),
@@ -60,6 +62,7 @@ export default async function EditDesignPage({
       .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
       .then((r) => r),
     db.select().from(designCategories).where(eq(designCategories.designId, designId)).then((r) => r),
+    db.select().from(constraintPairs).then((r) => r),
   ]);
 
   const optionsByField = new Map<number, typeof allOptions>();
@@ -123,6 +126,7 @@ export default async function EditDesignPage({
         fields={fieldSummaries}
         tierPresets={tierPresetSummaries}
         categories={categories}
+        constraintPairs={pairs.map((p) => ({ optionAId: p.optionAId, optionBId: p.optionBId }))}
         design={{
           id: design.id,
           name: design.name,
