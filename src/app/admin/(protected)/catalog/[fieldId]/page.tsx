@@ -330,7 +330,7 @@ export default async function FieldDetailPage({
 
   return (
     <>
-      <h1>Catalog · {field.name}</h1>
+      <h1>Design Fields · {field.name}</h1>
       <p className="admin-main__subtitle">
         {isStructuralField
           ? "Built-in field — powers cake style/size logic, so its type can't change."
@@ -491,7 +491,7 @@ export default async function FieldDetailPage({
       )}
 
       <p>
-        <Link href="/admin/catalog">&larr; Back to Catalog</Link>
+        <Link href="/admin/catalog">&larr; Back to Design Fields</Link>
       </p>
     </>
   );

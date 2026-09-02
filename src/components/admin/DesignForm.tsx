@@ -100,7 +100,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   // new designs are always catalog — the two quote-kind designs are seeded
   // once and only ever reached through their own edit pages, never created here
   const isCatalog = !design || design.kind === "catalog";
-  // shown by default: base fields (admin-flagged in Catalog) plus, when
+  // shown by default: base fields (admin-flagged in Design Fields) plus, when
   // editing, whatever this design already uses — everything else stays
   // hidden until picked from the "Add existing field" dropdown below, so the
   // form doesn't get more crowded every time a new custom field is added
@@ -158,7 +158,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     () => new Set(design?.hiddenFieldIds ?? [])
   );
   // fields the customer must answer for this design — defaults to whatever
-  // Catalog flagged as a base field for a brand-new design, fully editable
+  // Design Fields flagged as a base field for a brand-new design, fully editable
   // either way (see design_required_fields)
   const [requiredFieldIds, setRequiredFieldIds] = useState<Set<number>>(
     () =>
@@ -921,7 +921,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         {styleKind == null
                           ? "Pick a Cake Style first."
                           : selectableOptions.length === 0
-                            ? `No ${styleKind} sizes configured yet — add some from Catalog.`
+                            ? `No ${styleKind} sizes configured yet — add some from Design Fields.`
                             : null}
                       </p>
                     )}
@@ -980,7 +980,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         ))}
                         {field.options.length === 0 && (
                           <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
-                            No options yet — add some from Catalog.
+                            No options yet — add some from Design Fields.
                           </span>
                         )}
                       </div>
@@ -1088,7 +1088,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                       )}
                       {priceableOptions.length === 0 ? (
                         <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
-                          No options yet — add some from Catalog.
+                          No options yet — add some from Design Fields.
                         </span>
                       ) : !isSizeField && !isCakeStyleField && optionSizeVaryingFieldIds.has(field.id) ? (
                         <div className="price-table-wrap">

@@ -25,7 +25,7 @@ export default async function CatalogIndexPage() {
 
   return (
     <>
-      <h1>Catalog</h1>
+      <h1>Design Fields</h1>
       <p className="admin-main__subtitle">
         Everything customers choose from when ordering — the 6 built-in fields plus any custom
         fields you add.

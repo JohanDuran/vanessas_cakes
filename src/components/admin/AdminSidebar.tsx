@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { href: "/admin/designs", label: "Designs" },
   { href: "/admin/portfolio", label: "Portfolio" },
   { href: "/admin/categories", label: "Categories" },
-  { href: "/admin/catalog", label: "Catalog" },
+  { href: "/admin/catalog", label: "Design Fields" },
   { href: "/admin/constraints", label: "Constraints" },
   { href: "/admin/availability", label: "Availability" },
   { href: "/admin/admins", label: "Admins" },
