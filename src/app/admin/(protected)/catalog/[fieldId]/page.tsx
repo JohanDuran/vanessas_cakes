@@ -134,6 +134,12 @@ export default async function FieldDetailPage({
         {!isLockedOptionSetField && (
           <div className="admin-card">
             <h3 style={{ marginBottom: 14 }}>Add option</h3>
+            {showDimensionColumns && (
+              <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", marginTop: -6, marginBottom: 14 }}>
+                Size is free text — enter a diameter for round (e.g. 8&quot;), a side length for
+                square (e.g. 8&quot;), or width×length for sheet (e.g. 8&quot;×12&quot;).
+              </p>
+            )}
             <form action={createOption} className="admin-form-row">
               <input type="hidden" name="fieldId" value={field.id} />
               {styleKind && <input type="hidden" name="styleKind" value={styleKind} />}
@@ -152,8 +158,8 @@ export default async function FieldDetailPage({
               {showDimensionColumns && (
                 <>
                   <div className="admin-field">
-                    <label>Diameter</label>
-                    <input name="diameterIn" placeholder={'8"'} style={{ minWidth: 70 }} />
+                    <label>Size</label>
+                    <input name="diameterIn" placeholder={'8" · 8"×12"'} style={{ minWidth: 90 }} />
                   </div>
                   <div className="admin-field">
                     <label>Shape</label>
@@ -200,7 +206,7 @@ export default async function FieldDetailPage({
                 <th>Sort</th>
                 {showDimensionColumns && (
                   <>
-                    <th>Diameter</th>
+                    <th>Size</th>
                     <th>Shape</th>
                     <th>Tiers</th>
                     <th>Serves</th>
@@ -250,6 +256,7 @@ export default async function FieldDetailPage({
                             form={formId}
                             name="diameterIn"
                             defaultValue={dims?.diameterIn ?? ""}
+                            placeholder={'8" · 8"×12"'}
                             style={{ width: "100%" }}
                           />
                         </td>

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
-import { fields, fieldOptions, tierPresets, tierPresetLevels } from "../../../../db/schema";
+import { fields, fieldOptions, tierPresets, tierPresetLevels, designFieldValues, designExcludedOptions } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
 import { SIZE_FIELD_SLUG, isTierLevelCount } from "../../../../lib/fields";
 import { isValidMoldStack, type AtomicMold } from "../../../../lib/cakeStyle";
@@ -94,6 +94,19 @@ export async function createTierPreset(formData: FormData) {
         .then((r) => r[0]);
       for (const [index, moldOptionId] of parsed.moldOptionIds.entries()) {
         await tx.insert(tierPresetLevels).values({ tierPresetId: insertedPreset.id, position: index + 1, moldOptionId });
+      }
+
+      // same rule as a plain new size option (see catalog/actions.ts's
+      // createOption) — a brand-new tier preset shouldn't silently become
+      // orderable on every design that already uses `size`
+      const existingDesigns = await tx
+        .selectDistinct({ designId: designFieldValues.designId })
+        .from(designFieldValues)
+        .where(eq(designFieldValues.fieldId, sizeField.id));
+      if (existingDesigns.length > 0) {
+        await tx.insert(designExcludedOptions).values(
+          existingDesigns.map((d) => ({ designId: d.designId, fieldOptionId: insertedOption.id }))
+        );
       }
     });
 

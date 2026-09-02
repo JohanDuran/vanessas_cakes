@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../../../db";
-import { fields, fieldOptions, fieldOptionDimensions } from "../../../../db/schema";
+import { fields, fieldOptions, fieldOptionDimensions, designFieldValues, designExcludedOptions } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, isBaseFieldSlug, slugify } from "../../../../lib/fields";
 import { toastMessage, toastRedirect } from "../../../../lib/toast";
@@ -212,6 +212,21 @@ export async function createOption(formData: FormData) {
         await tx.insert(fieldOptionDimensions)
           .values({ fieldOptionId: inserted.id, ...dims, updatedAt: Date.now() })
           ;
+      }
+
+      // a brand-new option must not silently become orderable (and
+      // unpriced) on every design that already uses this field — hide it
+      // there until the admin explicitly visits that design and adds/prices
+      // it. A design that starts using this field later is unaffected, same
+      // as always (its own excluded-options list starts empty).
+      const existingDesigns = await tx
+        .selectDistinct({ designId: designFieldValues.designId })
+        .from(designFieldValues)
+        .where(eq(designFieldValues.fieldId, parsed.fieldId));
+      if (existingDesigns.length > 0) {
+        await tx.insert(designExcludedOptions).values(
+          existingDesigns.map((d) => ({ designId: d.designId, fieldOptionId: inserted.id }))
+        );
       }
     });
 
