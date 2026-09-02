@@ -1,7 +1,7 @@
 "use client";
 
 import type { FieldDTO, FieldOptionDTO } from "../../../lib/order-types";
-import { computeOptionDeltaCents, formatCents } from "../../../lib/pricing";
+import { computeOptionDeltaCents, formatCents, resolveOptionPriceCents, type PerSizePrices } from "../../../lib/pricing";
 import PriceDelta from "../PriceDelta";
 import ShapeDiagram from "./ShapeDiagram";
 
@@ -16,24 +16,46 @@ type Props = {
    *  own contribution — lets each card show its absolute total price
    *  (basePriceCents + that size's own price) instead of a +/- delta. */
   totalBaseCents?: number;
+  /** this design's size-varying option prices, if any of `options` here
+   *  were made size-varying (see design_option_size_prices) — an option
+   *  present here resolves to its price at `currentSizeOptionId` instead of
+   *  its flat priceCents. Without these, a size-varying option would show
+   *  its plain catalog price instead of $0/whatever this design actually
+   *  charges at the customer's chosen size. */
+  optionSizePrices?: PerSizePrices;
+  currentSizeOptionId?: number;
   onToggle: (optionId: number) => void;
 };
 
-export default function FieldOptionStep({ field, options, selectedIds, hidePrice, totalBaseCents, onToggle }: Props) {
+export default function FieldOptionStep({
+  field,
+  options,
+  selectedIds,
+  hidePrice,
+  totalBaseCents,
+  optionSizePrices,
+  currentSizeOptionId,
+  onToggle,
+}: Props) {
   const showDiagram = field.hasShapeDiagram;
   const isMulti = field.type === "multi_select";
   const selectedSet = new Set(selectedIds);
+
+  const resolvedPriceCents = (item: FieldOptionDTO) =>
+    resolveOptionPriceCents(item.id, options, optionSizePrices, currentSizeOptionId) ?? item.priceCents;
 
   // single_select shows the cost of swapping to this option from whatever's
   // currently picked; multi_select has no single "current" to swap from, so
   // it just shows the flat cost of adding it (ignored once selected, since
   // PriceDelta renders "Selected" instead of a price for selected options)
   const deltaFor = (item: FieldOptionDTO) =>
-    isMulti ? item.priceCents : computeOptionDeltaCents(item.id, selectedIds[0], options);
+    isMulti
+      ? resolvedPriceCents(item)
+      : computeOptionDeltaCents(item.id, selectedIds[0], options, optionSizePrices, currentSizeOptionId);
 
   const priceNodeFor = (item: FieldOptionDTO, isSelected: boolean) =>
     totalBaseCents != null ? (
-      <span className="price-delta price-delta--total">{formatCents(totalBaseCents + item.priceCents)}</span>
+      <span className="price-delta price-delta--total">{formatCents(totalBaseCents + resolvedPriceCents(item))}</span>
     ) : (
       <PriceDelta cents={deltaFor(item)} selected={isSelected} />
     );

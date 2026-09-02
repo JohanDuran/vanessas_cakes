@@ -490,6 +490,8 @@ export default function OrderWizard({
                 )}
                 selectedIds={currentAnswer?.type === "options" ? currentAnswer.optionIds : []}
                 hidePrice={isQuote}
+                optionSizePrices={selectedDesign?.optionSizePrices}
+                currentSizeOptionId={currentSizeOptionId}
                 onToggle={(optionId) => {
                   const currentIds = currentAnswer?.type === "options" ? currentAnswer.optionIds : [];
                   const nextIds =
