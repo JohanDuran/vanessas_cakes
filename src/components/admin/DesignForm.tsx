@@ -463,6 +463,23 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   const styleKind = cakeStyleCtx ? currentStyleKind(currentAnswers, cakeStyleCtx) : undefined;
   const presetsByOptionId = useMemo(() => new Map(tierPresets.map((p) => [p.fieldOptionId, p])), [tierPresets]);
 
+  // Size is often locked to force one fixed size for the whole design — in
+  // that case there's only ever one size a customer could get, so every
+  // by-size price grid (for Filling, Frosting, etc.) should offer just that
+  // one column instead of every size the drafted cake style has.
+  const sizeFieldLocked = sizeField ? lockedFieldIds.has(sizeField.id) : false;
+  const lockedSizeOptionId = sizeFieldLocked ? drafts[sizeField!.id]?.optionIds[0] : undefined;
+  // this design's own visible sizes, for the drafted cake style — a size
+  // this design has hidden from customers (excludedOptionIds) never needs
+  // its own price configured anywhere, and when Size is locked there's only
+  // ever the one size to price for. Shared by both the Size field's own
+  // price table and every other field's "vary by cake size" grid, so the
+  // two always agree on which sizes actually apply to this design.
+  const visibleSizeOptions = (sizeField?.options ?? [])
+    .filter((opt) => opt.styleKind === styleKind)
+    .filter((opt) => !excludedOptionIds.has(opt.id))
+    .filter((opt) => lockedSizeOptionId == null || opt.id === lockedSizeOptionId);
+
   // mirrors the order wizard's resolveAll: a `size` default left over from a
   // different cake_style (picked before a later style change, or inherited
   // from stale data) must not linger in the draft, or the price preview and
@@ -543,8 +560,8 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     const hasOptions = fieldHasOptions(field.type);
     const isSizeField = field.slug === SIZE_FIELD_SLUG;
     const isCakeStyleField = field.slug === CAKE_STYLE_FIELD_SLUG;
-    const priceableOptions = field.options.filter((opt) => !isSizeField || opt.styleKind === styleKind);
-    const styleFilteredSizeOptions = (sizeField?.options ?? []).filter((opt) => opt.styleKind === styleKind);
+    const priceableOptions = isSizeField ? visibleSizeOptions : field.options.filter((opt) => !excludedOptionIds.has(opt.id));
+    const styleFilteredSizeOptions = visibleSizeOptions;
     const isOptionSizeVarying = hasOptions && !isSizeField && !isCakeStyleField && optionSizeVaryingFieldIds.has(field.id);
     const isFieldSizeVarying = field.type === "per_size" && sizeVaryingFieldIds.has(field.id);
 
@@ -854,14 +871,18 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               const selectableOptions = (
                 isSizeField ? field.options.filter((opt) => opt.styleKind === styleKind) : field.options
               ).filter((opt) => !constraintHiddenIds.has(opt.id));
-              // this design's currently-drafted Cake Style's sizes only —
-              // used for every price table below that's keyed by size, so a
-              // style change hides prices for sizes that no longer apply,
-              // same as the option pickers above
-              const styleFilteredSizeOptions = (sizeField?.options ?? []).filter((opt) => opt.styleKind === styleKind);
-              // this field's own options, scoped to the drafted style when
-              // it's the size field itself — used for its own price table
-              const priceableOptions = field.options.filter((opt) => !isSizeField || opt.styleKind === styleKind);
+              // this design's currently-visible sizes — excludes anything
+              // hidden for this design, and collapses to the one locked size
+              // when Size can't be changed — used for every price table
+              // below that's keyed by size, so a style change (or excluding
+              // a size, or locking Size) hides prices for sizes that no
+              // longer apply, same as the option pickers above
+              const styleFilteredSizeOptions = visibleSizeOptions;
+              // this field's own options, scoped the same way — its own
+              // price table when it's the size field itself, or with any
+              // option this design has hidden dropped otherwise (an
+              // excluded option never needs its own price row)
+              const priceableOptions = isSizeField ? visibleSizeOptions : field.options.filter((opt) => !excludedOptionIds.has(opt.id));
 
               return (
                 <div className="field-wizard__detail-card">
