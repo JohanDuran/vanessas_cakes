@@ -132,13 +132,20 @@ ul {
   transform: scale(0.97);
 }
 
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, var(--pink-400), var(--pink-500));
   color: var(--white);
   box-shadow: 0 10px 24px var(--shadow-pink);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 14px 28px var(--shadow-pink);
 }
@@ -149,7 +156,7 @@ ul {
   border: 2px solid var(--pink-300);
 }
 
-.btn-outline:hover {
+.btn-outline:hover:not(:disabled) {
   background: var(--pink-100);
 }
 
