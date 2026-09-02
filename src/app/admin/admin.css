@@ -509,6 +509,197 @@
   font-family: var(--font-body);
 }
 
+/* Design form's per-field configuration wizard — a nav list of every field
+   on the left (reorderable, sets this design's own display order for
+   customers) and one field's full configuration on the right, instead of
+   every field's settings stacked in one long scroll. */
+.field-wizard {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.field-wizard__nav {
+  border: 2px solid var(--pink-100);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: sticky;
+  top: 16px;
+}
+
+.field-wizard__nav-header {
+  padding: 12px 12px 14px;
+  border-bottom: 2px solid var(--pink-100);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--cream);
+}
+
+.field-wizard__nav-count {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+}
+
+.field-wizard__nav-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-wizard__nav-add select {
+  width: 100%;
+}
+
+.field-wizard__nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.field-wizard__nav-item {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.field-wizard__nav-item:hover {
+  background: var(--pink-50);
+}
+
+.field-wizard__nav-item.is-active {
+  background: var(--pink-100);
+}
+
+.field-wizard__nav-item-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 9px 8px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  min-width: 0;
+}
+
+.field-wizard__nav-item-name {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--choco-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.field-wizard__nav-item.is-not-included .field-wizard__nav-item-name {
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
+.field-wizard__nav-item-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  color: var(--text-soft);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.field-wizard__nav-reorder {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-right: 4px;
+}
+
+.field-wizard__nav-reorder button {
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  cursor: pointer;
+  line-height: 1;
+  padding: 3px 5px;
+  font-size: 0.65rem;
+}
+
+.field-wizard__nav-reorder button:hover:not(:disabled) {
+  color: var(--pink-600);
+}
+
+.field-wizard__nav-reorder button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.field-wizard__nav-empty {
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  padding: 10px 8px;
+}
+
+.field-wizard__detail {
+  min-width: 0;
+}
+
+.field-wizard__detail-card {
+  border: 2px solid var(--pink-100);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-wizard__detail-progress {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pink-600);
+}
+
+.field-wizard__detail-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pink-100);
+}
+
+@media (max-width: 900px) {
+  .field-wizard {
+    grid-template-columns: 1fr;
+  }
+
+  .field-wizard__nav {
+    position: static;
+  }
+
+  .field-wizard__nav-list {
+    max-height: 320px;
+  }
+}
+
 .admin-modal-overlay {
   position: fixed;
   inset: 0;

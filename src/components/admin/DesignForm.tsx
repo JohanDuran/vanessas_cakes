@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { getHiddenOptionIds, resolveAnswers, selectionsViolateConstraints, type ConstraintPair } from "../../lib/constraints";
@@ -121,6 +121,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     setDrafts((prev) => (prev[field.id] ? prev : { ...prev, [field.id]: { optionIds: [], text: "", number: "" } }));
     setIncludedFieldIds((prev) => new Set(prev).add(field.id));
     if (field.isBase) setRequiredFieldIds((prev) => new Set(prev).add(field.id));
+    setActiveFieldId(field.id);
   };
   const [drafts, setDrafts] = useState<Record<number, Draft>>(() => {
     const init: Record<number, Draft> = {};
@@ -170,6 +171,31 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     new Set(design?.excludedOptionIds ?? [])
   );
   const [showFieldModal, setShowFieldModal] = useState(false);
+
+  // Which field's full configuration is shown in the detail pane — the admin
+  // configures one field at a time (like the customer's own order wizard)
+  // instead of scrolling a long list of every field at once. Falls back to
+  // the first available field whenever the id it's pointed at disappears
+  // (there's no removal today, but a brand-new design with zero fields yet
+  // starts with none selected either way).
+  const [activeFieldId, setActiveFieldId] = useState<number | null>(() => availableFields[0]?.id ?? null);
+  const activeField = availableFields.find((f) => f.id === activeFieldId) ?? availableFields[0];
+  const activeFieldIndex = activeField ? availableFields.findIndex((f) => f.id === activeField.id) : -1;
+
+  // Reordering here only changes the array order (rendered as hidden
+  // `fieldOrder` inputs below, in this exact order) — this is purely this
+  // design's own display order (see design_field_order), never the global
+  // catalog field order.
+  const moveField = (fieldId: number, direction: -1 | 1) => {
+    setAvailableFields((prev) => {
+      const idx = prev.findIndex((f) => f.id === fieldId);
+      const swapIdx = idx + direction;
+      if (idx === -1 || swapIdx < 0 || swapIdx >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  };
 
   // Hidden and Required can't both be true for the same field — a field the
   // customer never sees can't also be something they're forced to answer.
@@ -500,6 +526,87 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     [effectiveAnswers, allOptionsFlat, allFieldsFlat]
   );
 
+  // The detail pane only shows one field's interactive controls at a time
+  // (see the field-wizard below) — every *other* field's current state still
+  // has to reach saveDesign somehow, so this renders the same set of form
+  // inputs the old all-at-once layout used to render inline, as hidden
+  // inputs, for whichever field isn't the one currently on screen. Without
+  // this, submitting would silently drop every field except the active one
+  // (caught the hard way: saving after switching fields threw "Cake Style
+  // and Size must be enabled or disabled together" because only one of the
+  // pair still had an `includedFieldIds` input in the DOM).
+  const renderFieldStateInputs = (field: FieldSummary) => {
+    if (!includedFieldIds.has(field.id)) return null;
+    const isLocked = lockedFieldIds.has(field.id);
+    const draft = drafts[field.id] ?? { optionIds: [], text: "", number: "" };
+    const hasOptions = fieldHasOptions(field.type);
+    const isSizeField = field.slug === SIZE_FIELD_SLUG;
+    const isCakeStyleField = field.slug === CAKE_STYLE_FIELD_SLUG;
+    const priceableOptions = field.options.filter((opt) => !isSizeField || opt.styleKind === styleKind);
+    const styleFilteredSizeOptions = (sizeField?.options ?? []).filter((opt) => opt.styleKind === styleKind);
+    const isOptionSizeVarying = hasOptions && !isSizeField && !isCakeStyleField && optionSizeVaryingFieldIds.has(field.id);
+    const isFieldSizeVarying = field.type === "per_size" && sizeVaryingFieldIds.has(field.id);
+
+    return (
+      <Fragment key={field.id}>
+        <input type="hidden" name="includedFieldIds" value={field.id} />
+        {isLocked && <input type="hidden" name="lockedFieldIds" value={field.id} />}
+        {requiredFieldIds.has(field.id) && <input type="hidden" name="requiredFieldIds" value={field.id} />}
+        {hiddenFieldIds.has(field.id) && <input type="hidden" name="hiddenFieldIds" value={field.id} />}
+
+        {field.type === "single_select" && draft.optionIds[0] != null && (
+          <input type="hidden" name={`option_${field.id}`} value={draft.optionIds[0]} />
+        )}
+        {field.type === "multi_select" &&
+          draft.optionIds.map((id) => <input key={id} type="hidden" name={`options_${field.id}`} value={id} />)}
+        {field.type === "text" && draft.text && <input type="hidden" name={`text_${field.id}`} value={draft.text} />}
+        {field.type === "number" && draft.number !== "" && (
+          <input type="hidden" name={`number_${field.id}`} value={draft.number} />
+        )}
+
+        {!isLocked &&
+          hasOptions &&
+          field.options
+            .filter((opt) => excludedOptionIds.has(opt.id))
+            .map((opt) => <input key={opt.id} type="hidden" name="excludedOptionIds" value={opt.id} />)}
+
+        {isOptionSizeVarying && <input type="hidden" name="optionSizeVaryingFieldIds" value={field.id} />}
+        {hasOptions &&
+          (isOptionSizeVarying
+            ? priceableOptions.flatMap((opt) =>
+                styleFilteredSizeOptions.map((sizeOpt) => (
+                  <input
+                    key={`${opt.id}_${sizeOpt.id}`}
+                    type="hidden"
+                    name={`optionSizePrice_${opt.id}_${sizeOpt.id}`}
+                    value={optionSizePriceDrafts[`${opt.id}:${sizeOpt.id}`] ?? ""}
+                  />
+                ))
+              )
+            : priceableOptions.map((opt) => (
+                <input key={opt.id} type="hidden" name={`optionPrice_${opt.id}`} value={optionPriceDrafts[opt.id] ?? ""} />
+              )))}
+
+        {!hasOptions && !isFieldSizeVarying && (
+          <input type="hidden" name={`fieldPrice_${field.id}`} value={fieldPriceDrafts[field.id] ?? ""} />
+        )}
+        {isFieldSizeVarying && (
+          <>
+            <input type="hidden" name="sizeVaryingFieldIds" value={field.id} />
+            {styleFilteredSizeOptions.map((sizeOpt) => (
+              <input
+                key={sizeOpt.id}
+                type="hidden"
+                name={`sizePrice_${field.id}_${sizeOpt.id}`}
+                value={perSizePriceDrafts[`${field.id}:${sizeOpt.id}`] ?? ""}
+              />
+            ))}
+          </>
+        )}
+      </Fragment>
+    );
+  };
+
   // A disabled submit button — or a native HTML `required` attribute —
   // gives zero feedback when tapped: the browser just silently blocks the
   // submit (at most a small native tooltip on whichever field it stopped
@@ -621,43 +728,106 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         </div>
 
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div>
-              <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
-              <p style={{ color: "var(--text-soft)", marginTop: 4, fontSize: "0.9rem" }}>
-                Include the fields this design uses. Giving a field a default pre-fills that
-                answer for the customer, but it&apos;s optional — leave it blank if none applies.
-                Mark a field Required to force the customer to answer it themselves. You can also
-                lock a field so customers can&apos;t change it, hide it from the customer entirely,
-                or hide specific options just for this design.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {unaddedFields.length > 0 && (
-                <select
-                  value=""
-                  aria-label="Add an existing field"
-                  onChange={(e) => {
-                    const id = Number(e.target.value);
-                    if (id) addExistingField(id);
-                  }}
-                >
-                  <option value="">+ Add existing field…</option>
-                  {unaddedFields.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
-                + Add Field
-              </button>
-            </div>
-          </div>
+          <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
+          <p style={{ color: "var(--text-soft)", marginTop: 4, marginBottom: 14, fontSize: "0.9rem" }}>
+            Configure one field at a time — pick it from the list, or use Previous/Next below.
+            Giving a field a default pre-fills that answer for the customer, but it&apos;s
+            optional — leave it blank if none applies. Mark a field Required to force the
+            customer to answer it themselves. You can also lock a field so customers can&apos;t
+            change it, hide it from the customer entirely, or hide specific options just for
+            this design. Use the arrows to reorder fields — that&apos;s the order customers see
+            them in too.
+          </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {availableFields.map((field) => {
+          {/* this design's own field display order — one hidden input per
+             field, in the exact order shown in the nav list below (see
+             moveField); saveDesign persists this as design_field_order */}
+          {availableFields.map((field) => (
+            <input key={field.id} type="hidden" name="fieldOrder" value={field.id} />
+          ))}
+          {availableFields.filter((f) => f.id !== activeField?.id).map((field) => renderFieldStateInputs(field))}
+
+          <div className="field-wizard">
+            <div className="field-wizard__nav">
+              <div className="field-wizard__nav-header">
+                <span className="field-wizard__nav-count">
+                  {availableFields.length} field{availableFields.length === 1 ? "" : "s"}
+                </span>
+                <div className="field-wizard__nav-add">
+                  {unaddedFields.length > 0 && (
+                    <select
+                      value=""
+                      aria-label="Add an existing field"
+                      onChange={(e) => {
+                        const id = Number(e.target.value);
+                        if (id) addExistingField(id);
+                      }}
+                    >
+                      <option value="">+ Add existing field…</option>
+                      {unaddedFields.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
+                    + Add Field
+                  </button>
+                </div>
+              </div>
+
+              <ol className="field-wizard__nav-list">
+                {availableFields.map((field, idx) => {
+                  const included = includedFieldIds.has(field.id);
+                  return (
+                    <li
+                      key={field.id}
+                      className={`field-wizard__nav-item ${activeField?.id === field.id ? "is-active" : ""} ${
+                        included ? "" : "is-not-included"
+                      }`}
+                    >
+                      <button type="button" className="field-wizard__nav-item-btn" onClick={() => setActiveFieldId(field.id)}>
+                        <span className="field-wizard__nav-item-name">{field.name}</span>
+                        <span className="field-wizard__nav-item-badges">
+                          {!included && <span>not included</span>}
+                          {included && lockedFieldIds.has(field.id) && <span title="Locked">🔒</span>}
+                          {included && requiredFieldIds.has(field.id) && <span title="Required">❗</span>}
+                          {included && hiddenFieldIds.has(field.id) && <span title="Hidden from customer">🙈</span>}
+                        </span>
+                      </button>
+                      <div className="field-wizard__nav-reorder">
+                        <button
+                          type="button"
+                          aria-label={`Move ${field.name} up`}
+                          disabled={idx === 0}
+                          onClick={() => moveField(field.id, -1)}
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${field.name} down`}
+                          disabled={idx === availableFields.length - 1}
+                          onClick={() => moveField(field.id, 1)}
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+                {availableFields.length === 0 && <li className="field-wizard__nav-empty">No fields yet.</li>}
+              </ol>
+            </div>
+
+            <div className="field-wizard__detail">
+              {!activeField && (
+                <p style={{ color: "var(--text-soft)" }}>No fields defined yet — add one above.</p>
+              )}
+              {activeField &&
+                (() => {
+              const field = activeField;
               const isIncluded = includedFieldIds.has(field.id);
               const isLocked = lockedFieldIds.has(field.id);
               const isPaired = PAIRED_INCLUSION_SLUGS.has(field.slug);
@@ -693,7 +863,10 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               const priceableOptions = field.options.filter((opt) => !isSizeField || opt.styleKind === styleKind);
 
               return (
-                <div className="recipe-axis-row" key={field.id}>
+                <div className="field-wizard__detail-card">
+                  <span className="field-wizard__detail-progress">
+                    Field {activeFieldIndex + 1} of {availableFields.length}
+                  </span>
                   <div className="recipe-axis-row__main">
                     <label>
                       {field.name}
@@ -1061,12 +1234,28 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                       )}
                     </div>
                   )}
+                  <div className="field-wizard__detail-nav">
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      disabled={activeFieldIndex <= 0}
+                      onClick={() => setActiveFieldId(availableFields[activeFieldIndex - 1].id)}
+                    >
+                      ← Previous field
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      disabled={activeFieldIndex === -1 || activeFieldIndex >= availableFields.length - 1}
+                      onClick={() => setActiveFieldId(availableFields[activeFieldIndex + 1].id)}
+                    >
+                      Next field →
+                    </button>
+                  </div>
                 </div>
               );
-            })}
-            {availableFields.length === 0 && (
-              <p style={{ color: "var(--text-soft)" }}>No fields defined yet — add one above.</p>
-            )}
+                })()}
+            </div>
           </div>
         </div>
 
@@ -1170,6 +1359,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             if (!fieldHasOptions(field.type)) {
               setFieldPriceDrafts((prev) => ({ ...prev, [field.id]: (field.additionalPriceCents / 100).toFixed(2) }));
             }
+            setActiveFieldId(field.id);
             setShowFieldModal(false);
           }}
         />
