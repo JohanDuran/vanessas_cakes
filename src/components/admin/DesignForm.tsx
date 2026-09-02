@@ -8,6 +8,7 @@ import { computeTotalCents, formatCents, type Answers, type PriceableField } fro
 import { saveDesign, deleteDesignPhoto, setPrimaryPhoto } from "../../app/admin/(protected)/designs/actions";
 import type { DesignTierPresetSummary } from "../../app/admin/(protected)/designs/tierPresetSummary";
 import { useToast } from "../ToastProvider";
+import SubmitButton from "../SubmitButton";
 import QuickAddFieldModal from "./QuickAddFieldModal";
 
 export type FieldOptionSummary = {
@@ -1284,9 +1285,9 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         )}
 
         <div>
-          <button type="submit" className="btn btn-primary">
+          <SubmitButton pendingLabel={design ? "Saving…" : "Creating…"}>
             {design ? "Save Design" : "Create Design"}
-          </button>
+          </SubmitButton>
         </div>
       </form>
 

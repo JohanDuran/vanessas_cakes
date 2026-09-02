@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { FIELD_TYPES, FIELD_TYPE_LABELS, fieldHasOptions, type FieldType } from "../../lib/fields";
 import { quickCreateField } from "../../app/admin/(protected)/catalog/actions";
 import { useToast } from "../ToastProvider";
+import DonutSpinner from "../DonutSpinner";
 import FieldOptionsEditor, { type OptionDraft } from "./FieldOptionsEditor";
 import type { FieldSummary } from "./DesignForm";
 
@@ -109,7 +110,13 @@ export default function QuickAddFieldModal({ onClose, onCreated }: Props) {
             <button type="button" className="btn btn-outline" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={submitting}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={submitting}
+              style={{ display: "inline-flex", alignItems: "center", gap: 10 }}
+            >
+              {submitting && <DonutSpinner size={16} />}
               {submitting ? "Adding…" : "Add Field"}
             </button>
           </div>

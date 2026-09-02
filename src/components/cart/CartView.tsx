@@ -10,6 +10,7 @@ import type { WeeklyHour, DateOverride, PickupSettings } from "../../lib/availab
 import { useCart, type CartItem } from "../../lib/cart/CartContext";
 import { useUser } from "../../lib/user/UserContext";
 import { useToast } from "../ToastProvider";
+import DonutSpinner from "../DonutSpinner";
 import { submitCart } from "../../app/order/actions";
 import PickupStep from "../order/steps/PickupStep";
 import "./cart.css";
@@ -358,7 +359,13 @@ export default function CartView({ fields, options, designs, tierPresets, availa
           You&apos;ll receive a confirmation email at the address above once your order is submitted.
         </p>
 
-        <button type="submit" className="btn btn-primary order-summary__submit" disabled={isSubmitting}>
+        <button
+          type="submit"
+          className="btn btn-primary order-summary__submit"
+          disabled={isSubmitting}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10 }}
+        >
+          {isSubmitting && <DonutSpinner size={18} />}
           {isSubmitting ? "Sending…" : "Send Order to the Baker"}
         </button>
       </form>

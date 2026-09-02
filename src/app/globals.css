@@ -264,3 +264,57 @@ ul {
     transform: translateY(0);
   }
 }
+
+/* A little spinning donut for "this is processing" states — see
+   src/components/DonutSpinner.tsx / SubmitButton.tsx. Spins like a wheel
+   (sprinkles as its "teeth"); the icing ring pulses gently so it doesn't
+   read as a stalled/frozen icon on a very fast save. */
+.donut-spinner {
+  animation: donut-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes donut-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.donut-spinner__ring {
+  fill: var(--peach-300);
+  stroke: var(--choco-700);
+  stroke-width: 1.5;
+  stroke-opacity: 0.25;
+  animation: donut-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes donut-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.donut-spinner__hole {
+  fill: var(--white);
+}
+
+.donut-spinner__sprinkle {
+  fill: var(--pink-500);
+}
+
+.donut-spinner__sprinkle--2,
+.donut-spinner__sprinkle--5 {
+  fill: var(--mint-300);
+}
+
+.donut-spinner__sprinkle--3,
+.donut-spinner__sprinkle--6 {
+  fill: var(--lavender-300);
+}
+
+.donut-spinner__sprinkle--4 {
+  fill: var(--yellow-300);
+}
