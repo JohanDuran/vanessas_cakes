@@ -17,6 +17,7 @@ import {
   designPhotos,
   designRequiredFields,
   designs,
+  fieldOptionDimensions,
   fieldOptions,
   fields,
   tierPresets,
@@ -60,6 +61,7 @@ export default async function EditDesignPage({
     hiddenRows,
     requiredRows,
     fieldOrderRows,
+    allDimensionRows,
   ] = await Promise.all([
     db.select().from(fields).then((r) => r),
     db.select().from(fieldOptions).then((r) => r),
@@ -84,6 +86,7 @@ export default async function EditDesignPage({
     db.select().from(designHiddenFields).where(eq(designHiddenFields.designId, designId)).then((r) => r),
     db.select().from(designRequiredFields).where(eq(designRequiredFields.designId, designId)).then((r) => r),
     db.select().from(designFieldOrder).where(eq(designFieldOrder.designId, designId)).then((r) => r),
+    db.select().from(fieldOptionDimensions).then((r) => r),
   ]);
 
   const priceOverrides = buildDesignPriceOverrides(
@@ -100,6 +103,8 @@ export default async function EditDesignPage({
     list.push(opt);
     optionsByField.set(opt.fieldId, list);
   }
+
+  const dimsByOptionId = new Map(allDimensionRows.map((d) => [d.fieldOptionId, d]));
 
   // this design's own field order, if it's ever been saved through the
   // admin's field reorder (see DesignForm) — fields with no row here (never
@@ -128,14 +133,26 @@ export default async function EditDesignPage({
       isBase: f.isBase,
       active: f.active,
       additionalPriceCents: f.additionalPriceCents,
-      options: (optionsByField.get(f.id) ?? []).map((o) => ({
-        id: o.id,
-        name: o.name,
-        priceCents: o.priceCents,
-        active: o.active,
-        styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
-        tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
-      })),
+      options: (optionsByField.get(f.id) ?? []).map((o) => {
+        const dims = dimsByOptionId.get(o.id);
+        return {
+          id: o.id,
+          name: o.name,
+          priceCents: o.priceCents,
+          active: o.active,
+          styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+          tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
+          dimensions: dims
+            ? {
+                diameterIn: dims.diameterIn,
+                shape: dims.shape,
+                tiers: dims.tiers,
+                servesMin: dims.servesMin,
+                servesMax: dims.servesMax,
+              }
+            : null,
+        };
+      }),
     }));
 
   const tierPresetSummaries = buildTierPresetSummaries(allOptions, allTierPresetRows, allTierPresetLevelRows);

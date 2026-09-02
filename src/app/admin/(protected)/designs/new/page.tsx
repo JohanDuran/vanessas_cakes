@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { cakeCategories, constraintPairs, fieldOptions, fields, portfolioPhotos, tierPresets, tierPresetLevels } from "../../../../../db/schema";
+import { cakeCategories, constraintPairs, fieldOptionDimensions, fieldOptions, fields, portfolioPhotos, tierPresets, tierPresetLevels } from "../../../../../db/schema";
 import { baseFieldRank, isCakeStyleKind, isFieldType, isTierLevelCount, type FieldType } from "../../../../../lib/fields";
 import DesignForm, { type FieldSummary } from "../../../../../components/admin/DesignForm";
 import { buildTierPresetSummaries } from "../tierPresetSummary";
@@ -13,19 +13,21 @@ export default async function NewDesignPage({
   searchParams: Promise<{ portfolioPhotoId?: string }>;
 }) {
   const { portfolioPhotoId } = await searchParams;
-  const [allFields, allOptions, allTierPresetRows, allTierPresetLevelRows, categories, pairs] = await Promise.all([
-    db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
-    db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
-    db.select().from(tierPresets).then((r) => r),
-    db.select().from(tierPresetLevels).then((r) => r),
-    db
-      .select()
-      .from(cakeCategories)
-      .where(eq(cakeCategories.active, true))
-      .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
-      .then((r) => r),
-    db.select().from(constraintPairs).then((r) => r),
-  ]);
+  const [allFields, allOptions, allTierPresetRows, allTierPresetLevelRows, categories, pairs, allDimensionRows] =
+    await Promise.all([
+      db.select().from(fields).where(eq(fields.active, true)).then((r) => r),
+      db.select().from(fieldOptions).where(eq(fieldOptions.active, true)).then((r) => r),
+      db.select().from(tierPresets).then((r) => r),
+      db.select().from(tierPresetLevels).then((r) => r),
+      db
+        .select()
+        .from(cakeCategories)
+        .where(eq(cakeCategories.active, true))
+        .orderBy(asc(cakeCategories.sortOrder), asc(cakeCategories.name))
+        .then((r) => r),
+      db.select().from(constraintPairs).then((r) => r),
+      db.select().from(fieldOptionDimensions).then((r) => r),
+    ]);
 
   // stale id (already configured or deleted) just falls back to a normal blank form
   const id = portfolioPhotoId ? Number(portfolioPhotoId) : NaN;
@@ -39,6 +41,8 @@ export default async function NewDesignPage({
     list.push(opt);
     optionsByField.set(opt.fieldId, list);
   }
+
+  const dimsByOptionId = new Map(allDimensionRows.map((d) => [d.fieldOptionId, d]));
 
   const fieldSummaries: FieldSummary[] = allFields
     .filter((f) => isFieldType(f.type))
@@ -56,14 +60,26 @@ export default async function NewDesignPage({
       isBase: f.isBase,
       active: f.active,
       additionalPriceCents: f.additionalPriceCents,
-      options: (optionsByField.get(f.id) ?? []).map((o) => ({
-        id: o.id,
-        name: o.name,
-        priceCents: o.priceCents,
-        active: o.active,
-        styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
-        tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
-      })),
+      options: (optionsByField.get(f.id) ?? []).map((o) => {
+        const dims = dimsByOptionId.get(o.id);
+        return {
+          id: o.id,
+          name: o.name,
+          priceCents: o.priceCents,
+          active: o.active,
+          styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
+          tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
+          dimensions: dims
+            ? {
+                diameterIn: dims.diameterIn,
+                shape: dims.shape,
+                tiers: dims.tiers,
+                servesMin: dims.servesMin,
+                servesMax: dims.servesMax,
+              }
+            : null,
+        };
+      }),
     }));
 
   const tierPresetSummaries = buildTierPresetSummaries(allOptions, allTierPresetRows, allTierPresetLevelRows);

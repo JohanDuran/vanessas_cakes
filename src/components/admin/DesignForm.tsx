@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
+import type { FieldOptionDimensionsDTO } from "../../lib/order-types";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { getHiddenOptionIds, resolveAnswers, selectionsViolateConstraints, type ConstraintPair } from "../../lib/constraints";
 import { computeTotalCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
@@ -18,6 +19,11 @@ export type FieldOptionSummary = {
   active: boolean;
   styleKind?: CakeStyleKind | null;
   tierLevelCount?: TierLevelCount | null;
+  /** shape/size/servings — only ever set for a size option on a field with
+   *  hasShapeDiagram, same as the customer-facing FieldOptionDTO. Shown next
+   *  to the option name while pricing so an admin isn't guessing what
+   *  "Medium" actually is. */
+  dimensions?: FieldOptionDimensionsDTO | null;
 };
 
 export type FieldSummary = {
@@ -86,6 +92,20 @@ type Props = {
 const PAIRED_INCLUSION_SLUGS = new Set<string>([CAKE_STYLE_FIELD_SLUG, SIZE_FIELD_SLUG]);
 
 type Draft = { optionIds: number[]; text: string; number: string };
+
+/** "6" round · serves 6-8" — shown next to a size option while pricing so an
+ *  admin isn't guessing what "Medium" actually is. Undefined/empty pieces
+ *  are just dropped rather than shown as "null · null". */
+function formatDimensions(dims: FieldOptionDimensionsDTO | null | undefined): string | null {
+  if (!dims) return null;
+  const parts: string[] = [];
+  if (dims.diameterIn) parts.push(dims.diameterIn);
+  if (dims.shape) parts.push(dims.shape);
+  if (dims.servesMin != null || dims.servesMax != null) {
+    parts.push(`serves ${dims.servesMin ?? "?"}–${dims.servesMax ?? "?"}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 function draftFromAnswer(answer: Answers[number] | undefined): Draft {
   return {
@@ -927,10 +947,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                         </option>
                         {selectableOptions.map((opt) => {
                           const breakdown = presetsByOptionId.get(opt.id)?.levels.map((l) => l.moldName).join(" → ");
+                          const dims = formatDimensions(opt.dimensions);
                           return (
                             <option key={opt.id} value={opt.id}>
                               {opt.name}
                               {breakdown ? ` (${breakdown})` : ""}
+                              {dims ? ` — ${dims}` : ""}
                               {!opt.active ? " (inactive)" : ""} — {formatCents(opt.priceCents)}
                             </option>
                           );
@@ -1117,9 +1139,19 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                             <thead>
                               <tr>
                                 <th>Option</th>
-                                {styleFilteredSizeOptions.map((sizeOpt) => (
-                                  <th key={sizeOpt.id}>{sizeOpt.name}</th>
-                                ))}
+                                {styleFilteredSizeOptions.map((sizeOpt) => {
+                                  const dims = formatDimensions(sizeOpt.dimensions);
+                                  return (
+                                    <th key={sizeOpt.id}>
+                                      {sizeOpt.name}
+                                      {dims && (
+                                        <div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-soft)" }}>
+                                          {dims}
+                                        </div>
+                                      )}
+                                    </th>
+                                  );
+                                })}
                               </tr>
                             </thead>
                             <tbody>
@@ -1164,22 +1196,30 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                               </tr>
                             </thead>
                             <tbody>
-                              {priceableOptions.map((opt) => (
-                                <tr key={opt.id}>
-                                  <td>{opt.name}</td>
-                                  <td>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      name={`optionPrice_${opt.id}`}
-                                      value={optionPriceDrafts[opt.id] ?? ""}
-                                      onChange={(e) =>
-                                        setOptionPriceDrafts((prev) => ({ ...prev, [opt.id]: e.target.value }))
-                                      }
-                                    />
-                                  </td>
-                                </tr>
-                              ))}
+                              {priceableOptions.map((opt) => {
+                                const dims = formatDimensions(opt.dimensions);
+                                return (
+                                  <tr key={opt.id}>
+                                    <td>
+                                      {opt.name}
+                                      {dims && (
+                                        <span style={{ color: "var(--text-soft)", fontSize: "0.8rem" }}> — {dims}</span>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        name={`optionPrice_${opt.id}`}
+                                        value={optionPriceDrafts[opt.id] ?? ""}
+                                        onChange={(e) =>
+                                          setOptionPriceDrafts((prev) => ({ ...prev, [opt.id]: e.target.value }))
+                                        }
+                                      />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -1221,9 +1261,19 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                           <table className="price-table">
                             <thead>
                               <tr>
-                                {styleFilteredSizeOptions.map((sizeOpt) => (
-                                  <th key={sizeOpt.id}>{sizeOpt.name}</th>
-                                ))}
+                                {styleFilteredSizeOptions.map((sizeOpt) => {
+                                  const dims = formatDimensions(sizeOpt.dimensions);
+                                  return (
+                                    <th key={sizeOpt.id}>
+                                      {sizeOpt.name}
+                                      {dims && (
+                                        <div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-soft)" }}>
+                                          {dims}
+                                        </div>
+                                      )}
+                                    </th>
+                                  );
+                                })}
                               </tr>
                             </thead>
                             <tbody>
