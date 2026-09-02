@@ -318,6 +318,17 @@
   color: var(--choco-900);
 }
 
+/* LockedFieldStep's read-only display — same look as a selected option
+   card, minus the hover lift/pointer that would wrongly imply it's
+   clickable. */
+.option-card--locked {
+  cursor: default;
+}
+
+.option-card--locked:hover {
+  transform: none;
+}
+
 /* size grid */
 .size-grid {
   display: grid;

@@ -21,6 +21,7 @@ import TierPresetStep from "../../components/order/steps/TierPresetStep";
 import TextFieldStep from "../../components/order/steps/TextFieldStep";
 import NumberFieldStep from "../../components/order/steps/NumberFieldStep";
 import ToggleFieldStep from "../../components/order/steps/ToggleFieldStep";
+import LockedFieldStep from "../../components/order/steps/LockedFieldStep";
 import CustomCakeQuoteStep from "../../components/order/steps/CustomCakeQuoteStep";
 import OrderSummaryPanel from "../../components/order/OrderSummaryPanel";
 
@@ -97,20 +98,21 @@ function isFieldAnswered(field: FieldDTO, answer: Answers[number] | undefined): 
 const CUSTOM_STEP = 1;
 
 /** The first step the wizard should actually land on for a locked design —
- *  skips past any fields the design locks (customer can't change them, so
- *  there's nothing to show), landing on the review step if every field is
- *  locked. Mirrors the skip rule goNext/goBack apply via navigableSteps,
+ *  skips past any fields the design hides entirely (nothing to show; a
+ *  locked-but-not-hidden field still gets its own read-only step, so it's
+ *  fine to land there). Landing on the review step if every field is
+ *  hidden. Mirrors the skip rule goNext/goBack apply via navigableSteps,
  *  which the reducer's initial state can't reuse directly since it runs
  *  before the component body computes those. */
 function firstFieldOrReviewStep(fields: FieldDTO[], design: DesignSummaryDTO): number {
   if (design.kind !== "catalog") return CUSTOM_STEP;
   const fieldStepStart = 1;
   const designFields = fieldsForDesign(fields, design);
-  const lockedSet = new Set(design.lockedFieldIds);
+  const hiddenSet = new Set(design.hiddenFieldIds);
   for (let i = 0; i < designFields.length; i++) {
-    if (!lockedSet.has(designFields[i].id)) return fieldStepStart + i;
+    if (!hiddenSet.has(designFields[i].id)) return fieldStepStart + i;
   }
-  return fieldStepStart + designFields.length; // every field locked -> straight to review
+  return fieldStepStart + designFields.length; // every field hidden -> straight to review
 }
 
 /** Runs both answer-consistency passes in sequence: clearing options excluded
@@ -282,13 +284,11 @@ export default function OrderWizard({
     [selectedDesign]
   );
 
-  // hidden fields have no wizard UI either (nothing for the customer to
-  // change), so they skip their step exactly like a locked field — the
-  // difference only shows up in the review, see OrderSummaryPanel below
-  const skippedFieldIdSet = useMemo(
-    () => new Set([...lockedFieldIdSet, ...hiddenFieldIdSet]),
-    [lockedFieldIdSet, hiddenFieldIdSet]
-  );
+  // only a hidden field skips its step entirely (nothing for the customer to
+  // see or change) — a locked field still gets a step, just a read-only one
+  // (see LockedFieldStep below), so it appears in the stepper and Review
+  // instead of only ever showing up at Review like a hidden field does.
+  const skippedFieldIdSet = hiddenFieldIdSet;
 
   // the live style kind, used to pick which options/diagram the Size step shows
   const liveStyleKind = useMemo(
@@ -384,8 +384,16 @@ export default function OrderWizard({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSizeStep, sizeField, state.answers, selectedDesign, resolvedOptionsFlat, resolvedFieldsFlat, currentSizeOptionId]);
+  // a locked field's step is read-only (see LockedFieldStep) — there's
+  // nothing the customer could do to satisfy "Required" there if the admin
+  // never gave it a default, so Required only ever gates a field the
+  // customer can actually still answer themselves.
   const nextDisabled =
-    !isQuote && currentField != null && requiredFieldIdSet.has(currentField.id) && !isFieldAnswered(currentField, currentAnswer);
+    !isQuote &&
+    currentField != null &&
+    !lockedFieldIdSet.has(currentField.id) &&
+    requiredFieldIdSet.has(currentField.id) &&
+    !isFieldAnswered(currentField, currentAnswer);
 
   // Design selection now happens entirely on /gallery and /portfolio — every
   // route that renders this wizard supplies lockedDesign (a catalog design,
@@ -478,7 +486,21 @@ export default function OrderWizard({
         </div>
 
         <div className="order-stage">
+          {currentField && lockedFieldIdSet.has(currentField.id) && (
+            <LockedFieldStep
+              field={currentField}
+              answer={currentAnswer}
+              options={optionsByField.get(currentField.id) ?? []}
+              presetsByOptionId={cakeStyleCtx?.presetsByOptionId}
+              perSizeFieldPrices={selectedDesign?.perSizeFieldPrices}
+              optionSizePrices={selectedDesign?.optionSizePrices}
+              currentSizeOptionId={currentSizeOptionId}
+              hidePrice={isQuote}
+            />
+          )}
+
           {currentField &&
+            !lockedFieldIdSet.has(currentField.id) &&
             (currentField.type === "single_select" || currentField.type === "multi_select") &&
             !isSizeStep && (
               <FieldOptionStep
@@ -505,7 +527,7 @@ export default function OrderWizard({
               />
             )}
 
-          {currentField && isSizeStep && cakeStyleCtx && (
+          {currentField && !lockedFieldIdSet.has(currentField.id) && isSizeStep && cakeStyleCtx && (
             liveStyleKind === "tiered" ? (
               <TierPresetStep
                 field={currentField}
@@ -532,7 +554,7 @@ export default function OrderWizard({
             )
           )}
 
-          {currentField && currentField.type === "text" && (
+          {currentField && !lockedFieldIdSet.has(currentField.id) && currentField.type === "text" && (
             <TextFieldStep
               field={currentField}
               value={currentAnswer?.type === "text" ? currentAnswer.value : ""}
@@ -541,7 +563,7 @@ export default function OrderWizard({
             />
           )}
 
-          {currentField && currentField.type === "number" && (
+          {currentField && !lockedFieldIdSet.has(currentField.id) && currentField.type === "number" && (
             <NumberFieldStep
               field={currentField}
               value={currentAnswer?.type === "number" ? String(currentAnswer.value) : ""}
@@ -550,7 +572,7 @@ export default function OrderWizard({
             />
           )}
 
-          {currentField && currentField.type === "per_size" && (
+          {currentField && !lockedFieldIdSet.has(currentField.id) && currentField.type === "per_size" && (
             <ToggleFieldStep
               field={currentField}
               value={currentAnswer?.type === "toggle" ? currentAnswer.value : undefined}
