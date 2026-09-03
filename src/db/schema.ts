@@ -7,6 +7,7 @@ import {
   bigint,
   boolean,
   text,
+  numeric,
   uuid,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -103,8 +104,12 @@ export const fieldOptionDimensions = pgTable("field_option_dimensions", {
     .notNull()
     .unique()
     .references(() => fieldOptions.id, { onDelete: "cascade" }),
-  diameterIn: text("diameter_in"),
-  shape: text("shape"), // round | square | sheet
+  // circle only
+  diameterIn: numeric("diameter_in", { precision: 5, scale: 2, mode: "number" }),
+  // square | rectangle only
+  widthIn: numeric("width_in", { precision: 5, scale: 2, mode: "number" }),
+  lengthIn: numeric("length_in", { precision: 5, scale: 2, mode: "number" }),
+  shape: text("shape"), // circle | square | rectangle
   tiers: integer("tiers"),
   servesMin: integer("serves_min"),
   servesMax: integer("serves_max"),

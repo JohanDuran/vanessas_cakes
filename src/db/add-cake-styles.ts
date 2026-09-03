@@ -15,7 +15,7 @@ type NewStyle = {
     name: string;
     priceCents: number;
     sortOrder: number;
-    diameterIn: string;
+    diameterIn: number;
     servesMin: number;
     servesMax: number;
   }[];
@@ -29,9 +29,9 @@ const newStyles: NewStyle[] = [
     styleKind: "carlota",
     sortOrder: 3,
     sizes: [
-      { name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: '6"', servesMin: 6, servesMax: 8 },
-      { name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: '8"', servesMin: 10, servesMax: 14 },
-      { name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: '10"', servesMin: 18, servesMax: 22 },
+      { name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: 6, servesMin: 6, servesMax: 8 },
+      { name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: 8, servesMin: 10, servesMax: 14 },
+      { name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: 10, servesMin: 18, servesMax: 22 },
     ],
   },
   {
@@ -39,9 +39,9 @@ const newStyles: NewStyle[] = [
     styleKind: "torta_chilena",
     sortOrder: 4,
     sizes: [
-      { name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: '6"', servesMin: 6, servesMax: 8 },
-      { name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: '8"', servesMin: 10, servesMax: 14 },
-      { name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: '10"', servesMin: 18, servesMax: 22 },
+      { name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: 6, servesMin: 6, servesMax: 8 },
+      { name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: 8, servesMin: 10, servesMax: 14 },
+      { name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: 10, servesMin: 18, servesMax: 22 },
     ],
   },
 ];
@@ -91,7 +91,7 @@ async function main() {
       await db.insert(fieldOptionDimensions).values({
         fieldOptionId: insertedOption.id,
         diameterIn: size.diameterIn,
-        shape: "round",
+        shape: "circle",
         tiers: 1,
         servesMin: size.servesMin,
         servesMax: size.servesMax,

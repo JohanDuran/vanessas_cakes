@@ -145,6 +145,8 @@ export default async function EditDesignPage({
           dimensions: dims
             ? {
                 diameterIn: dims.diameterIn,
+                widthIn: dims.widthIn,
+                lengthIn: dims.lengthIn,
                 shape: dims.shape,
                 tiers: dims.tiers,
                 servesMin: dims.servesMin,

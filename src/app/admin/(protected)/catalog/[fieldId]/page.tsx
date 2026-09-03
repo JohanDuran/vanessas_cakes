@@ -16,6 +16,7 @@ import { createOption, saveFieldSettings, setOptionActive, updateOption } from "
 import { createTierPreset, updateTierPreset } from "../tierPresetActions";
 import TierPresetBuilder from "../../../../../components/admin/TierPresetBuilder";
 import TierPresetRow, { type TierPresetSummary } from "../../../../../components/admin/TierPresetRow";
+import SizeDimensionFields from "../../../../../components/admin/SizeDimensionFields";
 
 export const dynamic = "force-dynamic";
 
@@ -136,8 +137,8 @@ export default async function FieldDetailPage({
             <h3 style={{ marginBottom: 14 }}>Add option</h3>
             {showDimensionColumns && (
               <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", marginTop: -6, marginBottom: 14 }}>
-                Size is free text — enter a diameter for round (e.g. 8&quot;), a side length for
-                square (e.g. 8&quot;), or width×length for sheet (e.g. 8&quot;×12&quot;).
+                Enter plain numbers — everything is in inches. Pick a shape first; only the
+                dimension(s) that apply to it are shown.
               </p>
             )}
             <form action={createOption} className="admin-form-row">
@@ -157,18 +158,7 @@ export default async function FieldDetailPage({
               </div>
               {showDimensionColumns && (
                 <>
-                  <div className="admin-field">
-                    <label>Size</label>
-                    <input name="diameterIn" placeholder={'8" · 8"×12"'} style={{ minWidth: 90 }} />
-                  </div>
-                  <div className="admin-field">
-                    <label>Shape</label>
-                    <select name="shape" defaultValue="round">
-                      <option value="round">Round</option>
-                      <option value="square">Square</option>
-                      <option value="sheet">Sheet</option>
-                    </select>
-                  </div>
+                  <SizeDimensionFields />
                   <div className="admin-field">
                     <label>Tiers</label>
                     <input name="tiers" type="number" defaultValue="1" style={{ minWidth: 60 }} />
@@ -207,7 +197,6 @@ export default async function FieldDetailPage({
                 {showDimensionColumns && (
                   <>
                     <th>Size</th>
-                    <th>Shape</th>
                     <th>Tiers</th>
                     <th>Serves</th>
                   </>
@@ -252,20 +241,14 @@ export default async function FieldDetailPage({
                     {showDimensionColumns && (
                       <>
                         <td>
-                          <input
-                            form={formId}
-                            name="diameterIn"
-                            defaultValue={dims?.diameterIn ?? ""}
-                            placeholder={'8" · 8"×12"'}
-                            style={{ width: "100%" }}
+                          <SizeDimensionFields
+                            formId={formId}
+                            compact
+                            defaultShape={dims?.shape}
+                            defaultDiameterIn={dims?.diameterIn}
+                            defaultWidthIn={dims?.widthIn}
+                            defaultLengthIn={dims?.lengthIn}
                           />
-                        </td>
-                        <td>
-                          <select form={formId} name="shape" defaultValue={dims?.shape ?? "round"} style={{ width: "100%" }}>
-                            <option value="round">Round</option>
-                            <option value="square">Square</option>
-                            <option value="sheet">Sheet</option>
-                          </select>
                         </td>
                         <td>
                           <input
@@ -323,7 +306,7 @@ export default async function FieldDetailPage({
               })}
               {sectionOptions.length === 0 && (
                 <tr>
-                  <td colSpan={showDimensionColumns ? 9 : 5} style={{ color: "var(--text-soft)" }}>
+                  <td colSpan={showDimensionColumns ? 8 : 5} style={{ color: "var(--text-soft)" }}>
                     No options yet — add one above.
                   </td>
                 </tr>

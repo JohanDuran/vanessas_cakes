@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPE_LABELS, SIZE_FIELD_SLUG, fieldHasOptions, type CakeStyleKind, type DesignKind, type FieldType, type TierLevelCount } from "../../lib/fields";
 import type { FieldOptionDimensionsDTO } from "../../lib/order-types";
+import { formatDimensions as formatSize } from "../../lib/dimensions";
 import { applyCakeStyleRules, buildCakeStyleContext, currentStyleKind } from "../../lib/cakeStyle";
 import { getHiddenOptionIds, resolveAnswers, selectionsViolateConstraints, type ConstraintPair } from "../../lib/constraints";
 import { computeTotalCents, formatCents, type Answers, type PriceableField } from "../../lib/pricing";
@@ -99,8 +100,8 @@ type Draft = { optionIds: number[]; text: string; number: string };
 function formatDimensions(dims: FieldOptionDimensionsDTO | null | undefined): string | null {
   if (!dims) return null;
   const parts: string[] = [];
-  if (dims.diameterIn) parts.push(dims.diameterIn);
-  if (dims.shape) parts.push(dims.shape);
+  const size = formatSize(dims);
+  if (size) parts.push(size);
   if (dims.servesMin != null || dims.servesMax != null) {
     parts.push(`serves ${dims.servesMin ?? "?"}–${dims.servesMax ?? "?"}`);
   }
@@ -472,6 +473,8 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         moldOptionId: 0,
         moldName: l.moldName,
         diameterIn: null,
+        widthIn: null,
+        lengthIn: null,
         shape: null,
         servesMin: null,
         servesMax: null,

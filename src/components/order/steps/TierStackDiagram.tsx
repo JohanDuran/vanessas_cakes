@@ -1,4 +1,4 @@
-type Level = { shape: string | null; diameterIn: string | null };
+type Level = { shape: string | null; diameterIn: number | null; widthIn: number | null; lengthIn: number | null };
 
 type Props = {
   /** base (position 1) first, top (narrowest) last */
@@ -31,7 +31,7 @@ export default function TierStackDiagram({ levels, size = 84 }: Props) {
       y: stackBottom - tierH * (i + 1),
       width,
       height: tierH,
-      rx: level.shape === "square" ? 6 : tierH / 2.4,
+      rx: level.shape === "square" || level.shape === "rectangle" ? 6 : tierH / 2.4,
     };
   });
 

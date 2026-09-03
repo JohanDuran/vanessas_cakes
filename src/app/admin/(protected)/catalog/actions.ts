@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions, designFieldValues, designExcludedOptions } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
-import { CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, isBaseFieldSlug, slugify } from "../../../../lib/fields";
+import { CAKE_SHAPES, CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, isBaseFieldSlug, slugify } from "../../../../lib/fields";
 import { toastMessage, toastRedirect } from "../../../../lib/toast";
 
 /** cake_style is locked to its exact set of seeded options — admins may
@@ -144,7 +144,9 @@ const optionShape = {
   priceDollars: z.string().refine((v) => v.trim() !== "" && !Number.isNaN(Number(v)), "Must be a number"),
   sortOrder: z.coerce.number().int().default(0),
   diameterIn: z.string().trim().optional(),
-  shape: z.enum(["round", "square", "sheet", ""]).optional(),
+  widthIn: z.string().trim().optional(),
+  lengthIn: z.string().trim().optional(),
+  shape: z.enum([...CAKE_SHAPES, ""]).optional(),
   tiers: z.string().optional(),
   servesMin: z.string().optional(),
   servesMax: z.string().optional(),
@@ -159,14 +161,24 @@ const updateOptionSchema = z.object({ id: z.coerce.number().int(), ...optionShap
 
 function sizeMeta(data: {
   diameterIn?: string;
+  widthIn?: string;
+  lengthIn?: string;
   shape?: string;
   tiers?: string;
   servesMin?: string;
   servesMax?: string;
 }) {
+  const shape = data.shape || null;
+  // which dimension(s) apply is decided here, server-side, from the
+  // selected shape — independent of which inputs the admin form happened
+  // to show/hide client-side
+  const isCircle = shape === "circle";
+  const isRect = shape === "square" || shape === "rectangle";
   return {
-    diameterIn: data.diameterIn || null,
-    shape: data.shape || null,
+    diameterIn: isCircle && data.diameterIn ? Number(data.diameterIn) : null,
+    widthIn: isRect && data.widthIn ? Number(data.widthIn) : null,
+    lengthIn: isRect && data.lengthIn ? Number(data.lengthIn) : null,
+    shape,
     tiers: data.tiers ? Number(data.tiers) : null,
     servesMin: data.servesMin ? Number(data.servesMin) : null,
     servesMax: data.servesMax ? Number(data.servesMax) : null,

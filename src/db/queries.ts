@@ -353,7 +353,15 @@ export async function loadOrderData() {
       name: o.name,
       priceCents: o.priceCents,
       dimensions: d
-        ? { diameterIn: d.diameterIn, shape: d.shape, tiers: d.tiers, servesMin: d.servesMin, servesMax: d.servesMax }
+        ? {
+            diameterIn: d.diameterIn,
+            widthIn: d.widthIn,
+            lengthIn: d.lengthIn,
+            shape: d.shape,
+            tiers: d.tiers,
+            servesMin: d.servesMin,
+            servesMax: d.servesMax,
+          }
         : null,
       styleKind: o.styleKind != null && isCakeStyleKind(o.styleKind) ? o.styleKind : null,
       tierLevelCount: o.tierLevelCount != null && isTierLevelCount(o.tierLevelCount) ? o.tierLevelCount : null,
@@ -376,6 +384,8 @@ export async function loadOrderData() {
         moldOptionId: lvl.moldOptionId,
         moldName: mold?.name ?? "Unknown",
         diameterIn: mold?.dimensions?.diameterIn ?? null,
+        widthIn: mold?.dimensions?.widthIn ?? null,
+        lengthIn: mold?.dimensions?.lengthIn ?? null,
         shape: mold?.dimensions?.shape ?? null,
         servesMin: mold?.dimensions?.servesMin ?? null,
         servesMax: mold?.dimensions?.servesMax ?? null,

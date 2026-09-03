@@ -363,6 +363,8 @@ export async function submitCart(_prevState: SubmitCartState, formData: FormData
           moldOptionId: lvl.moldOptionId,
           moldName: mold?.name ?? "Unknown",
           diameterIn: null,
+          widthIn: null,
+          lengthIn: null,
           shape: null,
           servesMin: null,
           servesMax: null,

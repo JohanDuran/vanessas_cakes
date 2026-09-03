@@ -89,6 +89,8 @@ export async function saveDesign(formData: FormData) {
           moldOptionId: lvl.moldOptionId,
           moldName: optionByIdRaw.get(lvl.moldOptionId)?.name ?? "Unknown",
           diameterIn: null,
+          widthIn: null,
+          lengthIn: null,
           shape: null,
           servesMin: null,
           servesMax: null,

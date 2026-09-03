@@ -2,6 +2,7 @@
 
 import type { FieldDTO, FieldOptionDTO } from "../../../lib/order-types";
 import { computeOptionDeltaCents, formatCents, resolveOptionPriceCents, type PerSizePrices } from "../../../lib/pricing";
+import { formatDimensions } from "../../../lib/dimensions";
 import PriceDelta from "../PriceDelta";
 import ShapeDiagram from "./ShapeDiagram";
 
@@ -80,12 +81,14 @@ export default function FieldOptionStep({
                   shape={dims?.shape ?? null}
                   tiers={dims?.tiers ?? null}
                   diameterIn={dims?.diameterIn ?? null}
+                  widthIn={dims?.widthIn ?? null}
+                  lengthIn={dims?.lengthIn ?? null}
                   servesMin={dims?.servesMin ?? null}
                   servesMax={dims?.servesMax ?? null}
                 />
                 <span className="size-card__name">{item.name}</span>
                 <span className="size-card__meta">
-                  {dims?.diameterIn ?? "—"}
+                  {formatDimensions(dims) ?? "—"}
                   {dims?.tiers && dims.tiers > 1 ? ` · ${dims.tiers} tiers` : ""}
                 </span>
                 {(dims?.servesMin || dims?.servesMax) && (

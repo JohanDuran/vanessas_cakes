@@ -135,6 +135,23 @@ export function isContactPreference(value: string): value is ContactPreference {
   return (CONTACT_PREFERENCES as readonly string[]).includes(value);
 }
 
+/** A size option's shape, stored on field_option_dimensions.shape. Circle
+ *  takes a diameter; square/rectangle take a width and a length — see
+ *  SizeDimensionFields and ShapeDiagram. */
+export const CAKE_SHAPES = ["circle", "square", "rectangle"] as const;
+
+export type CakeShape = (typeof CAKE_SHAPES)[number];
+
+export const CAKE_SHAPE_LABELS: Record<CakeShape, string> = {
+  circle: "Circle",
+  square: "Square",
+  rectangle: "Rectangle",
+};
+
+export function isCakeShape(value: string): value is CakeShape {
+  return (CAKE_SHAPES as readonly string[]).includes(value);
+}
+
 /** Turns a custom field's display name into a slug. Uniqueness is enforced
  *  by the DB — callers should suffix and retry on conflict. */
 export function slugify(name: string): string {

@@ -20,7 +20,9 @@ export type FieldDTO = {
 };
 
 export type FieldOptionDimensionsDTO = {
-  diameterIn: string | null;
+  diameterIn: number | null;
+  widthIn: number | null;
+  lengthIn: number | null;
   shape: string | null;
   tiers: number | null;
   servesMin: number | null;
@@ -46,7 +48,9 @@ export type TierPresetLevelDTO = {
   /** references a `size`-field FieldOptionDTO.id */
   moldOptionId: number;
   moldName: string;
-  diameterIn: string | null;
+  diameterIn: number | null;
+  widthIn: number | null;
+  lengthIn: number | null;
   shape: string | null;
   servesMin: number | null;
   servesMax: number | null;
