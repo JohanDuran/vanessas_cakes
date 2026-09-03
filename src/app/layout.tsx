@@ -3,6 +3,7 @@ import { Fredoka, Quicksand } from "next/font/google";
 import { CartProvider } from "../lib/cart/CartContext";
 import { UserProvider } from "../lib/user/UserContext";
 import { ToastProvider } from "../components/ToastProvider";
+import LoadingOverlayProvider from "../components/LoadingOverlayProvider";
 import { getCurrentUser, getCartItemsForUser } from "../db/queries";
 import "./globals.css";
 
@@ -40,7 +41,9 @@ export default async function RootLayout({
       <body>
         <UserProvider initialUser={user}>
           <ToastProvider>
-            <CartProvider initialItems={initialCartItems}>{children}</CartProvider>
+            <LoadingOverlayProvider>
+              <CartProvider initialItems={initialCartItems}>{children}</CartProvider>
+            </LoadingOverlayProvider>
           </ToastProvider>
         </UserProvider>
       </body>

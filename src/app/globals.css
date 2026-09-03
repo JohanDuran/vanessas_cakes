@@ -325,3 +325,38 @@ ul {
 .donut-spinner__sprinkle--4 {
   fill: var(--yellow-300);
 }
+
+/* Full-screen block while any server action (save, submit, delete, …) is in
+   flight — see LoadingOverlayProvider. Covers the whole viewport above
+   everything else and actually intercepts clicks (no pointer-events:none),
+   so the customer/admin can't fire off a second action while the first is
+   still processing. */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(74, 44, 23, 0.35);
+  backdrop-filter: blur(1px);
+  animation: toast-in 0.15s ease;
+}
+
+.loading-overlay__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 36px;
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: 0 20px 50px rgba(74, 44, 23, 0.35);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--choco-900);
+}
+
+.loading-overlay .donut-spinner {
+  animation-duration: 0.7s;
+}
