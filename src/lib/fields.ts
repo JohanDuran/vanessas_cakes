@@ -30,13 +30,13 @@ export function fieldHasOptions(type: string): boolean {
  *  not add, remove, or deactivate any of them. `size`'s options are scoped
  *  per cake_style kind (standard/tall/tiered/carlota/torta_chilena) via each
  *  option's styleKind — see src/lib/cakeStyle.ts. `tier_levels`/`tier_size` used to be separate
- *  steps for the tiered path; they're retired from the flow (rows kept,
- *  is_base=false, for historical order_selections FK integrity) now that
- *  tiered presets live directly on `size` tagged styleKind="tiered". */
+ *  steps for the tiered path, and `cake_type` used to be one of these base
+ *  fields too; all three are retired from the flow (rows kept, is_base=false,
+ *  for historical order_selections FK integrity) now that tiered presets live
+ *  directly on `size` tagged styleKind="tiered". */
 export const BASE_FIELD_SLUGS = [
   "cake_style",
   "size",
-  "cake_type",
   "flavor",
   "filling",
   "frosting",
@@ -48,7 +48,6 @@ export type BaseFieldSlug = (typeof BASE_FIELD_SLUGS)[number];
 export const BASE_FIELD_LABELS: Record<BaseFieldSlug, string> = {
   cake_style: "Cake Style",
   size: "Size",
-  cake_type: "Cake Type",
   flavor: "Flavor",
   filling: "Filling",
   frosting: "Frosting",

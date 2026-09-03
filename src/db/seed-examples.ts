@@ -127,14 +127,13 @@ const designSeeds: DesignSeed[] = [
     recipe: {
       cake_style: "Standard",
       size: "Large",
-      cake_type: "Classic Layer Cake",
       flavor: "Chocolate",
       filling: "Chocolate Ganache",
       frosting: "Buttercream",
       decoration: "Choco Drip",
     },
     // demonstrates a locked base field and an excluded base option
-    lockedBaseFields: ["cake_type"],
+    lockedBaseFields: ["flavor"],
     excludedOptions: [{ fieldSlug: "frosting", name: "Fondant" }],
     // demonstrates a locked custom field (fixed to an admin-set default)
     customFieldValues: [{ fieldSlug: "topper-message", kind: "text", value: "Happy Birthday!", locked: true }],
@@ -146,7 +145,6 @@ const designSeeds: DesignSeed[] = [
     recipe: {
       cake_style: "Standard",
       size: "Medium",
-      cake_type: "Naked Cake",
       flavor: "Red Velvet",
       filling: "Cream Cheese",
       frosting: "Cream Cheese Frosting",
@@ -162,7 +160,6 @@ const designSeeds: DesignSeed[] = [
     recipe: {
       cake_style: "Standard",
       size: "Small",
-      cake_type: "Classic Layer Cake",
       flavor: "Marble",
       filling: "Vanilla Cream",
       frosting: "Buttercream",
@@ -176,7 +173,6 @@ const designSeeds: DesignSeed[] = [
     recipe: {
       cake_style: "Standard",
       size: "Medium",
-      cake_type: "Classic Layer Cake",
       flavor: "Vanilla",
       filling: "Lemon Curd",
       frosting: "Whipped Cream",
@@ -190,7 +186,6 @@ const designSeeds: DesignSeed[] = [
     recipe: {
       cake_style: "Standard",
       size: "Medium",
-      cake_type: "Carlotta",
       flavor: "Chocolate",
       filling: "Salted Caramel",
       frosting: "Fondant",
@@ -201,11 +196,11 @@ const designSeeds: DesignSeed[] = [
 
 type ConstraintSeed = { a: [BaseFieldSlug, string]; b: [BaseFieldSlug, string] };
 
-const constraintSeeds: ConstraintSeed[] = [
-  { a: ["cake_type", "Naked Cake"], b: ["frosting", "Fondant"] },
-  { a: ["cake_type", "Carlotta"], b: ["filling", "Lemon Curd"] },
-  { a: ["cake_type", "Sheet Cake"], b: ["decoration", "Gold Leaf"] },
-];
+// Previously demonstrated via cake_type x frosting/filling/decoration pairs;
+// cake_type is retired (see BASE_FIELD_SLUGS in src/lib/fields.ts) and no
+// other base field pairing was an equally natural fit, so this demo set is
+// empty for now — add pairs here to seed example constraints again.
+const constraintSeeds: ConstraintSeed[] = [];
 
 type OrderSeed = {
   designName: string;

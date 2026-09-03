@@ -25,12 +25,13 @@ export const authUsers = authSchema.table("users", {
 // JS number everywhere in the app, unchanged from the old SQLite schema.
 
 // One unified system for everything a customer answers when ordering a cake —
-// the 6 original "base" fields (size, cake type, flavor, filling, frosting,
-// decoration) and any admin-defined "custom" fields are the same kind of row,
-// distinguished only by `isBase`. See src/lib/fields.ts for the fixed set of
-// base slugs and the shared FieldType union — Postgres has no matching native
-// enum in use here either; validity of `type`/`slug` is enforced at the app
-// layer (zod).
+// the original "base" fields (cake_style, size, flavor, filling, frosting,
+// decoration — cake_type used to be one too, see BASE_FIELD_SLUGS in
+// src/lib/fields.ts) and any admin-defined "custom" fields are the same kind
+// of row, distinguished only by `isBase`. See src/lib/fields.ts for the fixed
+// set of base slugs and the shared FieldType union — Postgres has no
+// matching native enum in use here either; validity of `type`/`slug` is
+// enforced at the app layer (zod).
 
 export const fields = pgTable("fields", {
   id: serial("id").primaryKey(),
@@ -83,8 +84,9 @@ export const fieldOptions = pgTable("field_options", {
   // below). See src/lib/fields.ts CakeStyleKind and src/lib/cakeStyle.ts.
   styleKind: text("style_kind"),
   // Historical: only ever set for the old tier_levels field's 3 fixed
-  // options (now retired from the flow — see BASE_FIELD_SLUGS in
-  // src/lib/fields.ts). tierPresets.levelCount is the source of truth today.
+  // options (now retired from the flow, same as cake_type — see
+  // BASE_FIELD_SLUGS in src/lib/fields.ts). tierPresets.levelCount is the
+  // source of truth today.
   tierLevelCount: integer("tier_level_count"),
 
   createdAt: bigint("created_at", { mode: "number" })

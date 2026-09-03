@@ -19,8 +19,8 @@ type SeedOption = {
 };
 
 // Ported from the old src/customize/data.ts (Vite app) plus placeholder
-// starter rows for cake_type/frosting, which had no prior data — the owner
-// should replace/expand these via /admin/catalog once the app ships.
+// starter rows for frosting, which had no prior data — the owner should
+// replace/expand these via /admin/catalog once the app ships.
 const seedOptions: SeedOption[] = [
   // cake style — the 3 fixed values every design/order picks between. Its
   // own price is a flat style surcharge on top of whatever `size` option is
@@ -61,12 +61,6 @@ const seedOptions: SeedOption[] = [
   { fieldSlug: "size", name: "Small", priceCents: 3500, sortOrder: 0, diameterIn: 6, shape: "circle", tiers: 1, servesMin: 6, servesMax: 8, styleKind: "torta_chilena" },
   { fieldSlug: "size", name: "Medium", priceCents: 5200, sortOrder: 1, diameterIn: 8, shape: "circle", tiers: 1, servesMin: 10, servesMax: 14, styleKind: "torta_chilena" },
   { fieldSlug: "size", name: "Large", priceCents: 7400, sortOrder: 2, diameterIn: 10, shape: "circle", tiers: 1, servesMin: 18, servesMax: 22, styleKind: "torta_chilena" },
-
-  // cake types — placeholder starter set, no equivalent existed in the old app
-  { fieldSlug: "cake_type", name: "Classic Layer Cake", priceCents: 0, sortOrder: 0 },
-  { fieldSlug: "cake_type", name: "Carlotta", priceCents: 500, sortOrder: 1 },
-  { fieldSlug: "cake_type", name: "Naked Cake", priceCents: 800, sortOrder: 2 },
-  { fieldSlug: "cake_type", name: "Sheet Cake", priceCents: -500, sortOrder: 3 },
 
   // flavors (ported from old `flavors`)
   { fieldSlug: "flavor", name: "Chocolate", priceCents: 0, sortOrder: 0 },
