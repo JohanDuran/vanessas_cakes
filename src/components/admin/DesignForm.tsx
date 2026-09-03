@@ -744,8 +744,11 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
            defaultValue and, worse, silently drop any files already picked
            in the photo input (a <input type=file>'s selection can't be
            restored programmatically once the element is gone). */}
-        <div style={{ display: isSetupActive ? "flex" : "none", flexDirection: "column", gap: 18 }}>
-          <h3 style={{ margin: 0 }}>Setup</h3>
+        <div
+          className="field-wizard__detail-card"
+          style={{ display: isSetupActive ? "flex" : "none", flexDirection: "column", gap: 18 }}
+        >
+          <span className="field-wizard__detail-progress">Setup</span>
 
           {!design && portfolioPhoto && (
             <div className="admin-field">
@@ -837,7 +840,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
         {!isSetupActive && (
         <div>
-          <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
+          <h3 style={{ margin: 0 }}>Field Configuration</h3>
           <div className="field-wizard__detail">
               {!activeField && (
                 <p style={{ color: "var(--text-soft)" }}>No fields defined yet — add one above.</p>
