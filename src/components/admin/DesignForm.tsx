@@ -124,16 +124,22 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
   // shown by default: base fields (admin-flagged in Design Fields) plus, when
   // editing, whatever this design already uses — everything else stays
   // hidden until picked from the "Add existing field" dropdown below, so the
-  // form doesn't get more crowded every time a new custom field is added
+  // form doesn't get more crowded every time a new custom field is added.
+  // A deactivated field only auto-appears here if this design already
+  // includes it (so there's still a way to see/remove that reference) — an
+  // inactive base field a design never used shouldn't clutter the nav just
+  // because it's flagged "base".
   const [availableFields, setAvailableFields] = useState<FieldSummary[]>(() =>
-    fields.filter((f) => f.isBase || (design?.includedFieldIds.includes(f.id) ?? false))
+    fields.filter((f) => (f.isBase && f.active) || (design?.includedFieldIds.includes(f.id) ?? false))
   );
   // fields that exist in the catalog but aren't currently shown in this
   // design's configuration — offered via the "Add existing field" dropdown.
-  // Not to be confused with hiddenFieldIds below (fields shown here but kept
-  // invisible to the *customer*, admin reference only).
+  // Inactive fields are never offered here, even if this design happens to
+  // not include one right now — reactivate it first. Not to be confused
+  // with hiddenFieldIds below (fields shown here but kept invisible to the
+  // *customer*, admin reference only).
   const unaddedFields = useMemo(
-    () => fields.filter((f) => !availableFields.some((af) => af.id === f.id)),
+    () => fields.filter((f) => f.active && !availableFields.some((af) => af.id === f.id)),
     [fields, availableFields]
   );
   const addExistingField = (fieldId: number) => {
