@@ -580,7 +580,13 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
     const hasOptions = fieldHasOptions(field.type);
     const isSizeField = field.slug === SIZE_FIELD_SLUG;
     const isCakeStyleField = field.slug === CAKE_STYLE_FIELD_SLUG;
-    const priceableOptions = isSizeField ? visibleSizeOptions : field.options.filter((opt) => !excludedOptionIds.has(opt.id));
+    // a locked Cake Style means every customer gets that one style — no
+    // point pricing the other 4 styles this design will never actually use
+    const priceableOptions = isSizeField
+      ? visibleSizeOptions
+      : isCakeStyleField && isLocked && draft.optionIds[0] != null
+        ? field.options.filter((opt) => opt.id === draft.optionIds[0])
+        : field.options.filter((opt) => !excludedOptionIds.has(opt.id));
     const styleFilteredSizeOptions = visibleSizeOptions;
     const isOptionSizeVarying = hasOptions && !isSizeField && !isCakeStyleField && optionSizeVaryingFieldIds.has(field.id);
     const isFieldSizeVarying = field.type === "per_size" && sizeVaryingFieldIds.has(field.id);
@@ -657,6 +663,23 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
     if (!String(formData.get("name") ?? "").trim()) {
       errors.push("Design name is required.");
+    }
+
+    // a locked field's default is its permanent answer for every customer —
+    // there's no wizard step where they could fill this in themselves, so
+    // (unlike an unlocked field) leaving it blank isn't a valid "the
+    // customer will pick it" state
+    const missingLockedDefaults = availableFields.filter(
+      (f) =>
+        includedFieldIds.has(f.id) &&
+        lockedFieldIds.has(f.id) &&
+        fieldHasOptions(f.type) &&
+        effectiveAnswers[f.id] == null
+    );
+    if (missingLockedDefaults.length > 0) {
+      errors.push(
+        `${missingLockedDefaults.map((f) => f.name).join(", ")} ${missingLockedDefaults.length === 1 ? "is" : "are"} locked, so ${missingLockedDefaults.length === 1 ? "it needs" : "they need"} a selected option — pick one, or uncheck Lock.`
+      );
     }
 
     // belt-and-suspenders: the selectors above already filter out any option
@@ -770,11 +793,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           <p style={{ color: "var(--text-soft)", marginTop: 4, marginBottom: 14, fontSize: "0.9rem" }}>
             Configure one field at a time — pick it from the list, or use Previous/Next below.
             Giving a field a default pre-fills that answer for the customer, but it&apos;s
-            optional — leave it blank if none applies. Mark a field Required to force the
-            customer to answer it themselves. You can also lock a field so customers can&apos;t
-            change it, hide it from the customer entirely, or hide specific options just for
-            this design. Use the arrows to reorder fields — that&apos;s the order customers see
-            them in too.
+            optional — leave it blank if none applies (a locked field is the one exception:
+            since customers can&apos;t answer it themselves, it needs a real selection). Mark a
+            field Required to force the customer to answer it themselves. You can also lock a
+            field so customers can&apos;t change it, hide it from the customer entirely, or hide
+            specific options just for this design. Use the arrows to reorder fields — that&apos;s
+            the order customers see them in too.
           </p>
 
           {/* this design's own field display order — one hidden input per
@@ -899,10 +923,17 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
               // longer apply, same as the option pickers above
               const styleFilteredSizeOptions = visibleSizeOptions;
               // this field's own options, scoped the same way — its own
-              // price table when it's the size field itself, or with any
+              // price table when it's the size field itself, with any
               // option this design has hidden dropped otherwise (an
-              // excluded option never needs its own price row)
-              const priceableOptions = isSizeField ? visibleSizeOptions : field.options.filter((opt) => !excludedOptionIds.has(opt.id));
+              // excluded option never needs its own price row), and
+              // collapsed to just the selected style when Cake Style is
+              // locked (every customer gets that one style, so the other 4
+              // never need a price here either)
+              const priceableOptions = isSizeField
+                ? visibleSizeOptions
+                : isCakeStyleField && isLocked && draft.optionIds[0] != null
+                  ? field.options.filter((opt) => opt.id === draft.optionIds[0])
+                  : field.options.filter((opt) => !excludedOptionIds.has(opt.id));
 
               return (
                 <div className="field-wizard__detail-card">

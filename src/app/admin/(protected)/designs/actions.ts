@@ -140,10 +140,16 @@ export async function saveDesign(formData: FormData) {
 
       if (field.type === "single_select") {
         const raw = formData.get(`option_${field.id}`);
-        const optionId = raw != null ? Number(raw) : NaN;
+        // Number("") is 0, not NaN — the blank "Select…" option must be
+        // caught explicitly, or a left-blank field silently submits
+        // fieldOptionId: 0 and the whole save fails on the FK constraint.
+        const optionId = raw != null && raw !== "" ? Number(raw) : NaN;
         // a default is optional now — whether the customer must pick one
         // themselves is governed entirely by design_required_fields (see
-        // OrderWizard's isFieldAnswered/nextDisabled), not by this admin form
+        // OrderWizard's isFieldAnswered/nextDisabled) — except a locked
+        // field, which the customer can never answer themselves, so the
+        // admin must give it a real value (checked further down, once every
+        // field's answer has been parsed)
         if (!Number.isInteger(optionId)) continue;
         answers[field.id] = { type: "options", optionIds: [optionId] };
       } else if (field.type === "multi_select") {
@@ -252,6 +258,15 @@ export async function saveDesign(formData: FormData) {
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n));
     const lockedFieldIdSet = new Set(lockedFieldIds);
+
+    // a locked field's default *is* its permanent answer for every customer
+    // — unlike an unlocked field, there's no wizard step where the customer
+    // could fill this in themselves, so leaving it blank isn't a valid
+    // "optional for now" state the way it is for an unlocked field.
+    for (const field of allFields) {
+      if (!includedFieldIds.has(field.id) || !lockedFieldIdSet.has(field.id) || !fieldHasOptions(field.type)) continue;
+      if (!answers[field.id]) throw new Error(`${field.name} is locked, so it needs a selected option.`);
+    }
 
     const hiddenFieldIds = formData
       .getAll("hiddenFieldIds")
