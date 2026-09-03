@@ -196,13 +196,31 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
   // Which field's full configuration is shown in the detail pane — the admin
   // configures one field at a time (like the customer's own order wizard)
-  // instead of scrolling a long list of every field at once. Falls back to
-  // the first available field whenever the id it's pointed at disappears
-  // (there's no removal today, but a brand-new design with zero fields yet
-  // starts with none selected either way).
-  const [activeFieldId, setActiveFieldId] = useState<number | null>(() => availableFields[0]?.id ?? null);
-  const activeField = availableFields.find((f) => f.id === activeFieldId) ?? availableFields[0];
+  // instead of scrolling a long list of every field at once. "setup" is a
+  // pseudo-field (photos/name/description/categories) that sits first in the
+  // nav, ahead of every real field — starting there by default keeps the
+  // main panel from always showing that setup block, freeing up vertical
+  // space while a field is being configured. Falls back to the first
+  // available field whenever the id it's pointed at disappears (there's no
+  // removal today, but a brand-new design with zero fields yet starts with
+  // none selected either way).
+  const [activeFieldId, setActiveFieldId] = useState<number | "setup">("setup");
+  const isSetupActive = activeFieldId === "setup";
+  const activeField = isSetupActive
+    ? undefined
+    : availableFields.find((f) => f.id === activeFieldId) ?? availableFields[0];
   const activeFieldIndex = activeField ? availableFields.findIndex((f) => f.id === activeField.id) : -1;
+
+  // Client-side previews of whatever's currently picked in the (still
+  // unsaved) file input — shown as a reference strip at the bottom of the
+  // page while a field other than Setup is active, so the admin can still
+  // see the photo(s) they're matching the cake to without switching back.
+  const [pendingPhotoUrls, setPendingPhotoUrls] = useState<string[]>([]);
+  useEffect(() => {
+    return () => {
+      pendingPhotoUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [pendingPhotoUrls]);
 
   // Reordering here only changes the array order (rendered as hidden
   // `fieldOrder` inputs below, in this exact order) — this is purely this
@@ -720,94 +738,106 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           <input type="hidden" name="portfolioPhotoId" value={portfolioPhoto.id} />
         )}
 
-        {!design && portfolioPhoto && (
+        {/* Setup stays mounted (just visually hidden) rather than being
+           conditionally rendered when another field is active — unmounting
+           would reset the name/description inputs to their original
+           defaultValue and, worse, silently drop any files already picked
+           in the photo input (a <input type=file>'s selection can't be
+           restored programmatically once the element is gone). */}
+        <div style={{ display: isSetupActive ? "flex" : "none", flexDirection: "column", gap: 18 }}>
+          <h3 style={{ margin: 0 }}>Setup</h3>
+
+          {!design && portfolioPhoto && (
+            <div className="admin-field">
+              <label>From Portfolio</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <img
+                  src={portfolioPhoto.path}
+                  alt=""
+                  width={72}
+                  height={72}
+                  style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
+                />
+                <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
+                  This photo will become the design&apos;s primary photo, and will be removed from the
+                  Portfolio once you save.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="admin-field">
-            <label>From Portfolio</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <img
-                src={portfolioPhoto.path}
-                alt=""
-                width={72}
-                height={72}
-                style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
-              />
-              <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", margin: 0 }}>
-                This photo will become the design&apos;s primary photo, and will be removed from the
-                Portfolio once you save.
-              </p>
+            <label>
+              {design || portfolioPhoto ? "Add more photos" : "Photos"}
+              {!design && !portfolioPhoto && <span className="field-type-tag">Required</span>}
+            </label>
+            <input
+              type="file"
+              name="photos"
+              accept="image/*"
+              multiple
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                setPendingPhotoUrls(files.map((f) => URL.createObjectURL(f)));
+              }}
+            />
+          </div>
+
+          <div className="admin-form-row">
+            <div className="admin-field" style={{ flex: 1, minWidth: 240 }}>
+              <label>
+                Design name
+                <span className="field-type-tag">Required</span>
+              </label>
+              <input name="name" defaultValue={design?.name} style={{ width: "100%" }} />
+            </div>
+            <div className="admin-field" style={{ flex: 2, minWidth: 300 }}>
+              <label>Description</label>
+              <input name="description" defaultValue={design?.description ?? ""} style={{ width: "100%" }} />
             </div>
           </div>
-        )}
 
-        <div className="admin-field">
-          <label>
-            {design || portfolioPhoto ? "Add more photos" : "Photos"}
-            {!design && !portfolioPhoto && <span className="field-type-tag">Required</span>}
-          </label>
-          <input type="file" name="photos" accept="image/*" multiple />
-        </div>
-
-        <div className="admin-form-row">
-          <div className="admin-field" style={{ flex: 1, minWidth: 240 }}>
-            <label>
-              Design name
-              <span className="field-type-tag">Required</span>
-            </label>
-            <input name="name" defaultValue={design?.name} style={{ width: "100%" }} />
-          </div>
-          <div className="admin-field" style={{ flex: 2, minWidth: 300 }}>
-            <label>Description</label>
-            <input name="description" defaultValue={design?.description ?? ""} style={{ width: "100%" }} />
-          </div>
-        </div>
-
-        <div className="admin-field">
-          <label>Cake categories</label>
-          <p style={{ color: "var(--text-soft)", marginTop: 4, marginBottom: 8, fontSize: "0.9rem" }}>
-            Pick zero, one, or many — these power the filter chips customers see above the design
-            picker. Not shown to customers by themselves.
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px" }}>
-            {categories.map((category) => (
-              <label key={category.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input
-                  type="checkbox"
-                  name="categoryIds"
-                  value={category.id}
-                  defaultChecked={design?.categoryIds.includes(category.id) ?? false}
-                />
-                {category.name}
-              </label>
-            ))}
-            {categories.length === 0 && (
-              <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
-                No categories yet — add some from Categories.
-              </span>
-            )}
+          <div className="admin-field">
+            <label>Cake categories</label>
+            <p style={{ color: "var(--text-soft)", marginTop: 4, marginBottom: 8, fontSize: "0.9rem" }}>
+              Pick zero, one, or many — these power the filter chips customers see above the design
+              picker. Not shown to customers by themselves.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px" }}>
+              {categories.map((category) => (
+                <label key={category.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    name="categoryIds"
+                    value={category.id}
+                    defaultChecked={design?.categoryIds.includes(category.id) ?? false}
+                  />
+                  {category.name}
+                </label>
+              ))}
+              {categories.length === 0 && (
+                <span style={{ color: "var(--text-soft)", fontSize: "0.85rem" }}>
+                  No categories yet — add some from Categories.
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
+        {/* this design's own field display order — one hidden input per
+           field, in the exact order shown in the nav list below (see
+           moveField); saveDesign persists this as design_field_order. These
+           (and every non-active field's own state) must always render,
+           regardless of which nav item is active, or saving while on Setup
+           would submit the form with every field's configuration missing. */}
+        {availableFields.map((field) => (
+          <input key={field.id} type="hidden" name="fieldOrder" value={field.id} />
+        ))}
+        {availableFields.filter((f) => f.id !== activeField?.id).map((field) => renderFieldStateInputs(field))}
+
+        {!isSetupActive && (
         <div>
           <h3 style={{ margin: 0 }}>Fields (quote tool)</h3>
-          <p style={{ color: "var(--text-soft)", marginTop: 4, marginBottom: 14, fontSize: "0.9rem" }}>
-            Configure one field at a time — pick it from the list, or use Previous/Next below.
-            Giving a field a default pre-fills that answer for the customer, but it&apos;s
-            optional — leave it blank if none applies (a locked field is the one exception:
-            since customers can&apos;t answer it themselves, it needs a real selection). Mark a
-            field Required to force the customer to answer it themselves. You can also lock a
-            field so customers can&apos;t change it, hide it from the customer entirely, or hide
-            specific options just for this design. Use the arrows to reorder fields — that&apos;s
-            the order customers see them in too.
-          </p>
-
-          {/* this design's own field display order — one hidden input per
-             field, in the exact order shown in the nav list below (see
-             moveField); saveDesign persists this as design_field_order */}
-          {availableFields.map((field) => (
-            <input key={field.id} type="hidden" name="fieldOrder" value={field.id} />
-          ))}
-          {availableFields.filter((f) => f.id !== activeField?.id).map((field) => renderFieldStateInputs(field))}
-
           <div className="field-wizard__detail">
               {!activeField && (
                 <p style={{ color: "var(--text-soft)" }}>No fields defined yet — add one above.</p>
@@ -1266,10 +1296,13 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                     <button
                       type="button"
                       className="btn btn-outline"
-                      disabled={activeFieldIndex <= 0}
-                      onClick={() => setActiveFieldId(availableFields[activeFieldIndex - 1].id)}
+                      onClick={() =>
+                        setActiveFieldId(
+                          activeFieldIndex <= 0 ? "setup" : availableFields[activeFieldIndex - 1].id
+                        )
+                      }
                     >
-                      ← Previous field
+                      ← Previous
                     </button>
                     <button
                       type="button"
@@ -1285,6 +1318,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                 })()}
             </div>
           </div>
+        )}
 
         {isCatalog && (
           <div className="admin-field">
@@ -1347,6 +1381,12 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         </div>
 
         <ol className="design-form-nav__list">
+          <li className={`design-form-nav__item ${isSetupActive ? "is-active" : ""}`}>
+            <button type="button" className="design-form-nav__item-btn" onClick={() => setActiveFieldId("setup")}>
+              <span className="design-form-nav__item-name">Setup</span>
+              <span className="design-form-nav__item-badges">Photos · Name · Categories</span>
+            </button>
+          </li>
           {availableFields.map((field, idx) => {
             const included = includedFieldIds.has(field.id);
             return (
@@ -1390,6 +1430,42 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
         </ol>
       </div>
       </form>
+
+      {/* quick visual reference while configuring a field other than Setup —
+         both this design's already-saved photos and whatever's freshly
+         picked in the (still unsaved) file input, so there's no need to
+         switch back to Setup just to remember what the cake looks like */}
+      {!isSetupActive && ((design?.photos.length ?? 0) > 0 || pendingPhotoUrls.length > 0) && (
+        <div className="admin-card">
+          <h3 style={{ marginBottom: 12 }}>Reference photos</h3>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {design?.photos.map((photo) => (
+              <img
+                key={`saved-${photo.id}`}
+                src={photo.path}
+                alt=""
+                width={80}
+                height={80}
+                style={{
+                  objectFit: "cover",
+                  borderRadius: "var(--radius-sm)",
+                  border: photo.isPrimary ? "2px solid var(--pink-500)" : "2px solid transparent",
+                }}
+              />
+            ))}
+            {pendingPhotoUrls.map((url, i) => (
+              <img
+                key={`pending-${i}`}
+                src={url}
+                alt=""
+                width={80}
+                height={80}
+                style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {design && (
         <div className="admin-card">
