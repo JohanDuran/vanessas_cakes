@@ -109,11 +109,11 @@
   min-width: 0;
 }
 
-/* The design form's field wizard wants real room for its nav column —
+/* The design form's field nav wants real room for its own column —
    let the page grow past the usual 1100px cap on this one page instead of
-   leaving that width empty next to a narrow nav. */
-.admin-main:has(.field-wizard) {
-  max-width: 1560px;
+   leaving that width empty next to it. */
+.admin-main:has(.design-form-nav) {
+  max-width: 1440px;
 }
 
 .admin-main h1 {
@@ -516,45 +516,36 @@
   font-family: var(--font-body);
 }
 
-/* Design form's per-field configuration wizard — one field's full
-   configuration on the left, and a nav list of every field on the right
-   (reorderable, sets this design's own display order for customers),
-   instead of every field's settings stacked in one long scroll. The nav
-   sits on the right and stretches to match the detail pane's height so it
-   doesn't leave a tall empty gap next to a short field list. */
-.field-wizard {
+/* Design form's per-field configuration wizard — echoes the storefront
+   order wizard's own two-column look (/order/[designId], .order-layout):
+   the field being configured fills a wide card on the left, and a plain
+   sticky pill-list nav (no heavy border box, unlike the old field-wizard)
+   sits in its own column on the right, running parallel to it top to
+   bottom, instead of being nested inside the same card. */
+.design-form-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 460px;
-  gap: 20px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 32px;
+  align-items: start;
 }
 
-.field-wizard__nav {
-  order: 2;
-  border: 2px solid var(--pink-100);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+.design-form-main {
+  min-width: 0;
+}
+
+.design-form-nav {
   position: sticky;
   top: 16px;
-  min-height: 480px;
+}
+
+.design-form-nav__header {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
-.field-wizard__detail {
-  order: 1;
-}
-
-.field-wizard__nav-header {
-  padding: 18px 18px 20px;
-  border-bottom: 2px solid var(--pink-100);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: var(--cream);
-}
-
-.field-wizard__nav-count {
+.design-form-nav__count {
   font-family: var(--font-heading);
   font-weight: 600;
   font-size: 0.85rem;
@@ -563,45 +554,50 @@
   color: var(--text-soft);
 }
 
-.field-wizard__nav-add {
+.design-form-nav__add {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.field-wizard__nav-add select {
+.design-form-nav__add select {
   width: 100%;
   padding: 10px 12px;
 }
 
-.field-wizard__nav-list {
+.design-form-nav__list {
   list-style: none;
   margin: 0;
-  padding: 10px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
-  overflow-y: auto;
 }
 
-.field-wizard__nav-item {
+.design-form-nav__item {
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: 2px;
   border-radius: var(--radius-sm);
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.field-wizard__nav-item:hover {
-  background: var(--pink-50);
-}
-
-.field-wizard__nav-item.is-active {
+.design-form-nav__item:hover {
   background: var(--pink-100);
 }
 
-.field-wizard__nav-item-btn {
+/* solid pink pill + white text for the active item — same active treatment
+   as .order-stepper__item.is-active in the storefront wizard */
+.design-form-nav__item.is-active {
+  background: var(--pink-500);
+}
+
+.design-form-nav__item.is-active .design-form-nav__item-name,
+.design-form-nav__item.is-active .design-form-nav__item-badges {
+  color: var(--white);
+}
+
+.design-form-nav__item-btn {
   flex: 1;
   display: flex;
   align-items: center;
@@ -610,16 +606,17 @@
   background: none;
   border: none;
   text-align: left;
-  padding: 14px 12px;
+  padding: 10px 12px;
   cursor: pointer;
   font-family: var(--font-body);
   min-width: 0;
+  border-radius: var(--radius-sm);
 }
 
-.field-wizard__nav-item-name {
+.design-form-nav__item-name {
   font-family: var(--font-heading);
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.9rem;
   color: var(--choco-900);
   white-space: nowrap;
   overflow: hidden;
@@ -627,48 +624,56 @@
   min-width: 0;
 }
 
-.field-wizard__nav-item.is-not-included .field-wizard__nav-item-name {
+.design-form-nav__item.is-not-included .design-form-nav__item-name {
   color: var(--text-soft);
   font-weight: 500;
 }
 
-.field-wizard__nav-item-badges {
+.design-form-nav__item-badges {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-soft);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-.field-wizard__nav-reorder {
+.design-form-nav__reorder {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding-right: 6px;
+  padding-right: 4px;
 }
 
-.field-wizard__nav-reorder button {
+.design-form-nav__reorder button {
   background: none;
   border: none;
   color: var(--text-soft);
   cursor: pointer;
   line-height: 1;
-  padding: 5px 7px;
-  font-size: 0.8rem;
+  padding: 4px 6px;
+  font-size: 0.75rem;
 }
 
-.field-wizard__nav-reorder button:hover:not(:disabled) {
+.design-form-nav__item.is-active .design-form-nav__reorder button {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.design-form-nav__reorder button:hover:not(:disabled) {
   color: var(--pink-600);
 }
 
-.field-wizard__nav-reorder button:disabled {
+.design-form-nav__item.is-active .design-form-nav__reorder button:hover:not(:disabled) {
+  color: var(--white);
+}
+
+.design-form-nav__reorder button:disabled {
   opacity: 0.25;
   cursor: default;
 }
 
-.field-wizard__nav-empty {
+.design-form-nav__empty {
   color: var(--text-soft);
   font-size: 0.85rem;
   padding: 10px 8px;
@@ -705,23 +710,24 @@
 }
 
 @media (max-width: 900px) {
-  .field-wizard {
+  .design-form-layout {
     grid-template-columns: 1fr;
   }
 
   /* on a narrow screen, picking a field before scrolling through its
      config beats the reverse — put the nav back on top */
-  .field-wizard__nav {
+  .design-form-nav {
     order: 1;
     position: static;
   }
 
-  .field-wizard__detail {
+  .design-form-main {
     order: 2;
   }
 
-  .field-wizard__nav-list {
+  .design-form-nav__list {
     max-height: 320px;
+    overflow-y: auto;
   }
 }
 

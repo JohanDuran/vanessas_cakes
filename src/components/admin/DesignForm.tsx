@@ -713,12 +713,8 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
 
   return (
     <>
-      <form
-        action={saveDesign}
-        onSubmit={handleSubmit}
-        className="admin-card"
-        style={{ display: "flex", flexDirection: "column", gap: 18 }}
-      >
+      <form action={saveDesign} onSubmit={handleSubmit} className="design-form-layout">
+      <div className="design-form-main admin-card" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         {design && <input type="hidden" name="id" value={design.id} />}
         {!design && portfolioPhoto && (
           <input type="hidden" name="portfolioPhotoId" value={portfolioPhoto.id} />
@@ -812,81 +808,7 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
           ))}
           {availableFields.filter((f) => f.id !== activeField?.id).map((field) => renderFieldStateInputs(field))}
 
-          <div className="field-wizard">
-            <div className="field-wizard__nav">
-              <div className="field-wizard__nav-header">
-                <span className="field-wizard__nav-count">
-                  {availableFields.length} field{availableFields.length === 1 ? "" : "s"}
-                </span>
-                <div className="field-wizard__nav-add">
-                  {unaddedFields.length > 0 && (
-                    <select
-                      value=""
-                      aria-label="Add an existing field"
-                      onChange={(e) => {
-                        const id = Number(e.target.value);
-                        if (id) addExistingField(id);
-                      }}
-                    >
-                      <option value="">+ Add existing field…</option>
-                      {unaddedFields.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
-                    + Add Field
-                  </button>
-                </div>
-              </div>
-
-              <ol className="field-wizard__nav-list">
-                {availableFields.map((field, idx) => {
-                  const included = includedFieldIds.has(field.id);
-                  return (
-                    <li
-                      key={field.id}
-                      className={`field-wizard__nav-item ${activeField?.id === field.id ? "is-active" : ""} ${
-                        included ? "" : "is-not-included"
-                      }`}
-                    >
-                      <button type="button" className="field-wizard__nav-item-btn" onClick={() => setActiveFieldId(field.id)}>
-                        <span className="field-wizard__nav-item-name">{field.name}</span>
-                        <span className="field-wizard__nav-item-badges">
-                          {!included && <span>not included</span>}
-                          {included && lockedFieldIds.has(field.id) && <span title="Locked">🔒</span>}
-                          {included && requiredFieldIds.has(field.id) && <span title="Required">❗</span>}
-                          {included && hiddenFieldIds.has(field.id) && <span title="Hidden from customer">🙈</span>}
-                        </span>
-                      </button>
-                      <div className="field-wizard__nav-reorder">
-                        <button
-                          type="button"
-                          aria-label={`Move ${field.name} up`}
-                          disabled={idx === 0}
-                          onClick={() => moveField(field.id, -1)}
-                        >
-                          ▲
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Move ${field.name} down`}
-                          disabled={idx === availableFields.length - 1}
-                          onClick={() => moveField(field.id, 1)}
-                        >
-                          ▼
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-                {availableFields.length === 0 && <li className="field-wizard__nav-empty">No fields yet.</li>}
-              </ol>
-            </div>
-
-            <div className="field-wizard__detail">
+          <div className="field-wizard__detail">
               {!activeField && (
                 <p style={{ color: "var(--text-soft)" }}>No fields defined yet — add one above.</p>
               )}
@@ -1363,7 +1285,6 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
                 })()}
             </div>
           </div>
-        </div>
 
         {isCatalog && (
           <div className="admin-field">
@@ -1394,6 +1315,80 @@ export default function DesignForm({ fields, tierPresets = [], categories = [], 
             {design ? "Save Design" : "Create Design"}
           </SubmitButton>
         </div>
+      </div>
+
+      <div className="design-form-nav">
+        <div className="design-form-nav__header">
+          <span className="design-form-nav__count">
+            {availableFields.length} field{availableFields.length === 1 ? "" : "s"}
+          </span>
+          <div className="design-form-nav__add">
+            {unaddedFields.length > 0 && (
+              <select
+                value=""
+                aria-label="Add an existing field"
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  if (id) addExistingField(id);
+                }}
+              >
+                <option value="">+ Add existing field…</option>
+                {unaddedFields.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button type="button" className="admin-btn-sm admin-btn-sm--ghost" onClick={() => setShowFieldModal(true)}>
+              + Add Field
+            </button>
+          </div>
+        </div>
+
+        <ol className="design-form-nav__list">
+          {availableFields.map((field, idx) => {
+            const included = includedFieldIds.has(field.id);
+            return (
+              <li
+                key={field.id}
+                className={`design-form-nav__item ${activeField?.id === field.id ? "is-active" : ""} ${
+                  included ? "" : "is-not-included"
+                }`}
+              >
+                <button type="button" className="design-form-nav__item-btn" onClick={() => setActiveFieldId(field.id)}>
+                  <span className="design-form-nav__item-name">{field.name}</span>
+                  <span className="design-form-nav__item-badges">
+                    {!included && <span>not included</span>}
+                    {included && lockedFieldIds.has(field.id) && <span title="Locked">🔒</span>}
+                    {included && requiredFieldIds.has(field.id) && <span title="Required">❗</span>}
+                    {included && hiddenFieldIds.has(field.id) && <span title="Hidden from customer">🙈</span>}
+                  </span>
+                </button>
+                <div className="design-form-nav__reorder">
+                  <button
+                    type="button"
+                    aria-label={`Move ${field.name} up`}
+                    disabled={idx === 0}
+                    onClick={() => moveField(field.id, -1)}
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${field.name} down`}
+                    disabled={idx === availableFields.length - 1}
+                    onClick={() => moveField(field.id, 1)}
+                  >
+                    ▼
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+          {availableFields.length === 0 && <li className="design-form-nav__empty">No fields yet.</li>}
+        </ol>
+      </div>
       </form>
 
       {design && (
