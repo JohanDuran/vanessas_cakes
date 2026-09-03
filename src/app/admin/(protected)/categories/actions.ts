@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import { cakeCategories } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
-import { toastMessage, toastRedirect } from "../../../../lib/toast";
+import { isForeignKeyViolation, toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const PATH = "/admin/categories";
 
@@ -68,4 +68,21 @@ export async function setCategoryActive(formData: FormData) {
     .where(eq(cakeCategories.id, parsed.id))
     ;
   revalidatePath(PATH);
+}
+
+const deleteCategorySchema = z.object({ id: z.coerce.number().int() });
+
+export async function deleteCategory(formData: FormData) {
+  try {
+    await requireAdmin();
+    const parsed = deleteCategorySchema.parse(Object.fromEntries(formData));
+    await db.delete(cakeCategories).where(eq(cakeCategories.id, parsed.id));
+  } catch (err) {
+    const message = isForeignKeyViolation(err)
+      ? "Can't delete — still in use."
+      : toastMessage(err, "Couldn't delete this category.");
+    toastRedirect(PATH, "error", message);
+  }
+  revalidatePath(PATH);
+  toastRedirect(PATH, "success", "Category deleted.");
 }

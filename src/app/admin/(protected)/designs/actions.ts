@@ -41,7 +41,7 @@ import {
 } from "../../../../lib/fields";
 import { deleteUploadedPhoto, saveUploadedPhoto } from "../../../../lib/uploads";
 import type { FieldDTO, FieldOptionDTO, TierPresetDTO } from "../../../../lib/order-types";
-import { toastMessage, toastRedirect } from "../../../../lib/toast";
+import { isForeignKeyViolation, toastMessage, toastRedirect } from "../../../../lib/toast";
 
 const dollarsToCents = (v: string) => Math.round(Number(v) * 100);
 
@@ -544,4 +544,26 @@ export async function setDesignFeatured(formData: FormData) {
     ;
   revalidatePath("/admin/designs");
   revalidatePath("/");
+}
+
+const deleteDesignSchema = z.object({ id: z.coerce.number().int() });
+
+export async function deleteDesign(formData: FormData) {
+  try {
+    await requireAdmin();
+    const parsed = deleteDesignSchema.parse(Object.fromEntries(formData));
+    const photos = await db.select().from(designPhotos).where(eq(designPhotos.designId, parsed.id));
+    // delete the row first — if it's blocked (order history), nothing in
+    // Storage should be touched; only clean up photos once the DB delete
+    // (which cascades every child config table) actually succeeds
+    await db.delete(designs).where(eq(designs.id, parsed.id));
+    await Promise.all(photos.map((p) => deleteUploadedPhoto(p.path)));
+  } catch (err) {
+    const message = isForeignKeyViolation(err)
+      ? "This design has order history and can't be deleted — unpublish it instead."
+      : toastMessage(err, "Couldn't delete this design.");
+    toastRedirect("/admin/designs", "error", message);
+  }
+  revalidatePath("/admin/designs");
+  toastRedirect("/admin/designs", "success", "Design deleted.");
 }

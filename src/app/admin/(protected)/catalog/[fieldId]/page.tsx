@@ -12,11 +12,12 @@ import {
   isBaseFieldSlug,
   isFieldType,
 } from "../../../../../lib/fields";
-import { createOption, saveFieldSettings, setOptionActive, updateOption } from "../actions";
+import { createOption, deleteOption, saveFieldSettings, setOptionActive, updateOption } from "../actions";
 import { createTierPreset, updateTierPreset } from "../tierPresetActions";
 import TierPresetBuilder from "../../../../../components/admin/TierPresetBuilder";
 import TierPresetRow, { type TierPresetSummary } from "../../../../../components/admin/TierPresetRow";
 import SizeDimensionFields from "../../../../../components/admin/SizeDimensionFields";
+import ConfirmDeleteButton from "../../../../../components/admin/ConfirmDeleteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -299,6 +300,15 @@ export default async function FieldDetailPage({
                             </button>
                           </form>
                         )}
+                        {!isLockedOptionSetField && (
+                          <form action={deleteOption}>
+                            <input type="hidden" name="id" value={opt.id} />
+                            <input type="hidden" name="fieldId" value={field.id} />
+                            <ConfirmDeleteButton confirmMessage={`Delete "${opt.name}"? This can't be undone.`}>
+                              Delete
+                            </ConfirmDeleteButton>
+                          </form>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -449,6 +459,7 @@ export default async function FieldDetailPage({
                 key={preset.optionId}
                 action={updateTierPreset}
                 deactivateAction={setOptionActive}
+                deleteAction={deleteOption}
                 molds={atomicMolds}
                 levelCounts={TIER_LEVEL_COUNTS}
                 preset={preset}

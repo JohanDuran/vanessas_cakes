@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import TierPresetBuilder from "./TierPresetBuilder";
+import ConfirmDeleteButton from "./ConfirmDeleteButton";
 
 type Mold = { id: number; name: string; sortOrder: number };
 
@@ -20,12 +21,13 @@ export type TierPresetSummary = {
 type Props = {
   action: (formData: FormData) => void | Promise<void>;
   deactivateAction: (formData: FormData) => void | Promise<void>;
+  deleteAction: (formData: FormData) => void | Promise<void>;
   molds: Mold[];
   levelCounts: readonly number[];
   preset: TierPresetSummary;
 };
 
-export default function TierPresetRow({ action, deactivateAction, molds, levelCounts, preset }: Props) {
+export default function TierPresetRow({ action, deactivateAction, deleteAction, molds, levelCounts, preset }: Props) {
   const [isEditing, setIsEditing] = useState(false);
 
   if (isEditing) {
@@ -80,6 +82,13 @@ export default function TierPresetRow({ action, deactivateAction, molds, levelCo
           >
             {preset.active ? "Deactivate" : "Reactivate"}
           </button>
+        </form>
+        <form action={deleteAction}>
+          <input type="hidden" name="id" value={preset.optionId} />
+          <input type="hidden" name="fieldId" value={preset.fieldId} />
+          <ConfirmDeleteButton confirmMessage={`Delete the "${preset.name}" tier preset? This can't be undone.`}>
+            Delete
+          </ConfirmDeleteButton>
         </form>
       </div>
     </div>

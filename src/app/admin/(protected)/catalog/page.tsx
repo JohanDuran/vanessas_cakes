@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { db } from "../../../../db";
 import { fields, fieldOptions } from "../../../../db/schema";
-import { FIELD_TYPE_LABELS, baseFieldRank, isFieldType } from "../../../../lib/fields";
-import { setFieldActive } from "./actions";
+import { FIELD_TYPE_LABELS, baseFieldRank, isBaseFieldSlug, isFieldType } from "../../../../lib/fields";
+import ConfirmDeleteButton from "../../../../components/admin/ConfirmDeleteButton";
+import { deleteField, setFieldActive } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export default async function CatalogIndexPage() {
               <th>Status</th>
               <th></th>
               <th></th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -76,11 +78,21 @@ export default async function CatalogIndexPage() {
                     </button>
                   </form>
                 </td>
+                <td>
+                  {!isBaseFieldSlug(f.slug) && (
+                    <form action={deleteField}>
+                      <input type="hidden" name="id" value={f.id} />
+                      <ConfirmDeleteButton confirmMessage={`Delete "${f.name}"? This can't be undone.`}>
+                        Delete
+                      </ConfirmDeleteButton>
+                    </form>
+                  )}
+                </td>
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ color: "var(--text-soft)" }}>
+                <td colSpan={7} style={{ color: "var(--text-soft)" }}>
                   No fields yet.
                 </td>
               </tr>

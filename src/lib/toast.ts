@@ -26,3 +26,17 @@ export function toastMessage(err: unknown, fallback = "Something went wrong."): 
   if (err instanceof Error) return err.message;
   return fallback;
 }
+
+/** True when a caught error is a Postgres foreign-key-violation (23503) —
+ *  thrown when deleting a row still referenced, with `onDelete: "restrict"`,
+ *  by another table (e.g. a field/option/design used on a real order).
+ *  Lets a delete action show one friendly "still in use" message instead of
+ *  the raw DB error, without having to hand-check every restrict FK itself.
+ *  drizzle-orm's postgres-js driver wraps the real `postgres` error (which
+ *  carries `.code`) in its own "Failed query: ..." error as `.cause`, so the
+ *  code has to be checked on both the error itself and one level of cause. */
+export function isForeignKeyViolation(err: unknown): boolean {
+  const code = (e: unknown): unknown => (typeof e === "object" && e !== null ? (e as { code?: unknown }).code : undefined);
+  const cause = (e: unknown): unknown => (typeof e === "object" && e !== null ? (e as { cause?: unknown }).cause : undefined);
+  return code(err) === "23503" || code(cause(err)) === "23503";
+}

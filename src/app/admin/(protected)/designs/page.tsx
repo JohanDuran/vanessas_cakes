@@ -3,7 +3,8 @@ import { desc } from "drizzle-orm";
 import { db } from "../../../../db";
 import { designPhotos, designs } from "../../../../db/schema";
 import { isDesignKind } from "../../../../lib/fields";
-import { setDesignFeatured, setDesignPublished } from "./actions";
+import ConfirmDeleteButton from "../../../../components/admin/ConfirmDeleteButton";
+import { deleteDesign, setDesignFeatured, setDesignPublished } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,7 @@ export default async function DesignsListPage() {
               <th></th>
               <th>Name</th>
               <th>Status</th>
+              <th></th>
               <th></th>
               <th></th>
             </tr>
@@ -103,12 +105,24 @@ export default async function DesignsListPage() {
                       </form>
                     )}
                   </td>
+                  <td>
+                    {isCatalog && (
+                      <form action={deleteDesign}>
+                        <input type="hidden" name="id" value={d.id} />
+                        <ConfirmDeleteButton
+                          confirmMessage={`Delete "${d.name}"? This also removes its photo(s) from storage. This can't be undone.`}
+                        >
+                          Delete
+                        </ConfirmDeleteButton>
+                      </form>
+                    )}
+                  </td>
                 </tr>
               );
             })}
             {allDesigns.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ color: "var(--text-soft)" }}>
+                <td colSpan={6} style={{ color: "var(--text-soft)" }}>
                   No designs yet — create one above.
                 </td>
               </tr>

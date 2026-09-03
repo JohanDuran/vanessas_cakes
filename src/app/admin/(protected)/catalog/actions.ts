@@ -7,7 +7,7 @@ import { db } from "../../../../db";
 import { fields, fieldOptions, fieldOptionDimensions, designFieldValues, designExcludedOptions } from "../../../../db/schema";
 import { requireAdmin } from "../../../../db/queries";
 import { CAKE_SHAPES, CAKE_STYLE_FIELD_SLUG, FIELD_TYPES, SIZE_FIELD_SLUG, fieldHasOptions, isBaseFieldSlug, slugify } from "../../../../lib/fields";
-import { toastMessage, toastRedirect } from "../../../../lib/toast";
+import { isForeignKeyViolation, toastMessage, toastRedirect } from "../../../../lib/toast";
 
 /** cake_style is locked to its exact set of seeded options — admins may
  *  rename/re-price them but not add/remove/deactivate. */
@@ -134,6 +134,32 @@ export async function setFieldActive(formData: FormData) {
     .where(eq(fields.id, parsed.id))
     ;
   revalidatePath("/admin/catalog");
+}
+
+const deleteFieldSchema = z.object({ id: z.coerce.number().int() });
+
+export async function deleteField(formData: FormData) {
+  const path = "/admin/catalog";
+  try {
+    await requireAdmin();
+    const parsed = deleteFieldSchema.parse(Object.fromEntries(formData));
+    const field = await db.select().from(fields).where(eq(fields.id, parsed.id)).then((r) => r[0]);
+    if (!field) throw new Error("Field not found.");
+    // the 7 canonical fields are structurally load-bearing (cake-style/size
+    // logic assumes they exist) regardless of order history — hard block,
+    // not just an FK guard
+    if (isBaseFieldSlug(field.slug)) {
+      throw new Error("This is a built-in field and can't be deleted — deactivate it instead.");
+    }
+    await db.delete(fields).where(eq(fields.id, parsed.id));
+  } catch (err) {
+    const message = isForeignKeyViolation(err)
+      ? "Can't delete — it's been used on a past order. Deactivate it instead."
+      : toastMessage(err, "Couldn't delete this field.");
+    toastRedirect(path, "error", message);
+  }
+  revalidatePath(path);
+  toastRedirect(path, "success", "Field deleted.");
 }
 
 // --- option CRUD ---------------------------------------------------------
@@ -308,6 +334,33 @@ export async function setOptionActive(formData: FormData) {
     .where(eq(fieldOptions.id, parsed.id))
     ;
   revalidatePath(`/admin/catalog/${parsed.fieldId}`);
+}
+
+const deleteOptionSchema = z.object({
+  id: z.coerce.number().int(),
+  fieldId: z.coerce.number().int(),
+});
+
+export async function deleteOption(formData: FormData) {
+  const rawFieldId = formData.get("fieldId");
+  const path = `/admin/catalog/${rawFieldId}`;
+  try {
+    await requireAdmin();
+    const parsed = deleteOptionSchema.parse(Object.fromEntries(formData));
+    const field = await db.select().from(fields).where(eq(fields.id, parsed.fieldId)).then((r) => r[0]);
+    if (!field) throw new Error("Field not found.");
+    if (LOCKED_OPTION_SET_SLUGS.has(field.slug as typeof CAKE_STYLE_FIELD_SLUG)) {
+      throw new Error(`${field.name}'s options are fixed and can't be deleted.`);
+    }
+    await db.delete(fieldOptions).where(eq(fieldOptions.id, parsed.id));
+  } catch (err) {
+    const message = isForeignKeyViolation(err)
+      ? "Can't delete — it's in use (a design's default value, a past order, or a tier preset mold). Deactivate it instead."
+      : toastMessage(err, "Couldn't delete this option.");
+    toastRedirect(path, "error", message);
+  }
+  revalidatePath(path);
+  toastRedirect(path, "success", "Option deleted.");
 }
 
 // --- quick-add (design form's "+ Add Field" shortcut) --------------------

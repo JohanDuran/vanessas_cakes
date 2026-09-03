@@ -1,7 +1,8 @@
 import { asc } from "drizzle-orm";
 import { db } from "../../../../db";
 import { cakeCategories } from "../../../../db/schema";
-import { createCategory, saveCategory, setCategoryActive } from "./actions";
+import ConfirmDeleteButton from "../../../../components/admin/ConfirmDeleteButton";
+import { createCategory, deleteCategory, saveCategory, setCategoryActive } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,7 @@ export default async function CategoriesPage() {
               <th>Status</th>
               <th></th>
               <th></th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -82,12 +84,20 @@ export default async function CategoriesPage() {
                       </button>
                     </form>
                   </td>
+                  <td>
+                    <form action={deleteCategory}>
+                      <input type="hidden" name="id" value={c.id} />
+                      <ConfirmDeleteButton confirmMessage={`Delete "${c.name}"? This can't be undone.`}>
+                        Delete
+                      </ConfirmDeleteButton>
+                    </form>
+                  </td>
                 </tr>
               );
             })}
             {categories.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ color: "var(--text-soft)" }}>
+                <td colSpan={6} style={{ color: "var(--text-soft)" }}>
                   No categories yet — add one above.
                 </td>
               </tr>
