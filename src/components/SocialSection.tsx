@@ -56,7 +56,7 @@ const socialLinks = [
   {
     id: "whatsapp",
     label: "WhatsApp",
-    href: "https://wa.me/9788866232",
+    href: "https://wa.me/19788866232",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path
