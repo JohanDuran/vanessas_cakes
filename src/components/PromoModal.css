@@ -1,0 +1,64 @@
+.promo-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(74, 59, 59, 0.55);
+  animation: promo-fade-in 0.2s ease;
+}
+
+.promo-modal {
+  position: relative;
+  max-width: min(480px, 100%);
+  max-height: 85vh;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(74, 59, 59, 0.4);
+  animation: promo-pop-in 0.25s ease;
+}
+
+.promo-modal__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 85vh;
+  object-fit: contain;
+  background: var(--white);
+}
+
+.promo-modal__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--text);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(74, 59, 59, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.promo-modal__close:hover {
+  transform: scale(1.08);
+}
+
+@keyframes promo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes promo-pop-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}

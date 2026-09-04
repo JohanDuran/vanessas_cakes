@@ -4,12 +4,17 @@ import StorySection from "../components/StorySection";
 import SocialSection from "../components/SocialSection";
 import Footer from "../components/Footer";
 import FloatingOrderButton from "../components/FloatingOrderButton";
-import { loadFeaturedDesigns, loadStoryContent } from "../db/queries";
+import PromoModal from "../components/PromoModal";
+import { loadFeaturedDesigns, loadStoryContent, loadPromoContent } from "../db/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [featured, story] = await Promise.all([loadFeaturedDesigns(), loadStoryContent()]);
+  const [featured, story, promo] = await Promise.all([
+    loadFeaturedDesigns(),
+    loadStoryContent(),
+    loadPromoContent(),
+  ]);
 
   return (
     <>
@@ -27,6 +32,7 @@ export default async function Home() {
       </main>
       <Footer />
       <FloatingOrderButton />
+      <PromoModal imagePath={promo.imagePath} imageAlt={promo.imageAlt} />
     </>
   );
 }

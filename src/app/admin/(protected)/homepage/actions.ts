@@ -77,3 +77,49 @@ export async function updateStoryContent(formData: FormData) {
 
   toastRedirect(PATH, "success", "Homepage updated!");
 }
+
+export async function updatePromoImage(formData: FormData) {
+  const imageAlt = String(formData.get("imageAlt") ?? "").trim();
+  const removeImage = formData.get("removeImage") === "on";
+  const image = formData.get("image");
+  const newImageFile = image instanceof File && image.size > 0 ? image : null;
+
+  try {
+    await requireAdmin();
+
+    const existing = await db
+      .select({ id: siteSettings.id, promoImagePath: siteSettings.promoImagePath })
+      .from(siteSettings)
+      .limit(1)
+      .then((r) => r[0]);
+
+    let promoImagePath = existing?.promoImagePath ?? null;
+    if (newImageFile) {
+      const uploadedPath = await saveUploadedPhoto(newImageFile);
+      if (promoImagePath) await deleteUploadedPhoto(promoImagePath);
+      promoImagePath = uploadedPath;
+    } else if (removeImage && promoImagePath) {
+      await deleteUploadedPhoto(promoImagePath);
+      promoImagePath = null;
+    }
+
+    const values = {
+      promoImagePath,
+      promoImageAlt: imageAlt || null,
+      updatedAt: Date.now(),
+    };
+
+    if (existing) {
+      await db.update(siteSettings).set(values).where(eq(siteSettings.id, existing.id));
+    } else {
+      await db.insert(siteSettings).values(values);
+    }
+
+    revalidatePath(PATH);
+    revalidatePath("/");
+  } catch (err) {
+    toastRedirect(PATH, "error", toastMessage(err, "Couldn't update the promo pop-up."));
+  }
+
+  toastRedirect(PATH, "success", "Promo pop-up updated!");
+}

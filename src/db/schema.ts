@@ -696,6 +696,10 @@ export const siteSettings = pgTable("site_settings", {
   storyStat1Value: text("story_stat_1_value"),
   storyStat2Label: text("story_stat_2_label"),
   storyStat2Value: text("story_stat_2_value"),
+  // Promotional pop-up banner, editable from /admin/homepage. Null
+  // promoImagePath means the pop-up is off — nothing to show.
+  promoImagePath: text("promo_image_path"),
+  promoImageAlt: text("promo_image_alt"),
   updatedAt: bigint("updated_at", { mode: "number" })
     .notNull()
     .default(sql`(extract(epoch from now()) * 1000)::bigint`),

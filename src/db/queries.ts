@@ -266,6 +266,33 @@ export async function loadStoryContent(): Promise<StoryContentDTO> {
   };
 }
 
+export type PromoContentDTO = {
+  imagePath: string | null;
+  imageAlt: string;
+};
+
+/** Promotional pop-up banner shown on the homepage — editable from
+ *  /admin/homepage (see updatePromoImage in that route's actions.ts).
+ *  A null imagePath means no promo is configured, so PromoModal renders
+ *  nothing. */
+export async function loadPromoContent(): Promise<PromoContentDTO> {
+  const row = await withDbRetry(() =>
+    db
+      .select({
+        promoImagePath: siteSettings.promoImagePath,
+        promoImageAlt: siteSettings.promoImageAlt,
+      })
+      .from(siteSettings)
+      .limit(1)
+      .then((r) => r[0]),
+  );
+
+  return {
+    imagePath: row?.promoImagePath ?? null,
+    imageAlt: row?.promoImageAlt || "Promotional offer",
+  };
+}
+
 /** Everything the customer-facing order flow (wizard + gallery) needs:
  *  active fields + options (base and custom, unified), published designs
  *  (with their default answers, locks, and exclusions), and constraint pairs. */
